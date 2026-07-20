@@ -33,27 +33,27 @@ public record OnboardingProcess(
     }
 
     public OnboardingProcess withState(OnboardingState newState) {
-        return new OnboardingProcess(id, externalId, newState, bpn, participantProfileId, holderId, failureReason);
+        return new OnboardingProcess(id, externalId, newState, bpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId);
     }
 
     public OnboardingProcess withBpn(String assignedBpn) {
-        return new OnboardingProcess(id, externalId, OnboardingState.BPN_ASSIGNED, assignedBpn, participantProfileId, holderId, failureReason);
+        return new OnboardingProcess(id, externalId, OnboardingState.BPN_ASSIGNED, assignedBpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId);
     }
 
     public OnboardingProcess withParticipantProfile(String provisionedWalletId) {
-        return new OnboardingProcess(id, externalId, state, bpn, provisionedWalletId, holderId, failureReason);
+        return new OnboardingProcess(id, externalId, state, bpn, provisionedWalletId, holderId, failureReason, holderProcessId, tenantId, participantContextId);
     }
 
     public OnboardingProcess withHolderId(String assignedHolderId) {
-        return new OnboardingProcess(id, externalId, state, bpn, participantProfileId, assignedHolderId, failureReason);
+        return new OnboardingProcess(id, externalId, state, bpn, participantProfileId, assignedHolderId, failureReason, holderProcessId, tenantId, participantContextId);
     }
 
     public OnboardingProcess rejected(String reason) {
-        return new OnboardingProcess(id, externalId, OnboardingState.REJECTED, bpn, participantProfileId, holderId, reason);
+        return new OnboardingProcess(id, externalId, OnboardingState.REJECTED, bpn, participantProfileId, holderId, reason, holderProcessId, tenantId, participantContextId);
     }
 
     public OnboardingProcess failed(String reason) {
-        return new OnboardingProcess(id, externalId, OnboardingState.FAILED, bpn, participantProfileId, holderId, reason);
+        return new OnboardingProcess(id, externalId, OnboardingState.FAILED, bpn, participantProfileId, holderId, reason, holderProcessId, tenantId, participantContextId);
     }
 
     public boolean isTerminal() {

@@ -35,7 +35,7 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
 
     // Exponential backoff for polling the async participant provisioning result (context ID + holder PID):
     // start at 500 ms, double each attempt up to 8 s, give up after 8 polls (~40 s total).
-    private static final long INITIAL_BACKOFF_MILLIS = 500;
+    private static final long INITIAL_BACKOFF_MILLIS = 1500;
     private static final long MAX_BACKOFF_MILLIS = 8_000;
     private static final int MAX_PROVISION_POLLS = 8;
 
@@ -215,25 +215,22 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
         return process.withParticipantProfile(participantProfile.getId())
                 .withHolderId(participantProfile.getIdentifier())
                 .withTenantId(participantProfile.getTenantId());
-//
-//        var holderProcessId = participantProfile.getHolderProcessId();
-//        if (holderProcessId != null) {
-//            log.debug("holder PID present, participant ready for issuance");
-//            return process.withHolderProcessId(holderProcessId);
-//        } else {
-//            log.warn("holder PID not ppresent, participant not ready for issuance");
-//        }
 
     }
 
     private OnboardingProcess issueCredentials(OnboardingProcess process) {
-        var isBpnIssued = credentialIssuanceService.issueBpnCredential(process);
-        var isFwIssued = credentialIssuanceService.issueFrameworkAgreementCredential(process);
-        var isMembershipIssued = credentialIssuanceService.issueMembershipCredential(process);
-        if (isBpnIssued && isFwIssued && isMembershipIssued) {
-            return process.withState(OnboardingState.CREDENTIALS_ISSUED);
+
+        if (!credentialIssuanceService.issueBpnCredential(process)) {
+            return process.failed("BPN Credential issuance failed");
         }
-        return process; // no state change
+        if (!credentialIssuanceService.issueFrameworkAgreementCredential(process)) {
+            return process.failed("Framework Agreement Credential issuance failed");
+        }
+        if (!credentialIssuanceService.issueMembershipCredential(process)) {
+            return process.failed("Membership Credential issuance failed");
+        }
+
+        return process.withState(OnboardingState.CREDENTIALS_ISSUED);
     }
 
     private static void sleep(long millis) {
