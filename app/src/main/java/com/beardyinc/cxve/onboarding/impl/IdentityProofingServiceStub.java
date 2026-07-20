@@ -2,6 +2,8 @@ package com.beardyinc.cxve.onboarding.impl;
 
 import com.beardyinc.cxve.onboarding.IdentityProofingService;
 import com.beardyinc.cxve.onboarding.OnboardingProcess;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -11,13 +13,18 @@ import org.springframework.stereotype.Service;
 @Service
 public class IdentityProofingServiceStub implements IdentityProofingService {
 
+    private static final Logger log = LoggerFactory.getLogger(IdentityProofingServiceStub.class);
+
     @Override
     public String initiateProofing(OnboardingProcess process) {
-        return "proof-" + process.id();
+        var reference = "proof-" + process.id();
+        log.debug("Initiated identity proofing for onboarding {} (reference={})", process.id(), reference);
+        return reference;
     }
 
     @Override
     public boolean isVerified(String proofingReference) {
+        log.debug("Auto-approving identity proofing for reference={}", proofingReference);
         return true;
     }
 }

@@ -2,6 +2,8 @@ package com.beardyinc.cxve.onboarding.impl;
 
 import com.beardyinc.cxve.model.PartnerRegistrationData;
 import com.beardyinc.cxve.onboarding.RegistrationValidationService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -15,6 +17,8 @@ import java.util.List;
 @Service
 public class RegistrationValidationServiceStub implements RegistrationValidationService {
 
+    private static final Logger log = LoggerFactory.getLogger(RegistrationValidationServiceStub.class);
+
     @Override
     public ValidationResult validate(PartnerRegistrationData registrationData) {
         var violations = new ArrayList<String>();
@@ -24,6 +28,11 @@ public class RegistrationValidationServiceStub implements RegistrationValidation
         if (registrationData.companyRoles() == null || registrationData.companyRoles().isEmpty()) {
             violations.add("at least one company role is required");
         }
-        return violations.isEmpty() ? ValidationResult.ok() : ValidationResult.rejected(List.copyOf(violations));
+        if (violations.isEmpty()) {
+            log.debug("Validation passed for externalId={}", registrationData.externalId());
+            return ValidationResult.ok();
+        }
+        log.debug("Validation failed for externalId={}: {}", registrationData.externalId(), violations);
+        return ValidationResult.rejected(List.copyOf(violations));
     }
 }
