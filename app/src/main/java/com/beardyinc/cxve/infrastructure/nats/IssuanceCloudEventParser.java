@@ -1,4 +1,4 @@
-package com.beardyinc.cxve.nats;
+package com.beardyinc.cxve.infrastructure.nats;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cloudevents.CloudEvent;

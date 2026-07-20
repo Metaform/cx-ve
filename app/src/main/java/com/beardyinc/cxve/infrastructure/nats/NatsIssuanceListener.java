@@ -1,4 +1,4 @@
-package com.beardyinc.cxve.nats;
+package com.beardyinc.cxve.infrastructure.nats;
 
 import com.beardyinc.cxve.onboarding.OnboardingOrchestrator;
 import io.nats.client.Connection;
@@ -13,6 +13,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+
+import java.util.Optional;
 
 /**
  * Subscribes to IdentityHub issuance events on the {@code edc-events} JetStream stream and drives the
@@ -69,7 +71,8 @@ public class NatsIssuanceListener {
         try {
             var event = parser.parseEnvelope(message.getData());
             if (parser.isCredentialDelivered(event)) {
-                parser.readData(event)
+                var issuanceEventData = parser.readData(event);
+                issuanceEventData
                         .map(IssuanceEventData::holderId)
                         .ifPresentOrElse(
                                 holderId -> {

@@ -1,4 +1,4 @@
-package com.beardyinc.cxve.nats;
+package com.beardyinc.cxve.infrastructure.nats;
 
 import io.nats.client.Connection;
 import io.nats.client.JetStream;

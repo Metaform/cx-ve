@@ -1,4 +1,4 @@
-package com.beardyinc.cxve.nats;
+package com.beardyinc.cxve.infrastructure.nats;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
@@ -17,7 +17,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 public record IssuanceEventData(
         String holderId,
         String issuerParticipantContextId,
-        String holderProcessId,
-        String issuanceProcessId
+        String holderProcessId
 ) {
 }

@@ -1,5 +1,7 @@
 package com.beardyinc.cxve.nats;
 
+import com.beardyinc.cxve.infrastructure.nats.IssuanceCloudEventParser;
+import com.beardyinc.cxve.infrastructure.nats.IssuanceEventData;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cloudevents.core.builder.CloudEventBuilder;
 import io.cloudevents.jackson.JsonFormat;

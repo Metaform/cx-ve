@@ -1,4 +1,4 @@
-package com.beardyinc.cxve.nats;
+package com.beardyinc.cxve.infrastructure.nats;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
