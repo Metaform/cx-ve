@@ -44,15 +44,16 @@ public class ParticipantOnboardingService implements WalletService {
 
         var profile = toParticipantProfile(dataspaceId, registrationData);
 
-        tenantManagerClient.deployParticipantProfile(tenant.id(), profile);
+        profile = tenantManagerClient.deployParticipantProfile(tenant.id(), profile);
+        profile= tenantManagerClient.getParticipantProfile(tenant.id(), profile.getId());
+        profile.setTenantId(tenant.id());
 
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+        return profile;
+    }
 
-        return tenantManagerClient.getParticipantProfile(tenant.id(), profile.getId());
+    @Override
+    public ParticipantProfile checkProvisionStatus(OnboardingProcess process) {
+        return tenantManagerClient.getParticipantProfile(process.tenantId(), process.participantProfileId());
     }
 
     private ParticipantProfile toParticipantProfile(String dataspaceId, PartnerRegistrationData registrationData) {

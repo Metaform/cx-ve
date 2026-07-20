@@ -70,13 +70,13 @@ public class TenantManagerClientImpl implements TenantManagerClient {
 
     @Override
     public ParticipantProfile getParticipantProfile(String tenantId, String participantProfileId) {
-        return restClient.get()
-                .uri( "/tenants/{id}/participant-profiles/{participantID}", tenantId, participantProfileId)
+        var response = restClient.get()
+                .uri("/tenants/{id}/participant-profiles/{participantID}", tenantId, participantProfileId)
                 .header("Authorization", "Bearer " + getToken("cfm-read"))
-                .retrieve()
-                .toEntity(new ParameterizedTypeReference<List<ParticipantProfile>>() {
-                })
-                .getBody().get(0);
+                .retrieve();
+        return response
+                .toEntity(ParticipantProfile.class)
+                .getBody();
     }
 
     private String getToken(String scope) {

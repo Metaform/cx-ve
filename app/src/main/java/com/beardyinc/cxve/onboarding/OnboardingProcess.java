@@ -16,8 +16,17 @@ public record OnboardingProcess(
         String bpn,
         String participantProfileId,
         String holderId,
-        String failureReason
+        String failureReason,
+        String holderProcessId,
+        String tenantId,
+        String participantContextId
 ) {
+
+
+    public OnboardingProcess(String id, String externalId, OnboardingState state, String bpn, String participantProfileId, String holderId, String failureReason) {
+        this(id, externalId, state, bpn, participantProfileId, holderId, failureReason, null, null, null);
+    }
+
 
     public static OnboardingProcess submitted(String id, String externalId) {
         return new OnboardingProcess(id, externalId, OnboardingState.SUBMITTED, null, null, null, null);
@@ -32,7 +41,7 @@ public record OnboardingProcess(
     }
 
     public OnboardingProcess withParticipantProfile(String provisionedWalletId) {
-        return new OnboardingProcess(id, externalId, OnboardingState.WALLET_PROVISIONED, bpn, provisionedWalletId, holderId, failureReason);
+        return new OnboardingProcess(id, externalId, state, bpn, provisionedWalletId, holderId, failureReason);
     }
 
     public OnboardingProcess withHolderId(String assignedHolderId) {
@@ -52,4 +61,18 @@ public record OnboardingProcess(
                 || state == OnboardingState.REJECTED
                 || state == OnboardingState.FAILED;
     }
+
+    public OnboardingProcess withHolderProcessId(String holderProcessId) {
+        return new OnboardingProcess(id, externalId, OnboardingState.WALLET_PROVISIONED, bpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId);
+    }
+
+    public OnboardingProcess withTenantId(String tenantId) {
+        return new OnboardingProcess(id, externalId, state, bpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId);
+    }
+
+    public OnboardingProcess withParticipantContextId(String participantContextId) {
+        return new OnboardingProcess(id, externalId, state, bpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId);
+    }
+
+
 }

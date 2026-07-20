@@ -14,4 +14,6 @@ public interface WalletService {
      * @return the wallet identifier credentials will be issued into.
      */
     ParticipantProfile provisionWallet(OnboardingProcess process, PartnerRegistrationData registrationData);
+
+    ParticipantProfile checkProvisionStatus(OnboardingProcess process);
 }

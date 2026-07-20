@@ -1,10 +1,15 @@
 package com.beardyinc.cxve.infrastructure.cfm.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static java.util.Optional.ofNullable;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class ParticipantProfile {
     private Map<String, List<String>> participantRoles = new HashMap<>();
     private String id;
@@ -14,6 +19,7 @@ public class ParticipantProfile {
     private Map<String, Object> properties = new HashMap<>();
     private Map<String, Object> vpaProperties = new HashMap<>();
     private boolean error;
+    private String tenantId;
 
     public String getId() {
         return id;
@@ -77,6 +83,38 @@ public class ParticipantProfile {
 
     public Map<String, Object> getVpaProperties() {
         return vpaProperties;
+    }
+
+    public String getHolderProcessId() {
+        var vpaState = getProperties().get("cfm.vpa.state");
+        if(vpaState == null) {
+            return null;
+        }
+
+        if(vpaState instanceof Map stateMap){
+            return ofNullable(stateMap.get("holderPid")).map(Object::toString).orElse(null);
+        }
+        return null;
+    }
+
+    public String getParticipantContextId(){
+        var vpaState = getProperties().get("cfm.vpa.state");
+        if(vpaState == null) {
+            return null;
+        }
+
+        if(vpaState instanceof Map stateMap){
+            return ofNullable(stateMap.get("participantContextId")).map(Object::toString).orElse(null);
+        }
+        return null;
+    }
+
+    public String getTenantId() {
+        return tenantId;
+    }
+
+    public void setTenantId(String tenantId) {
+        this.tenantId = tenantId;
     }
 
     public static class Builder {

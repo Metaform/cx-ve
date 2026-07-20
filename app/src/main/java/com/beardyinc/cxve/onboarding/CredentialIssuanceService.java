@@ -6,10 +6,12 @@ package com.beardyinc.cxve.onboarding;
  */
 public interface CredentialIssuanceService {
 
-    void issueBpnCredential(OnboardingProcess process);
+    boolean issueBpnCredential(OnboardingProcess process);
 
-    void issueFrameworkAgreementCredential(OnboardingProcess process);
+    boolean issueFrameworkAgreementCredential(OnboardingProcess process);
 
-    /** Completes onboarding. Issue only after the BPN and Framework Agreement credentials. */
-    void issueMembershipCredential(OnboardingProcess process);
+    /**
+     * Completes onboarding. Issue only after the BPN and Framework Agreement credentials.
+     */
+    boolean issueMembershipCredential(OnboardingProcess process);
 }

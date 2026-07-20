@@ -1,5 +1,6 @@
 package com.beardyinc.cxve.onboarding.impl;
 
+import com.beardyinc.cxve.infrastructure.cfm.model.ParticipantProfile;
 import com.beardyinc.cxve.model.PartnerRegistrationData;
 import com.beardyinc.cxve.onboarding.BusinessPartnerNumberService;
 import com.beardyinc.cxve.onboarding.CredentialIssuanceService;
@@ -32,6 +33,12 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(InMemoryOnboardingOrchestrator.class);
 
+    // Exponential backoff for polling the async participant provisioning result (context ID + holder PID):
+    // start at 500 ms, double each attempt up to 8 s, give up after 8 polls (~40 s total).
+    private static final long INITIAL_BACKOFF_MILLIS = 500;
+    private static final long MAX_BACKOFF_MILLIS = 8_000;
+    private static final int MAX_PROVISION_POLLS = 8;
+
     private final RegistrationValidationService validationService;
     private final BusinessPartnerNumberService bpnService;
     private final IdentityProofingService identityProofingService;
@@ -61,7 +68,7 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
         var process = OnboardingProcess.submitted(id, registrationData.externalId());
         processes.put(id, process);
         payloads.put(id, registrationData);
-        log.info("Starting onboarding {} (externalId={})", id, registrationData.externalId());
+        log.info("Starting onboarding process ID '{}' for participant \"{}\")", id, registrationData.name());
         processOnboarding(id);
         return id;
     }
@@ -77,7 +84,7 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
             case SUBMITTED -> validate(process, payload);
             case VALIDATED -> assignBpn(process, payload);
             case BPN_ASSIGNED -> proveIdentity(process);
-            case IDENTITY_VERIFIED -> provisionWallet(process, payload);
+            case IDENTITY_VERIFIED -> provisionParticipant(process, payload);
             case WALLET_PROVISIONED -> issueCredentials(process);
             case CREDENTIALS_ISSUED -> process.withState(OnboardingState.COMPLETED);
             case COMPLETED, REJECTED, FAILED -> process;
@@ -167,19 +174,74 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
                 : process;
     }
 
-    private OnboardingProcess provisionWallet(OnboardingProcess process, PartnerRegistrationData payload) {
-        var participantProfile = walletService.provisionWallet(process, payload);
+    private OnboardingProcess provisionParticipant(OnboardingProcess process, PartnerRegistrationData payload) {
+
+        ParticipantProfile participantProfile;
+        if (process.participantProfileId() != null) { // participant deployment already in process, only need to check status
+            participantProfile = walletService.checkProvisionStatus(process);
+
+            // Poll for the async provisioning result with exponential backoff — capped delay, bounded
+            // attempts — instead of a fixed-interval wait. If it isn't ready within the budget, leave
+            // the process at this gate so a later advance (e.g. an issuance event) retries from scratch.
+            var backoffMillis = INITIAL_BACKOFF_MILLIS;
+            var attempt = 0;
+            while (participantProfile.getParticipantContextId() == null || participantProfile.getHolderProcessId() == null) {
+                if (++attempt > MAX_PROVISION_POLLS) {
+                    log.warn("Onboarding {}: participant context ID / holder PID still unassigned after {} polls; will retry later",
+                            process.id(), MAX_PROVISION_POLLS);
+                    return process;
+                }
+                log.debug("Onboarding {}: participant not ready, retrying in {} ms (attempt {}/{})",
+                        process.id(), backoffMillis, attempt, MAX_PROVISION_POLLS);
+                sleep(backoffMillis);
+                backoffMillis = Math.min(backoffMillis * 2, MAX_BACKOFF_MILLIS);
+                participantProfile = walletService.checkProvisionStatus(process);
+            }
+
+            var participantContextId = participantProfile.getParticipantContextId();
+            var holderPid = participantProfile.getHolderProcessId();
+            log.info("Onboarding {}: participant context ID: {}, holder PID: {}", process.id(), participantContextId, holderPid);
+            process = process.withParticipantContextId(participantContextId)
+                    .withHolderProcessId(holderPid);
+        } else {
+            participantProfile = walletService.provisionWallet(process, payload);
+            linkHolder(process.id(), participantProfile.getIdentifier());
+        }
+
+
         if (participantProfile.isError()) {
             return process.failed("Failed to deploy participant profile with ID '%s'".formatted(participantProfile.getId()));
         }
-        linkHolder(process.id(), participantProfile.getIdentifier());
-        return process.withParticipantProfile(participantProfile.getId()).withHolderId(participantProfile.getIdentifier());
+        return process.withParticipantProfile(participantProfile.getId())
+                .withHolderId(participantProfile.getIdentifier())
+                .withTenantId(participantProfile.getTenantId());
+//
+//        var holderProcessId = participantProfile.getHolderProcessId();
+//        if (holderProcessId != null) {
+//            log.debug("holder PID present, participant ready for issuance");
+//            return process.withHolderProcessId(holderProcessId);
+//        } else {
+//            log.warn("holder PID not ppresent, participant not ready for issuance");
+//        }
+
     }
 
     private OnboardingProcess issueCredentials(OnboardingProcess process) {
-        credentialIssuanceService.issueBpnCredential(process);
-        credentialIssuanceService.issueFrameworkAgreementCredential(process);
-        credentialIssuanceService.issueMembershipCredential(process);
-        return process.withState(OnboardingState.CREDENTIALS_ISSUED);
+        var isBpnIssued = credentialIssuanceService.issueBpnCredential(process);
+        var isFwIssued = credentialIssuanceService.issueFrameworkAgreementCredential(process);
+        var isMembershipIssued = credentialIssuanceService.issueMembershipCredential(process);
+        if (isBpnIssued && isFwIssued && isMembershipIssued) {
+            return process.withState(OnboardingState.CREDENTIALS_ISSUED);
+        }
+        return process; // no state change
+    }
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while awaiting participant provisioning", e);
+        }
     }
 }
