@@ -1,7 +1,5 @@
 package com.beardyinc.cxve.model;
 
-import java.util.UUID;
-
 public record UserDetailData(
         String identityProviderId,
         String providerId,

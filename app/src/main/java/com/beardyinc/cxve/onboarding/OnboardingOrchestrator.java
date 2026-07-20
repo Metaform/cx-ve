@@ -2,8 +2,6 @@ package com.beardyinc.cxve.onboarding;
 
 import com.beardyinc.cxve.model.PartnerRegistrationData;
 
-import java.util.UUID;
-
 /**
  * Drives a partner onboarding through the CX-0006 sequence. The POST to {@code /partnerRegistration}
  * only needs to call {@link #start}; the remaining steps are asynchronous (identity proofing and
@@ -21,7 +19,7 @@ public interface OnboardingOrchestrator {
      *
      * @return the id of the created {@link OnboardingProcess}, in {@link OnboardingState#SUBMITTED}.
      */
-    UUID start(PartnerRegistrationData registrationData);
+    String start(PartnerRegistrationData registrationData);
 
     /**
      * Advances the process one step from its current state, if the preconditions for the next step
@@ -30,7 +28,7 @@ public interface OnboardingOrchestrator {
      *
      * @return the process in its resulting state.
      */
-    OnboardingProcess advance(UUID processId);
+    OnboardingProcess advance(String processId);
 
-    OnboardingProcess get(UUID processId);
+    OnboardingProcess get(String processId);
 }

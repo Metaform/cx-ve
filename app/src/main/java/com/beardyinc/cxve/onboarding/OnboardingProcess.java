@@ -1,7 +1,5 @@
 package com.beardyinc.cxve.onboarding;
 
-import java.util.UUID;
-
 /**
  * Tracks a single partner onboarding as it moves through {@link OnboardingState}.
  * {@code externalId} is the caller-supplied correlation id from the registration payload;
@@ -10,7 +8,7 @@ import java.util.UUID;
  * <p>Immutable — each transition returns a new instance via the {@code with*} helpers.
  */
 public record OnboardingProcess(
-        UUID id,
+        String id,
         String externalId,
         OnboardingState state,
         String bpn,
@@ -18,7 +16,7 @@ public record OnboardingProcess(
         String failureReason
 ) {
 
-    public static OnboardingProcess submitted(UUID id, String externalId) {
+    public static OnboardingProcess submitted(String id, String externalId) {
         return new OnboardingProcess(id, externalId, OnboardingState.SUBMITTED, null, null, null);
     }
 

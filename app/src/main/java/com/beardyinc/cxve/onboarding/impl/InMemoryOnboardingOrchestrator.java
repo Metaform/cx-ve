@@ -9,6 +9,8 @@ import com.beardyinc.cxve.onboarding.OnboardingProcess;
 import com.beardyinc.cxve.onboarding.OnboardingState;
 import com.beardyinc.cxve.onboarding.RegistrationValidationService;
 import com.beardyinc.cxve.onboarding.WalletService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.NoSuchElementException;
@@ -27,14 +29,16 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
 
+    private static final Logger log = LoggerFactory.getLogger(InMemoryOnboardingOrchestrator.class);
+
     private final RegistrationValidationService validationService;
     private final BusinessPartnerNumberService bpnService;
     private final IdentityProofingService identityProofingService;
     private final WalletService walletService;
     private final CredentialIssuanceService credentialIssuanceService;
 
-    private final ConcurrentHashMap<UUID, OnboardingProcess> processes = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, PartnerRegistrationData> payloads = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, OnboardingProcess> processes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, PartnerRegistrationData> payloads = new ConcurrentHashMap<>();
 
     public InMemoryOnboardingOrchestrator(RegistrationValidationService validationService,
                                           BusinessPartnerNumberService bpnService,
@@ -49,17 +53,18 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
     }
 
     @Override
-    public UUID start(PartnerRegistrationData registrationData) {
-        var id = UUID.randomUUID();
+    public String start(PartnerRegistrationData registrationData) {
+        var id = UUID.randomUUID().toString();
         var process = OnboardingProcess.submitted(id, registrationData.externalId());
         processes.put(id, process);
         payloads.put(id, registrationData);
-        drive(id);
+        log.info("Starting onboarding {} (externalId={})", id, registrationData.externalId());
+        processOnboarding(id);
         return id;
     }
 
     @Override
-    public OnboardingProcess advance(UUID processId) {
+    public OnboardingProcess advance(String processId) {
         var process = get(processId);
         if (process.isTerminal()) {
             return process;
@@ -75,11 +80,12 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
             case COMPLETED, REJECTED, FAILED -> process;
         };
         processes.put(processId, next);
+        logOutcome(process, next);
         return next;
     }
 
     @Override
-    public OnboardingProcess get(UUID processId) {
+    public OnboardingProcess get(String processId) {
         var process = processes.get(processId);
         if (process == null) {
             throw new NoSuchElementException("No onboarding process with id " + processId);
@@ -91,16 +97,35 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
      * Advances repeatedly until the process is terminal or a step makes no progress (an async gate
      * not yet satisfied), returning the resulting process.
      */
-    private OnboardingProcess drive(UUID id) {
+    private OnboardingProcess processOnboarding(String id) {
         var process = get(id);
         while (!process.isTerminal()) {
             var before = process.state();
             process = advance(id);
             if (process.state() == before) {
+                log.info("Onboarding {} paused at {} awaiting async completion", id, process.state());
                 break;
             }
         }
         return process;
+    }
+
+    /**
+     * Logs the result of a single {@link #advance} call: state transitions at debug, terminal
+     * outcomes at info (or warn for rejection).
+     */
+    private void logOutcome(OnboardingProcess before, OnboardingProcess after) {
+        if (before.state() == after.state()) {
+            return;
+        }
+        switch (after.state()) {
+            case COMPLETED -> log.info("Onboarding {} completed (bpn={}, wallet={})",
+                    after.id(), after.bpn(), after.walletId());
+            case REJECTED -> log.warn("Onboarding {} rejected: {}", after.id(), after.failureReason());
+            case FAILED -> log.error("Onboarding {} failed: {}", after.id(), after.failureReason());
+            default -> log.debug("Onboarding {} transitioned {} -> {}",
+                    after.id(), before.state(), after.state());
+        }
     }
 
     private OnboardingProcess validate(OnboardingProcess process, PartnerRegistrationData payload) {
