@@ -1,5 +1,6 @@
 package com.beardyinc.cxve.onboarding;
 
+import com.beardyinc.cxve.infrastructure.cfm.model.ParticipantProfile;
 import com.beardyinc.cxve.model.PartnerRegistrationData;
 
 /**
@@ -12,5 +13,5 @@ public interface WalletService {
     /**
      * @return the wallet identifier credentials will be issued into.
      */
-    String provisionWallet(OnboardingProcess process, PartnerRegistrationData registrationData);
+    ParticipantProfile provisionWallet(OnboardingProcess process, PartnerRegistrationData registrationData);
 }

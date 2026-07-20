@@ -3,7 +3,7 @@ package com.beardyinc.cxve.onboarding;
 /**
  * Tracks a single partner onboarding as it moves through {@link OnboardingState}.
  * {@code externalId} is the caller-supplied correlation id from the registration payload;
- * {@code bpn}, {@code walletId} and {@code holderId} are populated as the corresponding steps
+ * {@code bpn}, {@code participantProfileId} and {@code holderId} are populated as the corresponding steps
  * complete. {@code holderId} is the identifier used to correlate downstream IdentityHub issuance
  * events back to this process.
  *
@@ -14,7 +14,7 @@ public record OnboardingProcess(
         String externalId,
         OnboardingState state,
         String bpn,
-        String walletId,
+        String participantProfileId,
         String holderId,
         String failureReason
 ) {
@@ -24,27 +24,27 @@ public record OnboardingProcess(
     }
 
     public OnboardingProcess withState(OnboardingState newState) {
-        return new OnboardingProcess(id, externalId, newState, bpn, walletId, holderId, failureReason);
+        return new OnboardingProcess(id, externalId, newState, bpn, participantProfileId, holderId, failureReason);
     }
 
     public OnboardingProcess withBpn(String assignedBpn) {
-        return new OnboardingProcess(id, externalId, OnboardingState.BPN_ASSIGNED, assignedBpn, walletId, holderId, failureReason);
+        return new OnboardingProcess(id, externalId, OnboardingState.BPN_ASSIGNED, assignedBpn, participantProfileId, holderId, failureReason);
     }
 
-    public OnboardingProcess withWallet(String provisionedWalletId) {
+    public OnboardingProcess withParticipantProfile(String provisionedWalletId) {
         return new OnboardingProcess(id, externalId, OnboardingState.WALLET_PROVISIONED, bpn, provisionedWalletId, holderId, failureReason);
     }
 
     public OnboardingProcess withHolderId(String assignedHolderId) {
-        return new OnboardingProcess(id, externalId, state, bpn, walletId, assignedHolderId, failureReason);
+        return new OnboardingProcess(id, externalId, state, bpn, participantProfileId, assignedHolderId, failureReason);
     }
 
     public OnboardingProcess rejected(String reason) {
-        return new OnboardingProcess(id, externalId, OnboardingState.REJECTED, bpn, walletId, holderId, reason);
+        return new OnboardingProcess(id, externalId, OnboardingState.REJECTED, bpn, participantProfileId, holderId, reason);
     }
 
     public OnboardingProcess failed(String reason) {
-        return new OnboardingProcess(id, externalId, OnboardingState.FAILED, bpn, walletId, holderId, reason);
+        return new OnboardingProcess(id, externalId, OnboardingState.FAILED, bpn, participantProfileId, holderId, reason);
     }
 
     public boolean isTerminal() {

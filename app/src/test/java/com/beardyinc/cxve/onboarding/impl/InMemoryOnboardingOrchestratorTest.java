@@ -15,7 +15,7 @@ class InMemoryOnboardingOrchestratorTest {
 
     private final RegistrationValidationServiceStub validation = new RegistrationValidationServiceStub();
     private final BusinessPartnerNumberServiceStub bpn = new BusinessPartnerNumberServiceStub();
-    private final WalletServiceStub wallet = new WalletServiceStub();
+    private final ParticipantOnboardingService wallet = new ParticipantOnboardingService();
     private final CredentialIssuanceServiceStub credentials = new CredentialIssuanceServiceStub();
 
     private InMemoryOnboardingOrchestrator orchestratorWith(IdentityProofingService proofing) {
@@ -38,7 +38,7 @@ class InMemoryOnboardingOrchestratorTest {
         var process = orchestrator.get(id);
         assertThat(process.state()).isEqualTo(OnboardingState.COMPLETED);
         assertThat(process.bpn()).isNotBlank();
-        assertThat(process.walletId()).isEqualTo("wallet-" + id);
+        assertThat(process.participantProfileId()).isEqualTo("wallet-" + id);
         assertThat(process.isTerminal()).isTrue();
     }
 

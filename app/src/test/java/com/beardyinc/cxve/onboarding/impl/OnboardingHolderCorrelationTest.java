@@ -1,8 +1,10 @@
 package com.beardyinc.cxve.onboarding.impl;
 
+import com.beardyinc.cxve.infrastructure.cfm.TenantManagerClient;
 import com.beardyinc.cxve.model.CompanyRoleId;
 import com.beardyinc.cxve.model.PartnerRegistrationData;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mock;
 
 import java.util.List;
 
@@ -10,11 +12,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class OnboardingHolderCorrelationTest {
 
+    @Mock
+    private TenantManagerClient tenantManagerClient;
     private final InMemoryOnboardingOrchestrator orchestrator = new InMemoryOnboardingOrchestrator(
             new RegistrationValidationServiceStub(),
             new BusinessPartnerNumberServiceStub(),
             new IdentityProofingServiceStub(),
-            new WalletServiceStub(),
+            new ParticipantOnboardingService(tenantManagerClient),
             new CredentialIssuanceServiceStub());
 
     private static PartnerRegistrationData registration() {

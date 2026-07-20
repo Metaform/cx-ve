@@ -100,7 +100,7 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
     public void linkHolder(String processId, String holderId) {
         processes.computeIfPresent(processId, (key, process) -> process.withHolderId(holderId));
         holderIndex.put(holderId, processId);
-        log.info("Linked holder {} to onboarding {}", holderId, processId);
+        log.info("Linked holder '{}' to onboarding [{}]", holderId, processId);
     }
 
     @Override
@@ -140,7 +140,7 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
         }
         switch (after.state()) {
             case COMPLETED -> log.info("Onboarding {} completed (bpn={}, wallet={})",
-                    after.id(), after.bpn(), after.walletId());
+                    after.id(), after.bpn(), after.participantProfileId());
             case REJECTED -> log.warn("Onboarding {} rejected: {}", after.id(), after.failureReason());
             case FAILED -> log.error("Onboarding {} failed: {}", after.id(), after.failureReason());
             default -> log.debug("Onboarding {} transitioned {} -> {}",
@@ -168,7 +168,12 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
     }
 
     private OnboardingProcess provisionWallet(OnboardingProcess process, PartnerRegistrationData payload) {
-        return process.withWallet(walletService.provisionWallet(process, payload));
+        var participantProfile = walletService.provisionWallet(process, payload);
+        if (participantProfile.isError()) {
+            return process.failed("Failed to deploy participant profile with ID '%s'".formatted(participantProfile.getId()));
+        }
+        linkHolder(process.id(), participantProfile.getIdentifier());
+        return process.withParticipantProfile(participantProfile.getId()).withHolderId(participantProfile.getIdentifier());
     }
 
     private OnboardingProcess issueCredentials(OnboardingProcess process) {

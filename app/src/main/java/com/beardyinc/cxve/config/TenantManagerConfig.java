@@ -20,14 +20,14 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
 @Configuration
-public class TokenExchangeConfig {
-    @Value("${token.exchange.url:http://jad.localhost/api/auth}")
-    private String tokenExchangeUrl;
+public class TenantManagerConfig {
+    @Value("${tenant-manager.url:http://jad.localhost/api/tm}")
+    private String tenantManagerUrl;
 
     @Bean
-    public RestClient tokenExchangeClient() {
+    public RestClient tenantManagerClient() {
         return RestClient.builder()
-                .baseUrl(tokenExchangeUrl)
+                .baseUrl(tenantManagerUrl)
                 .build();
     }
 }

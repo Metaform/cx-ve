@@ -13,4 +13,5 @@ public interface TenantManagerClient {
     Tenant createTenant(TenantCreationRequest newTenant);
     List<DataspaceProfile> listDataspaceProfiles();
     ParticipantProfile deployParticipantProfile(String tenantId, ParticipantProfile profile);
+    ParticipantProfile getParticipantProfile(String tenantId, String profileId);
 }

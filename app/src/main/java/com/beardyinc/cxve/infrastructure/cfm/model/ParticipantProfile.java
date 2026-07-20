@@ -12,6 +12,7 @@ public class ParticipantProfile {
     private String identifier;
     private List<Vpa> vpas = new ArrayList<>();
     private Map<String, Object> properties = new HashMap<>();
+    private Map<String, Object> vpaProperties = new HashMap<>();
     private boolean error;
 
     public String getId() {
@@ -70,6 +71,85 @@ public class ParticipantProfile {
         this.participantRoles = participantRoles;
     }
 
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public Map<String, Object> getVpaProperties() {
+        return vpaProperties;
+    }
+
+    public static class Builder {
+        private final ParticipantProfile profile = new ParticipantProfile();
+
+        private Builder() {
+        }
+
+        public Builder id(String id) {
+            profile.id = id;
+            return this;
+        }
+
+        public Builder version(int version) {
+            profile.version = version;
+            return this;
+        }
+
+        public Builder identifier(String identifier) {
+            profile.identifier = identifier;
+            return this;
+        }
+
+        public Builder participantRoles(Map<String, List<String>> participantRoles) {
+            profile.participantRoles = participantRoles;
+            return this;
+        }
+
+        public Builder participantRole(String key, List<String> roles) {
+            profile.participantRoles.put(key, roles);
+            return this;
+        }
+
+        public Builder vpas(List<Vpa> vpas) {
+            profile.vpas = vpas;
+            return this;
+        }
+
+        public Builder vpa(Vpa vpa) {
+            profile.vpas.add(vpa);
+            return this;
+        }
+
+        public Builder properties(Map<String, Object> properties) {
+            profile.properties = properties;
+            return this;
+        }
+
+        public Builder property(String key, Object value) {
+            profile.properties.put(key, value);
+            return this;
+        }
+
+        public Builder vpaProperty(String key, Object value){
+            profile.vpaProperties.put(key, value);
+            return this;
+        }
+
+        public Builder vpaProperties(Map<String, Object> vpaProperties) {
+            profile.vpaProperties = vpaProperties;
+            return this;
+        }
+
+        public Builder error(boolean error) {
+            profile.error = error;
+            return this;
+        }
+
+        public ParticipantProfile build() {
+            return profile;
+        }
+    }
+
     public static class Vpa {
         private String id;
         private int version;
@@ -124,6 +204,51 @@ public class ParticipantProfile {
 
         public void setCellId(String cellId) {
             this.cellId = cellId;
+        }
+
+        public static Builder builder() {
+            return new Builder();
+        }
+
+        public static class Builder {
+            private final Vpa vpa = new Vpa();
+
+            private Builder() {
+            }
+
+            public Builder id(String id) {
+                vpa.id = id;
+                return this;
+            }
+
+            public Builder version(int version) {
+                vpa.version = version;
+                return this;
+            }
+
+            public Builder state(String state) {
+                vpa.state = state;
+                return this;
+            }
+
+            public Builder stateTimestamp(String stateTimestamp) {
+                vpa.stateTimestamp = stateTimestamp;
+                return this;
+            }
+
+            public Builder type(String type) {
+                vpa.type = type;
+                return this;
+            }
+
+            public Builder cellId(String cellId) {
+                vpa.cellId = cellId;
+                return this;
+            }
+
+            public Vpa build() {
+                return vpa;
+            }
         }
     }
 }
