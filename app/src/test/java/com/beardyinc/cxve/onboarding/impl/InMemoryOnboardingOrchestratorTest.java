@@ -3,6 +3,7 @@ package com.beardyinc.cxve.onboarding.impl;
 import com.beardyinc.cxve.infrastructure.cfm.model.ParticipantProfile;
 import com.beardyinc.cxve.model.CompanyRoleId;
 import com.beardyinc.cxve.model.PartnerRegistrationData;
+import com.beardyinc.cxve.onboarding.CredentialIssuanceService;
 import com.beardyinc.cxve.onboarding.IdentityProofingService;
 import com.beardyinc.cxve.onboarding.OnboardingProcess;
 import com.beardyinc.cxve.onboarding.OnboardingState;
@@ -10,6 +11,7 @@ import com.beardyinc.cxve.onboarding.WalletService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,11 +19,42 @@ class InMemoryOnboardingOrchestratorTest {
 
     private final RegistrationValidationServiceStub validation = new RegistrationValidationServiceStub();
     private final BusinessPartnerNumberServiceStub bpn = new BusinessPartnerNumberServiceStub();
-    // Test double: the real ParticipantOnboardingService calls the tenant manager; here we just
-    // return a deterministic profile so the orchestrator flow can be exercised in isolation.
-    private final WalletService wallet = (process, registrationData) ->
-            ParticipantProfile.builder().id("wallet-" + process.id()).identifier("did:web:acme").build();
-    private final CredentialIssuanceServiceStub credentials = new CredentialIssuanceServiceStub();
+
+    // Test doubles: the real services call the tenant manager / IdentityHub. Here we return
+    // deterministic values so the orchestrator's state machine can be exercised in isolation.
+    private final WalletService wallet = new WalletService() {
+        @Override
+        public ParticipantProfile provisionWallet(OnboardingProcess process, PartnerRegistrationData registrationData) {
+            return ParticipantProfile.builder().id("wallet-" + process.id()).identifier("did:web:acme").build();
+        }
+
+        @Override
+        public ParticipantProfile checkProvisionStatus(OnboardingProcess process) {
+            // "Ready": context id + holder PID are present, so provisioning polling completes at once.
+            return ParticipantProfile.builder()
+                    .id("wallet-" + process.id())
+                    .identifier("did:web:acme")
+                    .property("cfm.vpa.state", Map.of("participantContextId", "ctx-1", "holderPid", "holder-pid-1"))
+                    .build();
+        }
+    };
+
+    private final CredentialIssuanceService credentials = new CredentialIssuanceService() {
+        @Override
+        public boolean issueBpnCredential(OnboardingProcess process) {
+            return true;
+        }
+
+        @Override
+        public boolean issueFrameworkAgreementCredential(OnboardingProcess process) {
+            return true;
+        }
+
+        @Override
+        public boolean issueMembershipCredential(OnboardingProcess process) {
+            return true;
+        }
+    };
 
     private InMemoryOnboardingOrchestrator orchestratorWith(IdentityProofingService proofing) {
         return new InMemoryOnboardingOrchestrator(validation, bpn, proofing, wallet, credentials);
@@ -40,7 +73,16 @@ class InMemoryOnboardingOrchestratorTest {
 
         var id = orchestrator.start(registration(null));
 
-        var process = orchestrator.get(id);
+        // Provisioning is two-phase: the first drive deploys the participant and pauses awaiting the
+        // async provisioning result (participant context id + holder PID).
+        assertThat(orchestrator.get(id).state()).isEqualTo(OnboardingState.IDENTITY_VERIFIED);
+        assertThat(orchestrator.get(id).participantProfileId()).isEqualTo("wallet-" + id);
+
+        // A later drive — as an issuance event would trigger — finds provisioning ready and completes.
+        var result = orchestrator.advanceByHolder("did:web:acme");
+
+        assertThat(result).isPresent();
+        var process = result.get();
         assertThat(process.state()).isEqualTo(OnboardingState.COMPLETED);
         assertThat(process.bpn()).isNotBlank();
         assertThat(process.participantProfileId()).isEqualTo("wallet-" + id);
