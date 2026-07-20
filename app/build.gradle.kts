@@ -19,8 +19,11 @@ repositories {
 
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
-	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6")
+	// NATS/JetStream client + CloudEvents, version-matched to the platform's events-nats bridge
+	implementation("io.nats:jnats:2.25.3")
+	implementation("io.cloudevents:cloudevents-json-jackson:4.1.1")
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")

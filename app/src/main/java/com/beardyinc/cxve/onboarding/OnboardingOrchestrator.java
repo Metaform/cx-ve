@@ -2,6 +2,8 @@ package com.beardyinc.cxve.onboarding;
 
 import com.beardyinc.cxve.model.PartnerRegistrationData;
 
+import java.util.Optional;
+
 /**
  * Drives a partner onboarding through the CX-0006 sequence. The POST to {@code /partnerRegistration}
  * only needs to call {@link #start}; the remaining steps are asynchronous (identity proofing and
@@ -31,4 +33,19 @@ public interface OnboardingOrchestrator {
     OnboardingProcess advance(String processId);
 
     OnboardingProcess get(String processId);
+
+    /**
+     * Records the {@code holderId} that downstream IdentityHub issuance events will carry for this
+     * process, so those events can later be correlated back to it. Set once the wallet/participant
+     * profile has been provisioned and the holder identity is known.
+     */
+    void linkHolder(String processId, String holderId);
+
+    /**
+     * Resumes the process correlated to {@code holderId} — invoked when an issuance event arrives
+     * from NATS. Idempotent: a redelivered event for an already-terminal process is a no-op.
+     *
+     * @return the resulting process, or empty if no process is linked to that holder.
+     */
+    Optional<OnboardingProcess> advanceByHolder(String holderId);
 }

@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -39,6 +40,8 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
 
     private final ConcurrentHashMap<String, OnboardingProcess> processes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, PartnerRegistrationData> payloads = new ConcurrentHashMap<>();
+    // holderId -> processId, so issuance events arriving over NATS can be correlated back to a process.
+    private final ConcurrentHashMap<String, String> holderIndex = new ConcurrentHashMap<>();
 
     public InMemoryOnboardingOrchestrator(RegistrationValidationService validationService,
                                           BusinessPartnerNumberService bpnService,
@@ -91,6 +94,23 @@ public class InMemoryOnboardingOrchestrator implements OnboardingOrchestrator {
             throw new NoSuchElementException("No onboarding process with id " + processId);
         }
         return process;
+    }
+
+    @Override
+    public void linkHolder(String processId, String holderId) {
+        processes.computeIfPresent(processId, (key, process) -> process.withHolderId(holderId));
+        holderIndex.put(holderId, processId);
+        log.info("Linked holder {} to onboarding {}", holderId, processId);
+    }
+
+    @Override
+    public Optional<OnboardingProcess> advanceByHolder(String holderId) {
+        var processId = holderIndex.get(holderId);
+        if (processId == null) {
+            log.warn("Received issuance event for unknown holder {} — no linked onboarding", holderId);
+            return Optional.empty();
+        }
+        return Optional.of(processOnboarding(processId));
     }
 
     /**
