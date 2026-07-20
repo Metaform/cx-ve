@@ -1,11 +1,7 @@
-package com.beardyinc.cxve.nats;
+package com.beardyinc.cxve.infrastructure.nats;
 
-import com.beardyinc.cxve.infrastructure.nats.IssuanceCloudEventParser;
-import com.beardyinc.cxve.infrastructure.nats.IssuanceEventData;
-import com.beardyinc.cxve.infrastructure.nats.NatsIssuanceListener;
-import com.beardyinc.cxve.infrastructure.nats.NatsProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.beardyinc.cxve.onboarding.OnboardingOrchestrator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cloudevents.core.builder.CloudEventBuilder;
 import io.cloudevents.jackson.JsonFormat;
 import io.nats.client.Connection;
@@ -36,7 +32,7 @@ class NatsIssuanceListenerTest {
                 .withType("org.eclipse.edc.issuerservice.issuance.events.CredentialDelivered")
                 .withDataContentType("application/json")
                 .withData(objectMapper.writeValueAsBytes(
-                        new IssuanceEventData(holderId, "ctx-1", "holder-proc-1", "issuance-1")))
+                        new IssuanceEventData(holderId, "ctx-1", "holder-proc-1")))
                 .build();
         return new JsonFormat().serialize(event);
     }
