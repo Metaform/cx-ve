@@ -74,7 +74,7 @@ public class NatsIssuanceListener {
                 issuanceEventData
                         .ifPresentOrElse(
                                 data -> {
-                                    log.debug("Credential delivered event {} for holder {}, holder PID = {}", event.getId(), data.holderId(), data.holderProcessId());
+                                    log.info("Credential delivered event {} for holder {}, verifying...", event.getId(), data.holderId());
                                     orchestrator.advanceByHolder(data.holderId());
                                 },
                                 () -> log.warn("Credential delivered event {} carried no holderId", event.getId()));

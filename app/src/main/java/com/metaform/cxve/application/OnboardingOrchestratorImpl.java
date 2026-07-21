@@ -191,7 +191,6 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
 
             var participantContextId = participant.participantContextId();
             var holderPid = participant.holderProcessId();
-            log.info("Onboarding {}: participant context ID: {}, holder PID: {}", process.id(), participantContextId, holderPid);
             process = process.withParticipantContextId(participantContextId)
                     .withHolderProcessId(holderPid);
         } else {
