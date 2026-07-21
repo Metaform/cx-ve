@@ -62,6 +62,16 @@ public record OnboardingProcess(
                 || state == OnboardingState.FAILED;
     }
 
+    /**
+     * True once validation has passed and the process has not been rejected or failed — i.e. this
+     * registration (in flight or completed) blocks duplicate registrations.
+     */
+    public boolean isActiveRegistration() {
+        return state != OnboardingState.SUBMITTED
+                && state != OnboardingState.REJECTED
+                && state != OnboardingState.FAILED;
+    }
+
     public OnboardingProcess withHolderProcessId(String holderProcessId) {
         return new OnboardingProcess(id, externalId, OnboardingState.WALLET_PROVISIONED, bpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId);
     }

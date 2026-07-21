@@ -22,4 +22,16 @@ public record PartnerRegistrationData(
         List<DocumentUpload> documents,
         Boolean autoSubmit
 ) {
+
+    public PartnerRegistrationData withBpn(String newBpn) {
+        return new PartnerRegistrationData(name, city, streetName, countryAlpha2Code, newBpn, shortName,
+                region, streetAdditional, streetNumber, zipCode, uniqueIds, externalId, userDetails,
+                companyRoles, did, agreements, documents, autoSubmit);
+    }
+
+    public PartnerRegistrationData withDid(String newDid) {
+        return new PartnerRegistrationData(name, city, streetName, countryAlpha2Code, bpn, shortName,
+                region, streetAdditional, streetNumber, zipCode, uniqueIds, externalId, userDetails,
+                companyRoles, newDid, agreements, documents, autoSubmit);
+    }
 }

@@ -9,7 +9,7 @@ import com.metaform.cxve.domain.port.WalletService;
 import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
 import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
 import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
-import com.metaform.cxve.adapter.out.stub.RegistrationValidationServiceStub;
+import com.metaform.cxve.adapter.out.validation.RegistrationValidationServiceImpl;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,13 +46,15 @@ class OnboardingHolderCorrelationTest {
         }
     };
 
+    private final InMemoryOnboardingRepository repository = new InMemoryOnboardingRepository();
+
     private final OnboardingOrchestratorImpl orchestrator = new OnboardingOrchestratorImpl(
-            new RegistrationValidationServiceStub(),
+            new RegistrationValidationServiceImpl(repository),
             new BusinessPartnerNumberServiceStub(),
             new IdentityProofingServiceStub(),
             wallet,
             credentials,
-            new InMemoryOnboardingRepository());
+            repository);
 
     private static PartnerRegistrationData registration() {
         return new PartnerRegistrationData(

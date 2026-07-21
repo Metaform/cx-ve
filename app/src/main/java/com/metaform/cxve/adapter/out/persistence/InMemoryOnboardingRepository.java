@@ -1,10 +1,14 @@
 package com.metaform.cxve.adapter.out.persistence;
 
+import com.metaform.cxve.domain.model.CompanyUniqueIdData;
 import com.metaform.cxve.domain.model.OnboardingProcess;
+import com.metaform.cxve.domain.model.PartnerRegistration;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.port.OnboardingRepository;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -47,5 +51,32 @@ public class InMemoryOnboardingRepository implements OnboardingRepository {
     @Override
     public Optional<PartnerRegistrationData> findPayload(String processId) {
         return Optional.ofNullable(payloads.get(processId));
+    }
+
+    @Override
+    public Optional<PartnerRegistration> findActiveByBpn(String bpn) {
+        return findActive(r -> bpn.equals(r.data().bpn()));
+    }
+
+    @Override
+    public Optional<PartnerRegistration> findActiveByDid(String did) {
+        return findActive(r -> did.equals(r.data().did()));
+    }
+
+    @Override
+    public Optional<PartnerRegistration> findActiveByUniqueId(CompanyUniqueIdData uniqueId) {
+        return findActive(r -> r.data().uniqueIds() != null && r.data().uniqueIds().contains(uniqueId));
+    }
+
+    private Optional<PartnerRegistration> findActive(Predicate<PartnerRegistration> predicate) {
+        return processes.values().stream()
+                .filter(OnboardingProcess::isActiveRegistration)
+                .map(process -> {
+                    var payload = payloads.get(process.id());
+                    return payload == null ? null : PartnerRegistration.of(process, payload);
+                })
+                .filter(Objects::nonNull)
+                .filter(predicate)
+                .findFirst();
     }
 }

@@ -11,14 +11,16 @@ import com.metaform.cxve.domain.port.WalletService;
 import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
 import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
 import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
-import com.metaform.cxve.adapter.out.stub.RegistrationValidationServiceStub;
+import com.metaform.cxve.adapter.out.validation.RegistrationValidationServiceImpl;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OnboardingOrchestratorImplTest {
 
-    private final RegistrationValidationServiceStub validation = new RegistrationValidationServiceStub();
+    // Validation checks for duplicates against the same repository the orchestrator persists to.
+    private final InMemoryOnboardingRepository repository = new InMemoryOnboardingRepository();
+    private final RegistrationValidationServiceImpl validation = new RegistrationValidationServiceImpl(repository);
     private final BusinessPartnerNumberServiceStub bpn = new BusinessPartnerNumberServiceStub();
 
     // Test doubles: the real services call the tenant manager / IdentityHub. Here we return
@@ -54,8 +56,7 @@ class OnboardingOrchestratorImplTest {
     };
 
     private OnboardingOrchestratorImpl orchestratorWith(IdentityProofingService proofing) {
-        return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials,
-                new InMemoryOnboardingRepository());
+        return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials, repository);
     }
 
     private static PartnerRegistrationData registration(String bpn) {
@@ -85,6 +86,98 @@ class OnboardingOrchestratorImplTest {
         assertThat(process.bpn()).isNotBlank();
         assertThat(process.participantProfileId()).isEqualTo("wallet-" + id);
         assertThat(process.isTerminal()).isTrue();
+    }
+
+    @Test
+    void completedOnboarding_isFindableAsActiveRegistration() {
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+
+        var id = orchestrator.start(registration(null));
+        var process = orchestrator.advanceByHolder("did:web:acme").orElseThrow();
+
+        assertThat(process.state()).isEqualTo(OnboardingState.COMPLETED);
+        // The active-registration view carries the BPN and DID assigned during onboarding.
+        var persisted = repository.findActiveByDid("did:web:acme");
+        assertThat(persisted).isPresent();
+        assertThat(persisted.get().processId()).isEqualTo(id);
+        assertThat(persisted.get().state()).isEqualTo(OnboardingState.COMPLETED);
+        assertThat(persisted.get().data().bpn()).isEqualTo(process.bpn());
+        assertThat(repository.findActiveByBpn(process.bpn())).isPresent();
+    }
+
+    @Test
+    void duplicateRegistration_isRejected() {
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+
+        orchestrator.start(registration("BPNL0000000000XY"));
+        orchestrator.advanceByHolder("did:web:acme");
+
+        var secondId = orchestrator.start(registration("BPNL0000000000XY"));
+
+        var second = orchestrator.get(secondId);
+        assertThat(second.state()).isEqualTo(OnboardingState.REJECTED);
+        assertThat(second.failureReason()).contains("already registered");
+    }
+
+    @Test
+    void inFlightRegistration_isRecordedAtValidation_andBlocksDuplicates() {
+        // Proofing never completes, so the first registration stalls mid-flight at BPN_ASSIGNED.
+        var pending = new IdentityProofingService() {
+            @Override
+            public String initiateProofing(OnboardingProcess process) {
+                return "proof-pending";
+            }
+
+            @Override
+            public boolean isVerified(String proofingReference) {
+                return false;
+            }
+        };
+        var orchestrator = orchestratorWith(pending);
+
+        orchestrator.start(registration("BPNL0000000000XY"));
+
+        var entry = repository.findActiveByBpn("BPNL0000000000XY");
+        assertThat(entry).isPresent();
+        assertThat(entry.get().state()).isEqualTo(OnboardingState.BPN_ASSIGNED);
+        assertThat(entry.get().inFlight()).isTrue();
+
+        var secondId = orchestrator.start(registration("BPNL0000000000XY"));
+
+        var second = orchestrator.get(secondId);
+        assertThat(second.state()).isEqualTo(OnboardingState.REJECTED);
+        assertThat(second.failureReason()).contains("already in flight");
+    }
+
+    @Test
+    void failedOnboarding_doesNotBlockReRegistration() {
+        var failingCredentials = new CredentialIssuanceService() {
+            @Override
+            public boolean issueBpnCredential(OnboardingProcess process) {
+                return false;
+            }
+
+            @Override
+            public boolean issueFrameworkAgreementCredential(OnboardingProcess process) {
+                return true;
+            }
+
+            @Override
+            public boolean issueMembershipCredential(OnboardingProcess process) {
+                return true;
+            }
+        };
+        var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
+                wallet, failingCredentials, repository);
+
+        var id = orchestrator.start(registration("BPNL0000000000XY"));
+        orchestrator.advanceByHolder("did:web:acme");
+
+        // Credential issuance failed — the process remains stored for audit, but no longer counts
+        // as an active registration, so the partner can re-register.
+        assertThat(orchestrator.get(id).state()).isEqualTo(OnboardingState.FAILED);
+        assertThat(repository.findById(id)).isPresent();
+        assertThat(repository.findActiveByBpn("BPNL0000000000XY")).isEmpty();
     }
 
     @Test
