@@ -102,15 +102,8 @@ jobs:
           helm push "${{ steps.package.outputs.path }}" \
             "oci://${REGISTRY}/${{ steps.repo.outputs.owner }}/charts"
 
-  release:
-    name: Create GitHub release
-    needs:
-      - docker
-      - helm-chart
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.ref }}
+          generate_release_notes: true
