@@ -1,0 +1,178 @@
+## Provisions everything the platform's bootstrap does for its own components' NATS auth, but
+## from THIS release (the platform release does not know about the onboarding API):
+##   1. Vault policy + kubernetes-auth role so the fetch-nats-nkey init container can read the seed
+##   2. the NKey seed at secret/nats/onboarding-api (generated only if absent, stable across upgrades)
+##   3. the public key merged into the platform's NATS users.conf Secret, plus the checksum stamp
+##      on the NATS Deployment that rolls the server so it re-reads the config
+##
+## CAVEAT: the platform's own nats-auth-bootstrap regenerates users.conf from its hardcoded
+## component list on every PLATFORM upgrade, dropping this entry. Re-run `helm upgrade` on this
+## release to re-merge it (this Job re-runs on every revision).
+##
+## Plain Job, NOT a Helm hook: the app pod's fetch-nats-nkey init container blocks until the
+## Vault role and seed exist, so under `helm install --wait` a post-install hook would deadlock.
+## The revision suffix lets `helm upgrade` re-run it (Job specs are immutable).
+{{- if and .Values.natsAuth.enabled .Values.natsAuth.seed.enabled .Values.config.nats.enabled }}
+{{- $vaultDataPath := .Values.natsAuth.vaultSecretPath | replace "secret/" "secret/data/" }}
+---
+# The job merges the public key into the platform's users.conf Secret and stamps the NATS
+# Deployment, so it needs patch access to exactly those two objects in the platform namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cx-ve.fullname" . }}-nats-auth-seed
+  namespace: {{ .Values.natsAuth.seed.platformNamespace }}
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "secrets" ]
+    resourceNames: [ {{ .Values.natsAuth.seed.usersConfSecret | quote }} ]
+    verbs: [ "get", "patch" ]
+  - apiGroups: [ "apps" ]
+    resources: [ "deployments" ]
+    resourceNames: [ {{ .Values.natsAuth.seed.natsDeployment | quote }} ]
+    verbs: [ "get", "patch" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cx-ve.fullname" . }}-nats-auth-seed
+  namespace: {{ .Values.natsAuth.seed.platformNamespace }}
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cx-ve.fullname" . }}-nats-auth-seed
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cx-ve.fullname" . }}-nats-auth-seed-r{{ .Release.Revision }}
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: {{ include "cx-ve.fullname" . }}-nats-auth-seed
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      restartPolicy: OnFailure
+      containers:
+        - name: nats-auth-seed
+          image: {{ .Values.natsAuth.seed.image }}
+          env:
+            - name: VAULT_ADDR
+              value: {{ .Values.natsAuth.vaultUrl | quote }}
+            - name: VAULT_TOKEN
+              value: {{ .Values.natsAuth.seed.vaultToken | quote }}
+            - name: PLATFORM_NS
+              value: {{ .Values.natsAuth.seed.platformNamespace | quote }}
+            - name: SECRET_NAME
+              value: {{ .Values.natsAuth.seed.usersConfSecret | quote }}
+            - name: NATS_DEPLOYMENT
+              value: {{ .Values.natsAuth.seed.natsDeployment | quote }}
+          command: [ "sh", "-ec" ]
+          args:
+            - |
+              echo "Waiting for Vault to be ready..."
+              until curl -sf "$VAULT_ADDR/v1/sys/health" > /dev/null 2>&1; do
+                echo "Vault not ready yet, retrying in 2 seconds..."
+                sleep 2
+              done
+              echo "Vault is ready!"
+
+              echo "Step 1: Vault policy + kubernetes-auth role for the fetch-nats-nkey init container"
+              cat > /tmp/policy.json <<EOF
+              {"policy": "path \"{{ $vaultDataPath }}\" { capabilities = [\"read\"] }"}
+              EOF
+              curl -sf -o /dev/null -H "X-Vault-Token: $VAULT_TOKEN" \
+                -X PUT -d @/tmp/policy.json \
+                "$VAULT_ADDR/v1/sys/policies/acl/{{ .Values.natsAuth.vaultRole }}"
+              cat > /tmp/role.json <<EOF
+              {"bound_service_account_names": "{{ .Values.serviceAccount.name }}",
+               "bound_service_account_namespaces": "{{ .Release.Namespace }}",
+               "policies": "{{ .Values.natsAuth.vaultRole }}",
+               "ttl": "1h"}
+              EOF
+              curl -sf -o /dev/null -H "X-Vault-Token: $VAULT_TOKEN" \
+                -X POST -d @/tmp/role.json \
+                "$VAULT_ADDR/v1/auth/kubernetes/role/{{ .Values.natsAuth.vaultRole }}"
+              rm -f /tmp/policy.json /tmp/role.json
+              echo "Vault policy/role '{{ .Values.natsAuth.vaultRole }}' bound to SA '{{ .Values.serviceAccount.name }}'"
+
+              echo "Step 2: NKey seed (generated only if absent, so keys are stable across upgrades)"
+              code=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+                -H "X-Vault-Token: $VAULT_TOKEN" "$VAULT_ADDR/v1/{{ $vaultDataPath }}")
+              if [ "$code" = "200" ]; then
+                seed=$(grep -o '"seed":"[^"]*"' /tmp/resp.json | head -n1 | cut -d'"' -f4)
+                echo "Seed already in Vault, keeping it"
+              else
+                seed=$(nk -gen user)
+                curl -sf -o /dev/null -H "X-Vault-Token: $VAULT_TOKEN" \
+                  -X POST -d "{\"data\":{\"seed\":\"$seed\"}}" \
+                  "$VAULT_ADDR/v1/{{ $vaultDataPath }}"
+                echo "Generated and stored a new NKey seed"
+              fi
+              printf '%s' "$seed" > /tmp/seed.tmp
+              PUB=$(nk -inkey /tmp/seed.tmp -pubout)
+              rm -f /tmp/seed.tmp /tmp/resp.json
+              [ -n "$PUB" ]
+
+              echo "Step 3: merge the public key into the platform's users.conf"
+              SA_DIR=/var/run/secrets/kubernetes.io/serviceaccount
+              API="https://kubernetes.default.svc"
+              KTOKEN=$(cat $SA_DIR/token)
+
+              until code=$(curl -s -o /tmp/secret.json -w "%{http_code}" --cacert $SA_DIR/ca.crt \
+                  -H "Authorization: Bearer $KTOKEN" \
+                  "$API/api/v1/namespaces/$PLATFORM_NS/secrets/$SECRET_NAME?pretty=false"); [ "$code" = "200" ]; do
+                echo "users.conf Secret '$SECRET_NAME' not found yet (platform nats-auth-bootstrap still running?), retrying in 5 seconds..."
+                sleep 5
+              done
+              grep -o '"users.conf": *"[^"]*"' /tmp/secret.json | head -n1 | sed 's/.*: *"//;s/"$//' | base64 -d > /tmp/users.conf
+
+              if grep -q "$PUB" /tmp/users.conf; then
+                echo "Public key already registered in users.conf"
+              else
+                # Insert before the line closing the users [...] array. Durable push consumer on
+                # the edc-events stream: consumer mgmt + acks via $JS, delivery via _INBOX.
+                awk -v pub="$PUB" '
+                  /^[[:space:]]*\][[:space:]]*$/ && !done {
+                    print "      # onboarding-api (SA: {{ .Values.serviceAccount.name }}, seeded by the cx-ve release): consumes IdentityHub issuance events"
+                    print "      { nkey: \"" pub "\", permissions: { publish: [\"$JS.API.>\", \"$JS.ACK.>\"], subscribe: [\"events.>\", \"_INBOX.>\"] } }"
+                    done=1
+                  }
+                  { print }' /tmp/users.conf > /tmp/users.new
+                mv /tmp/users.new /tmp/users.conf
+                B64=$(base64 < /tmp/users.conf | tr -d '\n')
+                curl -sf -o /dev/null --cacert $SA_DIR/ca.crt \
+                  -H "Authorization: Bearer $KTOKEN" \
+                  -H "Content-Type: application/strategic-merge-patch+json" \
+                  -X PATCH -d "{\"data\":{\"users.conf\":\"$B64\"}}" \
+                  "$API/api/v1/namespaces/$PLATFORM_NS/secrets/$SECRET_NAME"
+                echo "users.conf updated with the onboarding-api public key"
+              fi
+
+              # Same checksum annotation the platform job uses: unchanged content is a no-op,
+              # changed content triggers a rolling restart that re-reads users.conf.
+              CHECKSUM=$(sha256sum /tmp/users.conf | cut -d' ' -f1)
+              curl -sf -o /dev/null --cacert $SA_DIR/ca.crt \
+                -H "Authorization: Bearer $KTOKEN" \
+                -H "Content-Type: application/strategic-merge-patch+json" \
+                -X PATCH \
+                -d "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"cpd.eclipse-cfm.org/nats-auth-checksum\":\"$CHECKSUM\"}}}}}" \
+                "$API/apis/apps/v1/namespaces/$PLATFORM_NS/deployments/$NATS_DEPLOYMENT"
+              echo "NATS deployment stamped with users.conf checksum $CHECKSUM"
+              rm -f /tmp/users.conf /tmp/secret.json
+
+              echo "onboarding-api NATS auth seeding completed!"
+{{- end }}
