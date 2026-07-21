@@ -21,7 +21,7 @@ import org.springframework.web.client.RestClient;
 
 @Configuration
 public class TenantManagerConfig {
-    @Value("${tenant-manager.url:http://jad.localhost/api/tm}")
+    @Value("${tenant-manager.url:http://cxve.localhost/api/tm}")
     private String tenantManagerUrl;
 
     @Bean

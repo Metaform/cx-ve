@@ -36,15 +36,15 @@ token:
   file:
     path: "${user.dir}/token"                                   # TOKEN_FILE_PATH
   exchange:
-    url: http://jad.localhost/api/auth                          # TOKEN_EXCHANGE_URL
+    url: http://cxve.localhost/api/auth                          # TOKEN_EXCHANGE_URL
     audience: edcv                                              # TOKEN_EXCHANGE_AUDIENCE
     resource: redline                                           # TOKEN_EXCHANGE_RESOURCE
 
 # Downstream services
 tenant-manager:
-  url: http://jad.localhost/api/tm                              # TENANT_MANAGER_URL
+  url: http://cxve.localhost/api/tm                              # TENANT_MANAGER_URL
 identityhub:
-  url: http://jad.localhost/api/identity                        # IDENTITYHUB_URL
+  url: http://cxve.localhost/api/identity                        # IDENTITYHUB_URL
 
 # Prefix for participant DIDs when the registration doesn't supply one; the participant's short
 # name is appended. %3A is the percent-encoded port colon required by did:web.

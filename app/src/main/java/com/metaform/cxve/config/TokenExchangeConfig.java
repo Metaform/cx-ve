@@ -21,7 +21,7 @@ import org.springframework.web.client.RestClient;
 
 @Configuration
 public class TokenExchangeConfig {
-    @Value("${token.exchange.url:http://jad.localhost/api/auth}")
+    @Value("${token.exchange.url:http://cxve.localhost/api/auth}")
     private String tokenExchangeUrl;
 
     @Bean

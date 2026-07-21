@@ -7,7 +7,7 @@ import org.springframework.web.client.RestClient;
 
 @Configuration
 public class IdentityHubConfig {
-    @Value("${identityhub.url:http://jad.localhost/api/identity}")
+    @Value("${identityhub.url:http://cxve.localhost/api/identity}")
     private String identityHubUrl;
 
     @Bean
