@@ -15,7 +15,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class InMemoryOnboardingOrchestratorTest {
+class OnboardingOrchestratorImplTest {
 
     private final RegistrationValidationServiceStub validation = new RegistrationValidationServiceStub();
     private final BusinessPartnerNumberServiceStub bpn = new BusinessPartnerNumberServiceStub();
@@ -56,8 +56,9 @@ class InMemoryOnboardingOrchestratorTest {
         }
     };
 
-    private InMemoryOnboardingOrchestrator orchestratorWith(IdentityProofingService proofing) {
-        return new InMemoryOnboardingOrchestrator(validation, bpn, proofing, wallet, credentials);
+    private OnboardingOrchestratorImpl orchestratorWith(IdentityProofingService proofing) {
+        return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials,
+                new InMemoryOnboardingRepository());
     }
 
     private static PartnerRegistrationData registration(String bpn) {

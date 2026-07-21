@@ -49,12 +49,13 @@ class OnboardingHolderCorrelationTest {
         }
     };
 
-    private final InMemoryOnboardingOrchestrator orchestrator = new InMemoryOnboardingOrchestrator(
+    private final OnboardingOrchestratorImpl orchestrator = new OnboardingOrchestratorImpl(
             new RegistrationValidationServiceStub(),
             new BusinessPartnerNumberServiceStub(),
             new IdentityProofingServiceStub(),
             wallet,
-            credentials);
+            credentials,
+            new InMemoryOnboardingRepository());
 
     private static PartnerRegistrationData registration() {
         return new PartnerRegistrationData(
