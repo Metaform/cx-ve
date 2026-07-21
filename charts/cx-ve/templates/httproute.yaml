@@ -17,6 +17,22 @@ spec:
         - path:
             type: PathPrefix
             value: {{ .Values.httpRoute.pathPrefix | quote }}
+      {{- if ne .Values.httpRoute.pathPrefix "/" }}
+      filters:
+        # The app serves at / — strip the prefix like the platform routes do, and advertise it
+        # via X-Forwarded-Prefix so Spring (server.forward-headers-strategy: framework) keeps
+        # redirects and springdoc's Swagger UI links under the prefix.
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - name: X-Forwarded-Prefix
+                value: {{ .Values.httpRoute.pathPrefix | quote }}
+      {{- end }}
       backendRefs:
         - name: {{ include "cx-ve.fullname" . }}
           port: {{ .Values.service.port }}

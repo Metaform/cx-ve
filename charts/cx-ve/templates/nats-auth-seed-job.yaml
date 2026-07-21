@@ -9,6 +9,11 @@
 ## component list on every PLATFORM upgrade, dropping this entry. Re-run `helm upgrade` on this
 ## release to re-merge it (this Job re-runs on every revision).
 ##
+## Stream lifecycle is PLATFORM-owned: this job never creates or drops JetStream streams. Note
+## the roll triggered by a users.conf change wipes JetStream state (streams + durable consumers)
+## unless the platform NATS store_dir is on a persistent volume (its default is an emptyDir);
+## restoring streams is the platform's concern (its nats-bootstrap job).
+##
 ## Plain Job, NOT a Helm hook: the app pod's fetch-nats-nkey init container blocks until the
 ## Vault role and seed exist, so under `helm install --wait` a post-install hook would deadlock.
 ## The revision suffix lets `helm upgrade` re-run it (Job specs are immutable).
@@ -32,7 +37,7 @@ rules:
   - apiGroups: [ "apps" ]
     resources: [ "deployments" ]
     resourceNames: [ {{ .Values.natsAuth.seed.natsDeployment | quote }} ]
-    verbs: [ "get", "patch" ]
+    verbs: [ "patch" ]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

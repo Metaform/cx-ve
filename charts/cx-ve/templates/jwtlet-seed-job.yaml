@@ -20,7 +20,8 @@ spec:
       labels:
         app: {{ include "cx-ve.fullname" . }}-jwtlet-seed
     spec:
-      serviceAccountName: {{ .Values.serviceAccount.name }}
+      # must act under the "seed-jobs" SA, so that JWTlet's management API can be accessed
+      serviceAccountName: seed-jobs
       restartPolicy: OnFailure
       initContainers:
         - name: wait-for-jwtlet

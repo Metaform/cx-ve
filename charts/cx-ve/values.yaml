@@ -32,11 +32,13 @@ jwtlet:
     # Must cover the scopes the app exchanges for: cfm-read/cfm-write (Tenant Manager)
     # and admin (IdentityHub)
     scopes:
-      - read
-      - write
-      - admin
-      - cfm-read
-      - cfm-write
+      - identity-api:read
+      - identity-api:write
+      - identity-api:admin
+      - issuer-admin-api:read
+      - issuer-admin-api:write
+      - tenant-manager-api:read
+      - tenant-manager-api:write
     # jwtlet participant-token audience (client_audience / bound_audiences)
     audiences:
       - edcv
@@ -76,7 +78,7 @@ httpRoute:
   enabled: true
   # The Gateway this route attaches to — adjust to the target cluster
   parentRefs:
-    - name: gateway
+    - name: edcv-gateway
       # namespace: gateway-system
   hostnames:
     - cxve.localhost
@@ -91,6 +93,10 @@ config:
   spring:
     application:
       name: cx-ve
+  # Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and
+  # springdoc URLs are generated with the external /onboarding prefix
+  server:
+    forward-headers-strategy: framework
   springdoc:
     swagger-ui:
       path: /swagger
@@ -111,14 +117,14 @@ config:
     file:
       path: /var/run/secrets/jwtlet/token
     exchange:
-      url: http://cxve.localhost/api/auth
+      url: http://jwtlet.edc-v.svc.cluster.local:8080
       audience: edcv
-      resource: redline
+      resource: issuer
   # Downstream services
   tenant-manager:
-    url: http://cxve.localhost/api/tm
+    url: http://tenant-manager.edc-v.svc.cluster.local:8080/api/v1alpha1
   identityhub:
-    url: http://cxve.localhost/api/identity
+    url: http://identityhub.edc-v.svc.cluster.local:7081/api/identity/v1beta
   # Prefix for participant DIDs when the registration doesn't supply one; the participant's
   # short name is appended. %3A is the percent-encoded port colon required by did:web.
   participant:
