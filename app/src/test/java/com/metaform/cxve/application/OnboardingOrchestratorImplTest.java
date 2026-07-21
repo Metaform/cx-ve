@@ -4,16 +4,15 @@ import com.metaform.cxve.domain.model.CompanyRoleId;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
+import com.metaform.cxve.domain.model.ProvisionedParticipant;
 import com.metaform.cxve.domain.port.CredentialIssuanceService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
 import com.metaform.cxve.domain.port.WalletService;
-import com.metaform.cxve.infrastructure.bpn.BusinessPartnerNumberServiceStub;
-import com.metaform.cxve.infrastructure.cfm.model.ParticipantProfile;
-import com.metaform.cxve.infrastructure.persistence.InMemoryOnboardingRepository;
-import com.metaform.cxve.infrastructure.proofing.IdentityProofingServiceStub;
-import com.metaform.cxve.infrastructure.validation.RegistrationValidationServiceStub;
+import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
+import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
+import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
+import com.metaform.cxve.adapter.out.stub.RegistrationValidationServiceStub;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -26,18 +25,14 @@ class OnboardingOrchestratorImplTest {
     // deterministic values so the orchestrator's state machine can be exercised in isolation.
     private final WalletService wallet = new WalletService() {
         @Override
-        public ParticipantProfile provisionWallet(OnboardingProcess process, PartnerRegistrationData registrationData) {
-            return ParticipantProfile.builder().id("wallet-" + process.id()).identifier("did:web:acme").build();
+        public ProvisionedParticipant provisionWallet(OnboardingProcess process, PartnerRegistrationData registrationData) {
+            return new ProvisionedParticipant("wallet-" + process.id(), "did:web:acme", null, null, null, false);
         }
 
         @Override
-        public ParticipantProfile checkProvisionStatus(OnboardingProcess process) {
+        public ProvisionedParticipant checkProvisionStatus(OnboardingProcess process) {
             // "Ready": context id + holder PID are present, so provisioning polling completes at once.
-            return ParticipantProfile.builder()
-                    .id("wallet-" + process.id())
-                    .identifier("did:web:acme")
-                    .property("cfm.vpa.state", Map.of("participantContextId", "ctx-1", "holderPid", "holder-pid-1"))
-                    .build();
+            return new ProvisionedParticipant("wallet-" + process.id(), "did:web:acme", null, "ctx-1", "holder-pid-1", false);
         }
     };
 

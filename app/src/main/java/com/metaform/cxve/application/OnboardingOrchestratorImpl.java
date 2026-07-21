@@ -9,7 +9,7 @@ import com.metaform.cxve.domain.port.IdentityProofingService;
 import com.metaform.cxve.domain.port.OnboardingRepository;
 import com.metaform.cxve.domain.port.RegistrationValidationService;
 import com.metaform.cxve.domain.port.WalletService;
-import com.metaform.cxve.infrastructure.cfm.model.ParticipantProfile;
+import com.metaform.cxve.domain.model.ProvisionedParticipant;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
@@ -33,7 +33,7 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
 
     // Exponential backoff for polling the async participant provisioning result (context ID + holder PID):
     // start at 1.5 s, double each attempt up to 8 s, give up after 8 polls.
-    private static final long INITIAL_BACKOFF_MILLIS = 1500;
+    private static final long INITIAL_BACKOFF_MILLIS = 1000;
     private static final long MAX_BACKOFF_MILLIS = 8_000;
     private static final int MAX_PROVISION_POLLS = 8;
 
@@ -167,16 +167,16 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     }
 
     private OnboardingProcess provisionParticipant(OnboardingProcess process, PartnerRegistrationData payload) {
-        ParticipantProfile participantProfile;
+        ProvisionedParticipant participant;
         if (process.participantProfileId() != null) { // participant deployment already in process, only need to check status
-            participantProfile = walletService.checkProvisionStatus(process);
+            participant = walletService.checkProvisionStatus(process);
 
             // Poll for the async provisioning result with exponential backoff — capped delay, bounded
             // attempts — instead of a fixed-interval wait. If it isn't ready within the budget, leave
             // the process at this gate so a later advance (e.g. an issuance event) retries from scratch.
             var backoffMillis = INITIAL_BACKOFF_MILLIS;
             var attempt = 0;
-            while (participantProfile.getParticipantContextId() == null || participantProfile.getHolderProcessId() == null) {
+            while (participant.participantContextId() == null || participant.holderProcessId() == null) {
                 if (++attempt > MAX_PROVISION_POLLS) {
                     log.warn("Onboarding {}: participant context ID / holder PID still unassigned after {} polls; will retry later",
                             process.id(), MAX_PROVISION_POLLS);
@@ -186,25 +186,25 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
                         process.id(), backoffMillis, attempt, MAX_PROVISION_POLLS);
                 sleep(backoffMillis);
                 backoffMillis = Math.min(backoffMillis * 2, MAX_BACKOFF_MILLIS);
-                participantProfile = walletService.checkProvisionStatus(process);
+                participant = walletService.checkProvisionStatus(process);
             }
 
-            var participantContextId = participantProfile.getParticipantContextId();
-            var holderPid = participantProfile.getHolderProcessId();
+            var participantContextId = participant.participantContextId();
+            var holderPid = participant.holderProcessId();
             log.info("Onboarding {}: participant context ID: {}, holder PID: {}", process.id(), participantContextId, holderPid);
             process = process.withParticipantContextId(participantContextId)
                     .withHolderProcessId(holderPid);
         } else {
-            participantProfile = walletService.provisionWallet(process, payload);
-            linkHolder(process.id(), participantProfile.getIdentifier());
+            participant = walletService.provisionWallet(process, payload);
+            linkHolder(process.id(), participant.identifier());
         }
 
-        if (participantProfile.isError()) {
-            return process.failed("Failed to deploy participant profile with ID '%s'".formatted(participantProfile.getId()));
+        if (participant.error()) {
+            return process.failed("Failed to deploy participant profile with ID '%s'".formatted(participant.id()));
         }
-        return process.withParticipantProfile(participantProfile.getId())
-                .withHolderId(participantProfile.getIdentifier())
-                .withTenantId(participantProfile.getTenantId());
+        return process.withParticipantProfile(participant.id())
+                .withHolderId(participant.identifier())
+                .withTenantId(participant.tenantId());
     }
 
     private OnboardingProcess issueCredentials(OnboardingProcess process) {
