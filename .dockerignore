@@ -1,0 +1,10 @@
+.git
+.gradle
+**/build
+charts
+scripts
+token
+*.md
+.idea
+.claude
+.DS_Store
