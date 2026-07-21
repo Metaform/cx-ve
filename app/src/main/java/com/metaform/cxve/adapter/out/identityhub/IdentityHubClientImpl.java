@@ -29,6 +29,6 @@ public class IdentityHubClientImpl implements IdentityHubClient {
     }
 
     private String getToken(String participantContextId) {
-        return tokenProvider.getToken(null, "admin");
+        return tokenProvider.getToken(null, "identity-api:admin");
     }
 }

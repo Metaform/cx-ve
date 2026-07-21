@@ -28,7 +28,7 @@ public class TenantManagerClientImpl implements TenantManagerClient {
     public List<Cell> listCells() {
         var data = restClient.get()
                 .uri("/cells")
-                .header("Authorization", "Bearer " + getToken("cfm-read"))
+                .header("Authorization", "Bearer " + getToken("tenant-manager-api:read"))
                 .retrieve()
                 .toEntity(new ParameterizedTypeReference<List<Cell>>() {
                 });
@@ -39,7 +39,7 @@ public class TenantManagerClientImpl implements TenantManagerClient {
     public Tenant createTenant(TenantCreationRequest newTenant) {
         return restClient.post()
                 .uri("/tenants")
-                .header("Authorization", "Bearer " + getToken("cfm-write"))
+                .header("Authorization", "Bearer " + getToken("tenant-manager-api:write"))
                 .body(newTenant)
                 .retrieve()
                 .toEntity(Tenant.class)
@@ -50,7 +50,7 @@ public class TenantManagerClientImpl implements TenantManagerClient {
     public List<DataspaceProfile> listDataspaceProfiles() {
         return restClient.get()
                 .uri("/dataspace-profiles")
-                .header("Authorization", "Bearer " + getToken("cfm-read"))
+                .header("Authorization", "Bearer " + getToken("tenant-manager-api:read"))
                 .retrieve()
                 .toEntity(new ParameterizedTypeReference<List<DataspaceProfile>>() {
                 }).getBody();
@@ -60,7 +60,7 @@ public class TenantManagerClientImpl implements TenantManagerClient {
     public ParticipantProfile deployParticipantProfile(String tenantId, ParticipantProfile profile) {
         return restClient.post()
                 .uri("/tenants/{id}/participant-profiles", tenantId)
-                .header("Authorization", "Bearer " + getToken("cfm-write"))
+                .header("Authorization", "Bearer " + getToken("tenant-manager-api:write"))
                 .body(profile)
                 .retrieve()
                 .toEntity(ParticipantProfile.class)
@@ -71,7 +71,7 @@ public class TenantManagerClientImpl implements TenantManagerClient {
     public ParticipantProfile getParticipantProfile(String tenantId, String participantProfileId) {
         var response = restClient.get()
                 .uri("/tenants/{id}/participant-profiles/{participantID}", tenantId, participantProfileId)
-                .header("Authorization", "Bearer " + getToken("cfm-read"))
+                .header("Authorization", "Bearer " + getToken("tenant-manager-api:read"))
                 .retrieve();
         return response
                 .toEntity(ParticipantProfile.class)

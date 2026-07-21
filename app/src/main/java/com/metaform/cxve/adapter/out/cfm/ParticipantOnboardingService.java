@@ -1,5 +1,7 @@
 package com.metaform.cxve.adapter.out.cfm;
 
+import com.metaform.cxve.domain.model.AgreementConsentData;
+import com.metaform.cxve.domain.model.ConsentStatusId;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.ProvisionedParticipant;
@@ -12,6 +14,7 @@ import com.metaform.cxve.adapter.out.cfm.model.TenantCreationRequest;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,16 +85,19 @@ public class ParticipantOnboardingService implements WalletService {
         return ParticipantProfile.builder()
                 .identifier(did)
 //                .participantRole(dataspaceId, List.of("member"))
-                .vpaProperties(Map.of("cfm.issuer", holderProperties(did, bpn)))
+                .vpaProperties(Map.of("cfm.issuer", holderProperties(did, bpn, registrationData.agreements())))
                 .build();
     }
 
-    private Map<String, Object> holderProperties(String holderId, String bpn) {
-        var now = Instant.now().toString();
+    private Map<String, Object> holderProperties(String holderId, String bpn, List<AgreementConsentData> agreements) {
+        var agr = agreements.stream()
+                .filter(acd -> acd.consentStatus().equals(ConsentStatusId.ACTIVE))
+                .map(AgreementConsentData::agreementId)
+                .collect(Collectors.joining(", "));
         return Map.of(
                 "id", holderId,
                 "contractVersion", "1.0.0",
-                "memberOf", "yomama",
+                "memberOf", agr,
                 "bpn", bpn
         );
     }
