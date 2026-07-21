@@ -4,18 +4,22 @@ import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.ProvisionedParticipant;
 import com.metaform.cxve.domain.port.WalletService;
-import com.metaform.cxve.adapter.out.cfm.TenantManagerClient;
 import com.metaform.cxve.adapter.out.cfm.model.Cell;
 import com.metaform.cxve.adapter.out.cfm.model.DataspaceProfile;
 import com.metaform.cxve.adapter.out.cfm.model.ParticipantProfile;
 import com.metaform.cxve.adapter.out.cfm.model.TenantCreationRequest;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import static java.util.Optional.ofNullable;
 
 /**
  * Placeholder wallet provisioning. A real implementation would provision an operator-hosted wallet
@@ -26,9 +30,12 @@ public class ParticipantOnboardingService implements WalletService {
 
     private static final Logger log = LoggerFactory.getLogger(ParticipantOnboardingService.class);
     private final TenantManagerClient tenantManagerClient;
+    private final String didTemplate;
 
-    public ParticipantOnboardingService(@Autowired TenantManagerClient tenantManagerClient) {
+    public ParticipantOnboardingService(@Autowired TenantManagerClient tenantManagerClient,
+                                        @Value("${participant.did.template:did:web:identityhub.edc-v.svc.cluster.local%%3A7083:}") String didTemplate) {
         this.tenantManagerClient = tenantManagerClient;
+        this.didTemplate = didTemplate;
     }
 
     @Override
@@ -42,10 +49,10 @@ public class ParticipantOnboardingService implements WalletService {
         log.debug("Created tenant with ID '{}'", tenant.id());
         log.debug("Deploy participant profile");
 
-        var profile = toParticipantProfile(dataspaceId, registrationData);
+        var profile = toParticipantProfile(dataspaceId, registrationData, process.bpn());
 
         profile = tenantManagerClient.deployParticipantProfile(tenant.id(), profile);
-        profile= tenantManagerClient.getParticipantProfile(tenant.id(), profile.getId());
+        profile = tenantManagerClient.getParticipantProfile(tenant.id(), profile.getId());
         profile.setTenantId(tenant.id());
 
         return toDomain(profile);
@@ -57,7 +64,9 @@ public class ParticipantOnboardingService implements WalletService {
         return toDomain(profile);
     }
 
-    /** Maps the CFM Tenant Manager's {@link ParticipantProfile} onto the domain-facing result. */
+    /**
+     * Maps the CFM Tenant Manager's {@link ParticipantProfile} onto the domain-facing result.
+     */
     private ProvisionedParticipant toDomain(ParticipantProfile profile) {
         return new ProvisionedParticipant(
                 profile.getId(),
@@ -68,29 +77,26 @@ public class ParticipantOnboardingService implements WalletService {
                 profile.isError());
     }
 
-    private ParticipantProfile toParticipantProfile(String dataspaceId, PartnerRegistrationData registrationData) {
+    private ParticipantProfile toParticipantProfile(String dataspaceId, PartnerRegistrationData registrationData, String bpn) {
         var did = generateDid(registrationData);
         return ParticipantProfile.builder()
                 .identifier(did)
-                .participantRole(dataspaceId, List.of("member"))
-                .vpaProperties(Map.of("cfm.issuer", holderProperties(did)))
+//                .participantRole(dataspaceId, List.of("member"))
+                .vpaProperties(Map.of("cfm.issuer", holderProperties(did, bpn)))
                 .build();
     }
 
-    private Map<String, Object> holderProperties(String holderId) {
+    private Map<String, Object> holderProperties(String holderId, String bpn) {
         var now = Instant.now().toString();
         return Map.of(
                 "id", holderId,
-                "membership", Map.of("since", now),
-                "membershipType", "full-member",
-                "membershipStartDate", now,
                 "contractVersion", "1.0.0",
-                "component_types", "all",
-                "since", now
+                "memberOf", "yomama",
+                "bpn", bpn
         );
     }
 
     private String generateDid(PartnerRegistrationData registrationData) {
-        return "did:web:identityhub.edc-v.svc.cluster.local%%3A7083:%s".formatted(registrationData.shortName());
+        return ofNullable(registrationData.did()).orElseGet(() -> didTemplate + registrationData.shortName());
     }
 }

@@ -33,8 +33,8 @@ public class CredentialIssuanceServiceStub implements CredentialIssuanceService 
 
     @Override
     public boolean issueFrameworkAgreementCredential(OnboardingProcess process) {
-        log.debug("Issuing Framework Agreement credential for onboarding {}", process.id());
-        return checkCredential(process, "FrameworkAgreementCredential");
+        log.debug("Issuing DataExchangeGovernanceCredential credential for onboarding {}", process.id());
+        return checkCredential(process, "DataExchangeGovernanceCredential");
     }
 
     @Override
