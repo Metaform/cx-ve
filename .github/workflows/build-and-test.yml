@@ -12,6 +12,9 @@ jobs:
   build-and-test:
     name: Build and test
     runs-on: ubuntu-latest
+    concurrency:
+      group: build-and-test-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
 
