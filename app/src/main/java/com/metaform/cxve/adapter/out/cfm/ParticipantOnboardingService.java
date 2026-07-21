@@ -33,7 +33,7 @@ public class ParticipantOnboardingService implements WalletService {
     private final String didTemplate;
 
     public ParticipantOnboardingService(@Autowired TenantManagerClient tenantManagerClient,
-                                        @Value("${participant.did.template:did:web:identityhub.edc-v.svc.cluster.local%%3A7083:}") String didTemplate) {
+                                        @Value("${participant.did.template:did:web:identityhub.edc-v.svc.cluster.local%3A7083:}") String didTemplate) {
         this.tenantManagerClient = tenantManagerClient;
         this.didTemplate = didTemplate;
     }

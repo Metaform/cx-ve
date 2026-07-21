@@ -1,0 +1,53 @@
+# Runtime configuration for the Onboarding API. Values here are the defaults baked into the image.
+#
+# Every key can be overridden from outside without rebuilding, e.g. from a Kubernetes ConfigMap:
+#   - as environment variables (env/envFrom): the exact variable name is noted next to each key
+#   - or by mounting a yaml file and pointing SPRING_CONFIG_ADDITIONALLOCATION at it
+#     (spring.config.additional-location=/path/to/dir/)
+
+spring:
+  application:
+    name: cx-ve                                                 # SPRING_APPLICATION_NAME
+
+springdoc:
+  swagger-ui:
+    path: /swagger                                              # SPRINGDOC_SWAGGERUI_PATH
+
+logging:
+  level:
+    com.metaform.cxve: INFO                                     # LOGGING_LEVEL_COM_METAFORM_CXVE
+
+# NATS/JetStream issuance-event subscriber (drives onboarding completion).
+# Disable when running without a broker (local docker run, tests).
+nats:
+  enabled: true                                                 # NATS_ENABLED
+  url: nats://core-platform-nats.edc-v.svc.cluster.local:4222   # NATS_URL
+  stream: edc-events                                            # NATS_STREAM
+  durable-name: onboarding-api                                  # NATS_DURABLENAME
+  subject-filter: "events.issuance.>"                           # NATS_SUBJECTFILTER
+  # Absent -> connect unauthenticated (e.g. local dev NATS)
+  # nkey-seed-path: /vault/secrets/nats.nk                      # NATS_NKEYSEEDPATH
+
+# Token exchange (RFC 8693): workload token file + exchange endpoint
+token:
+  # user.dir = the process working directory (same as $PWD in a shell, but also resolvable in
+  # containers, where no shell sets PWD). In Kubernetes point this at the projected token,
+  # e.g. /var/run/secrets/jwtlet/token.
+  file:
+    path: "${user.dir}/token"                                   # TOKEN_FILE_PATH
+  exchange:
+    url: http://jad.localhost/api/auth                          # TOKEN_EXCHANGE_URL
+    audience: edcv                                              # TOKEN_EXCHANGE_AUDIENCE
+    resource: redline                                           # TOKEN_EXCHANGE_RESOURCE
+
+# Downstream services
+tenant-manager:
+  url: http://jad.localhost/api/tm                              # TENANT_MANAGER_URL
+identityhub:
+  url: http://jad.localhost/api/identity                        # IDENTITYHUB_URL
+
+# Prefix for participant DIDs when the registration doesn't supply one; the participant's short
+# name is appended. %3A is the percent-encoded port colon required by did:web.
+participant:
+  did:
+    template: "did:web:identityhub.edc-v.svc.cluster.local%3A7083:"   # PARTICIPANT_DID_TEMPLATE
