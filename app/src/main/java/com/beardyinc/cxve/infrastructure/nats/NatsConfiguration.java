@@ -4,16 +4,15 @@ import io.nats.client.Connection;
 import io.nats.client.JetStream;
 import io.nats.client.Nats;
 import io.nats.client.Options;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import java.io.IOException;
-import java.nio.file.Path;
-import java.time.Duration;
 
 /**
  * Wires the NATS connection and JetStream context when {@code nats.enabled=true}. Left disabled the

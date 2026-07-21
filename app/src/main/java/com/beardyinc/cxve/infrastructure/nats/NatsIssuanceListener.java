@@ -1,6 +1,6 @@
 package com.beardyinc.cxve.infrastructure.nats;
 
-import com.beardyinc.cxve.onboarding.OnboardingOrchestrator;
+import com.beardyinc.cxve.application.OnboardingOrchestrator;
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
 import io.nats.client.JetStream;
@@ -9,12 +9,11 @@ import io.nats.client.Message;
 import io.nats.client.PushSubscribeOptions;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
-
-import java.util.Optional;
 
 /**
  * Subscribes to IdentityHub issuance events on the {@code edc-events} JetStream stream and drives the

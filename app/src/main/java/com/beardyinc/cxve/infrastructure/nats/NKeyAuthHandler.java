@@ -2,7 +2,6 @@ package com.beardyinc.cxve.infrastructure.nats;
 
 import io.nats.client.AuthHandler;
 import io.nats.client.NKey;
-
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;

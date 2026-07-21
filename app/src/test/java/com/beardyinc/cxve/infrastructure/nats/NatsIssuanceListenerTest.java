@@ -1,16 +1,14 @@
 package com.beardyinc.cxve.infrastructure.nats;
 
-import com.beardyinc.cxve.onboarding.OnboardingOrchestrator;
+import com.beardyinc.cxve.application.OnboardingOrchestrator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cloudevents.core.builder.CloudEventBuilder;
 import io.cloudevents.jackson.JsonFormat;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;
 import io.nats.client.Message;
-import org.junit.jupiter.api.Test;
-
 import java.net.URI;
-
+import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;

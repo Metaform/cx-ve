@@ -3,10 +3,8 @@ package com.beardyinc.cxve.infrastructure.nats;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cloudevents.core.builder.CloudEventBuilder;
 import io.cloudevents.jackson.JsonFormat;
-import org.junit.jupiter.api.Test;
-
 import java.net.URI;
-
+import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class IssuanceCloudEventParserTest {

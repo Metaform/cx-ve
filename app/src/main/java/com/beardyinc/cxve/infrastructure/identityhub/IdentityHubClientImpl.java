@@ -1,6 +1,6 @@
 package com.beardyinc.cxve.infrastructure.identityhub;
 
-import com.beardyinc.cxve.auth.TokenProvider;
+import com.beardyinc.cxve.infrastructure.auth.TokenProvider;
 import com.beardyinc.cxve.infrastructure.identityhub.model.CredentialRequest;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;

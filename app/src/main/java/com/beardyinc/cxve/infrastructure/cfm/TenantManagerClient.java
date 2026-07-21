@@ -5,7 +5,6 @@ import com.beardyinc.cxve.infrastructure.cfm.model.DataspaceProfile;
 import com.beardyinc.cxve.infrastructure.cfm.model.ParticipantProfile;
 import com.beardyinc.cxve.infrastructure.cfm.model.Tenant;
 import com.beardyinc.cxve.infrastructure.cfm.model.TenantCreationRequest;
-
 import java.util.List;
 
 public interface TenantManagerClient {

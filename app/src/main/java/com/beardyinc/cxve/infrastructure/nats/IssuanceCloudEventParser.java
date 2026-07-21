@@ -3,9 +3,8 @@ package com.beardyinc.cxve.infrastructure.nats;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.jackson.JsonFormat;
-import org.springframework.stereotype.Component;
-
 import java.util.Optional;
+import org.springframework.stereotype.Component;
 
 /**
  * Parses the structured-mode CloudEvents JSON produced by the EDC {@code events-nats} bridge.
