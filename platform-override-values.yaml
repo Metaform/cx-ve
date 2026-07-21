@@ -1,0 +1,22 @@
+global:
+  host: cxve.localhost
+
+edc:
+  controlplane:
+    trustedIssuers:
+      - name: cxtck
+        id: "did:web:cx-tck.edc-v.svc.cluster.local:issuer"
+  identityhub:
+    scopes:
+      - name: membership
+        pattern: 'org\.eclipse\.tractusx\.vc\.type:(.+):(read|\*|all)'
+        leftOperand: "verifiableCredential.credential.type"
+        operator: "contains"
+        rightOperand: "$1"
+  siglet:
+    transferTypes:
+      - transferType: "HttpData-PULL"
+        endpointType: "https://w3id.org/idsa/v4.1/HTTP"
+        endpoint: "http://provider:8080/data"
+        tokenSource: "provider"
+        txRenewalSupport: true

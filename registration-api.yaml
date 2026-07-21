@@ -1,0 +1,289 @@
+openapi: 3.2.0
+info:
+  title: Org.Eclipse.TractusX.Portal.Backend.Registration.Service
+  version: 2.1.0
+paths:
+  /api/v2/administration/registration/Network/partnerRegistration:
+    post:
+      tags:
+        - Network
+      summary: 'Registers a partner company (Authorization required - Roles: configure_partner_registration)'
+      requestBody:
+        description: Data for the registration
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartnerRegistrationData'
+      responses:
+        '200':
+          description: Empty response on success.
+        '500':
+          description: Internal Server Error
+        '401':
+          description: The User is unauthorized
+  /api/administration/RegistrationStatus/callback:
+    get:
+      tags:
+        - RegistrationStatus
+      summary: 'Gets the callback address of the onboarding service provider (Authorization required - Roles: configure_partner_registration)'
+      description: 'Example: GET: api/administration/registrationstatus/callback'
+      responses:
+        '200':
+          description: Returns the company with its address.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingServiceProviderCallbackRequestData'
+        '400':
+          description: Company is no onboarding service provider.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+        '401':
+          description: The User is unauthorized
+    post:
+      tags:
+        - RegistrationStatus
+      summary: 'Sets the callback address of the onboarding service provider (Authorization required - Roles: configure_partner_registration)'
+      description: 'Example: POST: api/administration/registrationstatus/callback'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardingServiceProviderCallbackRequestData'
+      responses:
+        '204':
+          description: Returns no content.
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+        '401':
+          description: The User is unauthorized
+components:
+  schemas:
+    AgreementConsentData:
+      type: object
+      properties:
+        agreementId:
+          type: string
+          description: ''
+          format: uuid
+        consentStatus:
+          $ref: '#/components/schemas/ConsentStatusId'
+      additionalProperties: false
+      description: ''
+    CompanyRoleId:
+      enum:
+        - ACTIVE_PARTICIPANT
+        - APP_PROVIDER
+        - SERVICE_PROVIDER
+        - OPERATOR
+        - ONBOARDING_SERVICE_PROVIDER
+      type: string
+    CompanyUniqueIdData:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/UniqueIdentifierId'
+        value:
+          type: string
+      additionalProperties: false
+    ConsentStatusId:
+      enum:
+        - ACTIVE
+        - INACTIVE
+      type: string
+    DocumentTypeId:
+      enum:
+        - CX_FRAME_CONTRACT
+        - COMMERCIAL_REGISTER_EXTRACT
+        - APP_CONTRACT
+        - CONFORMITY_APPROVAL_REGISTRATION
+        - ADDITIONAL_DETAILS
+        - APP_LEADIMAGE
+        - APP_IMAGE
+        - SELF_DESCRIPTION
+        - APP_TECHNICAL_INFORMATION
+        - CONFORMITY_APPROVAL_CONNECTOR
+        - CONFORMITY_APPROVAL_BUSINESS_APPS
+        - CONFORMITY_APPROVAL_SERVICES
+        - SERVICE_LEADIMAGE
+        - PRESENTATION
+        - COMPANY_CERTIFICATE
+      type: string
+    DocumentUpload:
+      type: object
+      description: 'Object to contain files submitted along the PartnerRegistrationData. File are passed as base64 encoded strings to ease readability and processability of json files.'
+      properties:
+        documentType:
+          $ref: '#/components/schemas/DocumentTypeId'
+        fileName:
+          type: string
+          example: "certification.pdf"
+        fileContent:
+          type: string
+          contentEncoding: base64
+          description: "File contents encoded in a Base64 string."
+      required:
+        - fileName
+        - fileContent
+    ErrorDetails:
+      type: object
+      properties:
+        errorCode:
+          type: string
+        type:
+          type: string
+        message:
+          type: string
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorParameter'
+      additionalProperties: false
+    ErrorParameter:
+      type: object
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+      additionalProperties: false
+    ErrorResponse:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        errorId:
+          type: string
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetails'
+          nullable: true
+      additionalProperties: false
+    OnboardingServiceProviderCallbackRequestData:
+      type: object
+      properties:
+        callbackUrl:
+          type: string
+        authUrl:
+          type: string
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+      additionalProperties: false
+    PartnerRegistrationData:
+      type: object
+      properties:
+        name:
+          type: string
+        city:
+          type: string
+        streetName:
+          type: string
+        countryAlpha2Code:
+          type: string
+        bpn:
+          type: string
+          nullable: true
+        shortName:
+          type: string
+          nullable: true
+        region:
+          type: string
+        streetAdditional:
+          type: string
+          nullable: true
+        streetNumber:
+          type: string
+          nullable: true
+        zipCode:
+          type: string
+          nullable: true
+        uniqueIds:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanyUniqueIdData'
+        externalId:
+          type: string
+        userDetails:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserDetailData'
+        companyRoles:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanyRoleId'
+        did:
+          type: string
+          nullable: true
+        agreements:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/AgreementConsentData'
+        documents:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/DocumentUpload'
+        autoSubmit:
+          type: boolean
+          description: 'Especifies whether a full submission with all data is expected, to automatically enact the whole process.'
+          nullable: true
+      additionalProperties: false
+    UniqueIdentifierId:
+      enum:
+        - COMMERCIAL_REG_NUMBER
+        - VAT_ID
+        - LEI_CODE
+        - VIES
+        - EORI
+      type: string
+    UserDetailData:
+      type: object
+      properties:
+        identityProviderId:
+          type: string
+          format: uuid
+          nullable: true
+        providerId:
+          type: string
+        username:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+      additionalProperties: false
+  securitySchemes:
+    Bearer:
+      type: apiKey
+      description: "JWT Authorization header using the Bearer scheme. \r\n\r\n Enter 'Bearer' [space] and then your token in the text input below.\r\n\r\nExample: \"Bearer 12345abcdef\""
+      name: Authorization
+      in: header
+security:
+  - Bearer: [ ]

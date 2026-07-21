@@ -1,0 +1,92 @@
+## Registers this app's ServiceAccount in JWTlet so the pod's projected SA token can be exchanged
+## (RFC 8693) for participant-scoped tokens. Mirrors the platform's jwtlet-seed job; creating the
+## mapping is idempotent (409 = already exists).
+{{- if .Values.jwtlet.seed.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cx-ve.fullname" . }}-jwtlet-seed
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": {{ .Values.jwtlet.seed.hookDeletePolicy | quote }}
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: {{ .Values.jwtlet.seed.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "cx-ve.fullname" . }}-jwtlet-seed
+    spec:
+      # must act under the "seed-jobs" SA, so that JWTlet's management API can be accessed
+      serviceAccountName: seed-jobs
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-jwtlet
+          image: {{ .Values.jwtlet.seed.image }}
+          command:
+            - sh
+            - -c
+            - |
+              until curl -sf {{ .Values.jwtlet.healthUrl | quote }}; do
+                echo "Waiting for jwtlet to be ready..."
+                sleep 5
+              done
+              echo ""
+              echo "JWTlet is ready!"
+      containers:
+        - name: seed-jwtlet
+          image: {{ .Values.jwtlet.seed.image }}
+          env:
+            - name: JWTLET_MGMT_URL
+              value: {{ .Values.jwtlet.mgmtUrl | quote }}
+          volumeMounts:
+            - name: jwtlet-subject-token
+              mountPath: /var/run/secrets/jwtlet
+              readOnly: true
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+
+              # Projected service account token used to authenticate against the jwtlet management API.
+              TOKEN=$(cat /var/run/secrets/jwtlet/token)
+              if [ -z "$TOKEN" ]; then
+                echo "ERROR: subject token at /var/run/secrets/jwtlet/token is empty"
+                exit 1
+              fi
+
+              echo "Creating JWTlet mapping entry for the '{{ .Values.serviceAccount.name }}' SA"
+              RESP=$(curl -s -w "\n%{http_code}" -X POST "${JWTLET_MGMT_URL}/mappings" \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d '{
+                    "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.serviceAccount.name }}",
+                    "participantContext": {{ .Values.jwtlet.seed.participantContext | quote }},
+                    "scopes": {{ .Values.jwtlet.seed.scopes | toJson }},
+                    "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
+                }')
+              RESP_STATUS=$(printf '%s\n' "$RESP" | tail -1)
+              RESP_BODY=$(printf '%s\n' "$RESP" | sed '$d')
+              if [ "$RESP_STATUS" -eq 409 ]; then
+                echo "mapping entry already exists"
+              elif [ "$RESP_STATUS" -ge 400 ]; then
+                echo "ERROR: Failed to create mapping entry (HTTP $RESP_STATUS): $RESP_BODY"
+                exit 1
+              else
+                echo "mapping entry created"
+              fi
+      volumes:
+        # RFC 8693 subject_token used to authenticate against the jwtlet management API.
+        # Audience must match jwtlet's `client_audience`.
+        - name: jwtlet-subject-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ .Values.jwtlet.subjectTokenAudience | quote }}
+                  expirationSeconds: {{ .Values.jwtlet.subjectTokenExpirationSeconds }}
+{{- end }}
