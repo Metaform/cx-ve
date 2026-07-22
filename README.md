@@ -50,7 +50,15 @@ The script performs the following steps:
    app chart as release `obapi`.
 
 Once complete, the Onboarding API is reachable through the gateway at
-`http://cxve.localhost/onboarding` (Swagger UI at `/onboarding/swagger`).
+`http://cxve.localhost/onboarding` (Swagger UI at `/onboarding/swagger`). Register a test
+participant against it with
+
+```shell
+./scripts/onboard-participant.sh "My Company GmbH"
+```
+
+which submits a partner registration and follows the onboarding progress in the application
+logs (requires `curl` and `jq`).
 
 The charts default to the published OCI versions pinned in the script; override the chart
 sources via the environment variables `CORE_CHART`, `CXPROF_CHART` and `OBAPI_CHART`, e.g. to
