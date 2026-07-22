@@ -1,8 +1,18 @@
 #!/bin/bash
 
+# Stands up a complete local environment — Core Platform Distribution, Catena-X profile and
+# Onboarding API — on a kind cluster. Run from the repository root.
+#
+# Usage:
+#   ./scripts/install-ve.sh [cluster-name]
+#
+#   cluster-name  name of the kind cluster to (re)create (default: cxve). CAUTION: an existing
+#                 cluster of that name is deleted first. The kubeconfig is written to
+#                 ~/.kube/<cluster-name>.config
+
 set -euxo pipefail
 
-CLUSTER_NAME=cxve
+CLUSTER_NAME="${1:-cxve}"
 NAMESPACE=edc-v
 KUBECONFIG_FILE="$HOME/.kube/$CLUSTER_NAME.config"
 

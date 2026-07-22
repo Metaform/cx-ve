@@ -5,12 +5,15 @@
 # the CX-0006 sequence continues asynchronously and is currently only observable via logs.
 #
 # Usage:
-#   ./scripts/onboard-participant.sh [company-name] [short-name]
+#   ./scripts/onboard-participant.sh [company-name] [short-name] [cluster-name]
 #
 #   company-name  display name of the partner company (default: "ACME Corporation")
 #   short-name    short name appended to the platform's did:web template to form the participant
 #                 DID (default: derived from company-name plus a random suffix, so repeated runs
 #                 don't collide in the Tenant Manager)
+#   cluster-name  name of the kind cluster created by install-ve.sh, used to locate the
+#                 kubeconfig at ~/.kube/<cluster-name>.config for log watching (default: cxve);
+#                 an explicitly set KUBECONFIG takes precedence
 #
 # Environment:
 #   API_URL    base URL of the Onboarding API (default: http://cxve.localhost/onboarding, the
@@ -30,15 +33,16 @@ NAMESPACE="${NAMESPACE:-edc-v}"
 BPN="${BPN:-}"
 DEPLOYMENT=obapi-cx-ve
 
-# Default to the local kind cluster created by install-ve.sh unless the caller set a kubeconfig
-if [[ -z "${KUBECONFIG:-}" && -f "$HOME/.kube/cxve.config" ]]; then
-  export KUBECONFIG="$HOME/.kube/cxve.config"
-fi
-
 NAME="${1:-ACME Corporation}"
 RUN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 DEFAULT_SHORT="$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | cut -c1-20)-${RUN_ID:0:6}"
 SHORT_NAME="${2:-$DEFAULT_SHORT}"
+CLUSTER_NAME="${3:-cxve}"
+
+# Default to the kind cluster's kubeconfig (as written by install-ve.sh) unless the caller set one
+if [[ -z "${KUBECONFIG:-}" && -f "$HOME/.kube/$CLUSTER_NAME.config" ]]; then
+  export KUBECONFIG="$HOME/.kube/$CLUSTER_NAME.config"
+fi
 
 # externalId and the VAT id are unique per run: registrations whose BPN, DID or any unique id
 # matches an onboarded partner or an in-flight registration are rejected as duplicates
