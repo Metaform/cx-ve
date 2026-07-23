@@ -60,6 +60,9 @@ kubeconfig() { echo "$HOME/.kube/$1.config"; }
 # ---- helper pod with seed-jobs SA + projected jwtlet subject token --------------------------
 ensure_probe() { # <cluster>
   local kc; kc=$(kubeconfig "$1")
+  # Pod specs are largely immutable — recreate instead of apply-over (a leftover pod from an
+  # earlier run may carry a different spec)
+  kubectl --kubeconfig "$kc" delete pod mgmt-probe -n "$NAMESPACE" --ignore-not-found --wait >/dev/null
   cat > "$GEN_DIR/probe.yaml" <<EOF
 apiVersion: v1
 kind: Pod
@@ -72,7 +75,14 @@ spec:
   containers:
     - name: probe
       image: alpine:latest
-      command: ["sh", "-c", "apk add --no-cache curl jq >/dev/null 2>&1; sleep 7200"]
+      # The marker file signals that curl/jq are actually installed — pod readiness alone
+      # races the package installation
+      command: ["sh", "-c", "apk add --no-cache curl jq >/dev/null 2>&1 && touch /tmp/pkgs-ready; sleep 7200"]
+      env:
+        # The VE's DNS domain, injected so the helper needs no resolv.conf guesswork (the
+        # host's own search domains leak into pod resolv.conf on some runners)
+        - name: VE_DOMAIN
+          value: "$2"
       volumeMounts:
         - name: jwtlet-subject-token
           mountPath: /var/run/secrets/jwtlet
@@ -88,18 +98,29 @@ spec:
 EOF
   kubectl --kubeconfig "$kc" apply -f "$GEN_DIR/probe.yaml" >/dev/null
   kubectl --kubeconfig "$kc" wait pod/mgmt-probe -n "$NAMESPACE" --for=condition=Ready --timeout=120s >/dev/null
+  local i
+  for i in $(seq 1 30); do
+    kubectl --kubeconfig "$kc" exec mgmt-probe -n "$NAMESPACE" -- test -f /tmp/pkgs-ready 2>/dev/null && break
+    [[ $i -eq 30 ]] && { echo "ERROR: $1: probe pod packages not ready" >&2; return 1; }
+    sleep 2
+  done
 
   # In-pod management-API helper: exchanges the projected SA token and calls v5beta
   cat > "$GEN_DIR/m.sh" <<'EOF'
 #!/bin/sh
 # usage: m.sh METHOD PATH ['-' to read JSON body from stdin]
-D=$(sed -n 's/^search.* \([a-z0-9-]*\.local\)$/\1/p' /etc/resolv.conf)
+D=$VE_DOMAIN
 SA=$(cat /var/run/secrets/jwtlet/token)
-TOK=$(curl -s -m 10 -X POST "http://jwtlet.edc-v.svc.$D:8080/token" \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
-  --data-urlencode "subject_token=$SA" \
-  --data-urlencode 'resource=issuer' --data-urlencode 'scope=admin' --data-urlencode 'audience=edcv' | jq -r .access_token)
+TOK=""
+for i in 1 2 3 4 5; do
+  TOK=$(curl -s -m 10 -X POST "http://jwtlet.edc-v.svc.$D:8080/token" \
+    -H 'Content-Type: application/x-www-form-urlencoded' \
+    --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+    --data-urlencode "subject_token=$SA" \
+    --data-urlencode 'resource=issuer' --data-urlencode 'scope=admin' --data-urlencode 'audience=edcv' | jq -r .access_token)
+  [ -n "$TOK" ] && [ "$TOK" != null ] && break
+  sleep 3
+done
 [ -n "$TOK" ] && [ "$TOK" != null ] || { echo "token exchange failed" >&2; exit 1; }
 M=$1; P=$2; shift 2
 if [ "${1:-}" = '-' ]; then
@@ -135,14 +156,17 @@ mgmt() {
 }
 
 echo ">> Preparing management probe pods"
-ensure_probe "$PROV_CLUSTER"
-ensure_probe "$CONS_CLUSTER"
+ensure_probe "$PROV_CLUSTER" "$PROV_DOMAIN"
+ensure_probe "$CONS_CLUSTER" "$CONS_DOMAIN"
 
 # ---- discover the participant contexts ------------------------------------------------------
 PROV_CTX=$(mgmt "$PROV_CLUSTER" GET /participants | jq -r '.[0]["@id"]')
 PROV_DID=$(mgmt "$PROV_CLUSTER" GET /participants | jq -r '.[0].identity')
 CONS_CTX=$(mgmt "$CONS_CLUSTER" GET /participants | jq -r '.[0]["@id"]')
 CONS_DID=$(mgmt "$CONS_CLUSTER" GET /participants | jq -r '.[0].identity')
+for v in PROV_CTX PROV_DID CONS_CTX CONS_DID; do
+  [[ -n "${!v}" && "${!v}" != null ]] || { echo "ERROR: participant discovery failed ($v empty) — are participants onboarded in both VEs?" >&2; exit 1; }
+done
 PROV_DSP="http://controlplane.${NAMESPACE}.svc.${PROV_DOMAIN}:8082/api/dsp/${PROV_CTX}/cx-neptune"
 echo ">> Provider:  $PROV_DID ($PROV_CTX)"
 echo ">> Consumer:  $CONS_DID ($CONS_CTX)"
