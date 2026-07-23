@@ -7,10 +7,6 @@ name: E2E test
 
 on:
   workflow_dispatch:
-  # TEMPORARY: validation trigger for the PR branch — remove before merging
-  push:
-    branches:
-      - feat/multi-ve
   pull_request:
     paths:
       - "scripts/**"
