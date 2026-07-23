@@ -99,6 +99,18 @@ Onboard a participant in each:
   --namespace edc-v --api-url http://ve2.localhost:8081/onboarding
 ```
 
+Then connect the two VEs so their participants can resolve each other's DIDs and verify each
+other's credentials (static routes between the kind nodes, CoreDNS zone forwarding of the peer
+DNS domain, and each VE trusting the peer's issuer):
+
+```shell
+./scripts/connect-ves.sh
+```
+
+The script's defaults match the install commands above and it verifies itself by fetching the
+peer issuer's DID document from inside each cluster. The routes do not survive a restart of
+the kind node containers — re-run the script after a docker restart.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
