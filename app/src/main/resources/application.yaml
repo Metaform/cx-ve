@@ -51,3 +51,14 @@ identityhub:
 participant:
   did:
     template: "did:web:identityhub.edc-v.svc.cluster.local%3A7083:"   # PARTICIPANT_DID_TEMPLATE
+  # Transfer-type mapping configured on the participant's data plane (Siglet) at provisioning
+  # time, via the cfm.dataplane VPA properties. The CFM siglet agent installs the mapping and
+  # registers the data-plane instance with the control plane; the mapping key (transfer-type)
+  # becomes the catalog distribution format of the participant's assets. An empty endpoint
+  # disables data-plane registration entirely (onboarding still succeeds, but no transfers
+  # are possible).
+  dataplane:
+    transfer-type: HttpData-PULL                                # PARTICIPANT_DATAPLANE_TRANSFERTYPE
+    endpoint-type: HTTP                                         # PARTICIPANT_DATAPLANE_ENDPOINTTYPE
+    endpoint: ""                                                # PARTICIPANT_DATAPLANE_ENDPOINT
+    token-source: provider                                      # PARTICIPANT_DATAPLANE_TOKENSOURCE

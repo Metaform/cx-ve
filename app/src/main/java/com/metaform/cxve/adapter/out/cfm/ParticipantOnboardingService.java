@@ -34,11 +34,23 @@ public class ParticipantOnboardingService implements WalletService {
     private static final Logger log = LoggerFactory.getLogger(ParticipantOnboardingService.class);
     private final TenantManagerClient tenantManagerClient;
     private final String didTemplate;
+    private final String dataplaneTransferType;
+    private final String dataplaneEndpointType;
+    private final String dataplaneEndpoint;
+    private final String dataplaneTokenSource;
 
     public ParticipantOnboardingService(@Autowired TenantManagerClient tenantManagerClient,
-                                        @Value("${participant.did.template:did:web:identityhub.edc-v.svc.cluster.local%3A7083:}") String didTemplate) {
+                                        @Value("${participant.did.template:did:web:identityhub.edc-v.svc.cluster.local%3A7083:}") String didTemplate,
+                                        @Value("${participant.dataplane.transfer-type:HttpData-PULL}") String dataplaneTransferType,
+                                        @Value("${participant.dataplane.endpoint-type:HTTP}") String dataplaneEndpointType,
+                                        @Value("${participant.dataplane.endpoint:}") String dataplaneEndpoint,
+                                        @Value("${participant.dataplane.token-source:provider}") String dataplaneTokenSource) {
         this.tenantManagerClient = tenantManagerClient;
         this.didTemplate = didTemplate;
+        this.dataplaneTransferType = dataplaneTransferType;
+        this.dataplaneEndpointType = dataplaneEndpointType;
+        this.dataplaneEndpoint = dataplaneEndpoint;
+        this.dataplaneTokenSource = dataplaneTokenSource;
     }
 
     @Override
@@ -82,11 +94,23 @@ public class ParticipantOnboardingService implements WalletService {
 
     private ParticipantProfile toParticipantProfile(String dataspaceId, PartnerRegistrationData registrationData, String bpn) {
         var did = generateDid(registrationData);
-        return ParticipantProfile.builder()
+        var builder = ParticipantProfile.builder()
                 .identifier(did)
 //                .participantRole(dataspaceId, List.of("member"))
-                .vpaProperties(Map.of("cfm.issuer", holderProperties(did, bpn, registrationData.agreements())))
-                .build();
+                .vpaProperty("cfm.issuer", holderProperties(did, bpn, registrationData.agreements()));
+        // With a configured endpoint, the CFM siglet agent configures this transfer-type mapping in
+        // Siglet and registers the participant's data-plane instance with the control plane — the
+        // prerequisite for the participant's assets to carry catalog distributions. Without it,
+        // provisioning still succeeds but no transfers are possible.
+        if (!dataplaneEndpoint.isBlank()) {
+            builder.vpaProperty("cfm.dataplane", Map.of(
+                    "transferTypeMappings", Map.of(dataplaneTransferType, Map.of(
+                            "transferType", dataplaneTransferType,
+                            "endpointType", dataplaneEndpointType,
+                            "endpoint", dataplaneEndpoint,
+                            "tokenSource", dataplaneTokenSource))));
+        }
+        return builder.build();
     }
 
     private Map<String, Object> holderProperties(String holderId, String bpn, List<AgreementConsentData> agreements) {

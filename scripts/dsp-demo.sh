@@ -1,9 +1,10 @@
 #!/bin/bash
 
-# Cross-VE DSP demo (control-plane only, no data transfer): as the provider VE's first
-# onboarded participant, offers an asset under an open use-policy; as the consumer VE's first
-# participant, requests the provider's catalog and negotiates a contract for it. Succeeds when
-# the negotiation reaches FINALIZED and prints the contract agreement id.
+# Cross-VE DSP demo: as the provider VE's newest onboarded participant, offers an asset under an
+# open use-policy; as the consumer VE's newest participant, requests the provider's catalog,
+# negotiates a contract and establishes an HttpData-PULL transfer process through the
+# participants' siglet data planes. Succeeds when the negotiation reaches FINALIZED and the
+# transfer process reaches STARTED, and prints the agreement and transfer-process ids.
 #
 # Prerequisites: both VEs installed (install-ve.sh), a participant onboarded in each
 # (onboard-participant.sh) and the VEs connected (connect-ves.sh — routes, DNS forwarding,
@@ -22,7 +23,10 @@ set -euo pipefail
 
 PROV_CLUSTER=ve1; PROV_DOMAIN=ve1.local
 CONS_CLUSTER=ve2; CONS_DOMAIN=ve2.local
-ASSET_ID=demo-asset-1
+# Default derived from the provider participant context after discovery: ids are unique across
+# participant contexts in the store, so a fixed id would 409 against an older participant's
+# asset without ever appearing in this participant's catalog
+ASSET_ID=""
 NAMESPACE=edc-v
 
 usage() {
@@ -33,7 +37,7 @@ Usage: $(basename "$0") [--pc <cluster>] [--pd <domain>] [--cc <cluster>] [--cd 
 Options (defaults match the dual-VE install convention):
   --pc/--pd   provider cluster / DNS domain (default: ve1 / ve1.local)
   --cc/--cd   consumer cluster / DNS domain (default: ve2 / ve2.local)
-  --asset     asset id to offer and negotiate (default: demo-asset-1)
+  --asset     asset id to offer and negotiate (default: demo-asset-<provider-ctx-prefix>)
   -h, --help  show this help
 EOF
 }
@@ -160,14 +164,19 @@ ensure_probe "$PROV_CLUSTER" "$PROV_DOMAIN"
 ensure_probe "$CONS_CLUSTER" "$CONS_DOMAIN"
 
 # ---- discover the participant contexts ------------------------------------------------------
-PROV_CTX=$(mgmt "$PROV_CLUSTER" GET /participants | jq -r '.[0]["@id"]')
-PROV_DID=$(mgmt "$PROV_CLUSTER" GET /participants | jq -r '.[0].identity')
-CONS_CTX=$(mgmt "$CONS_CLUSTER" GET /participants | jq -r '.[0]["@id"]')
-CONS_DID=$(mgmt "$CONS_CLUSTER" GET /participants | jq -r '.[0].identity')
+# Newest participant (last in the list): participants onboarded by the current app version carry
+# a registered data plane (transfer-type mappings via the cfm.dataplane VPA), older ones may not
+PROV_CTX=$(mgmt "$PROV_CLUSTER" GET /participants | jq -r '.[-1]["@id"]')
+PROV_DID=$(mgmt "$PROV_CLUSTER" GET /participants | jq -r '.[-1].identity')
+CONS_CTX=$(mgmt "$CONS_CLUSTER" GET /participants | jq -r '.[-1]["@id"]')
+CONS_DID=$(mgmt "$CONS_CLUSTER" GET /participants | jq -r '.[-1].identity')
 for v in PROV_CTX PROV_DID CONS_CTX CONS_DID; do
   [[ -n "${!v}" && "${!v}" != null ]] || { echo "ERROR: participant discovery failed ($v empty) — are participants onboarded in both VEs?" >&2; exit 1; }
 done
 PROV_DSP="http://controlplane.${NAMESPACE}.svc.${PROV_DOMAIN}:8082/api/dsp/${PROV_CTX}/cx-neptune"
+# Scope the demo object ids by participant context (ids are store-unique across contexts)
+ASSET_ID="${ASSET_ID:-demo-asset-${PROV_CTX:0:8}}"
+POLICY_ID="policy-open-${PROV_CTX:0:8}"
 echo ">> Provider:  $PROV_DID ($PROV_CTX)"
 echo ">> Consumer:  $CONS_DID ($CONS_CTX)"
 
@@ -178,7 +187,7 @@ cat > "$GEN_DIR/asset.json" <<EOF
   "@type": "Asset",
   "@id": "${ASSET_ID}",
   "properties": {"name": "Cross-VE DSP demo asset"},
-  "dataAddress": {"@type": "DataAddress", "type": "HttpData", "baseUrl": "http://example.invalid/data"}
+  "dataAddress": {"@type": "DataAddress", "type": "HttpData", "baseUrl": "http://jwtlet.${NAMESPACE}.svc.${PROV_DOMAIN}:8080/.well-known/jwks.json"}
 }
 EOF
 # ODRL requires at least one rule for a negotiable offer; an unconstrained "use" permission is
@@ -187,7 +196,7 @@ cat > "$GEN_DIR/policy.json" <<EOF
 {
   "@context": ["https://w3id.org/edc/connector/management/v2", "http://www.w3.org/ns/odrl.jsonld"],
   "@type": "PolicyDefinition",
-  "@id": "policy-open",
+  "@id": "${POLICY_ID}",
   "policy": {"@context": "http://www.w3.org/ns/odrl.jsonld", "@type": "Set", "permission": [{"action": "use"}]}
 }
 EOF
@@ -196,15 +205,15 @@ cat > "$GEN_DIR/contractdef.json" <<EOF
   "@context": ["https://w3id.org/edc/connector/management/v2"],
   "@type": "ContractDefinition",
   "@id": "cd-${ASSET_ID}",
-  "accessPolicyId": "policy-open",
-  "contractPolicyId": "policy-open",
+  "accessPolicyId": "${POLICY_ID}",
+  "contractPolicyId": "${POLICY_ID}",
   "assetsSelector": []
 }
 EOF
 echo ">> Seeding provider offer"
 mgmt "$PROV_CLUSTER" POST "/participants/${PROV_CTX}/assets" "$GEN_DIR/asset.json" >/dev/null
 mgmt "$PROV_CLUSTER" POST "/participants/${PROV_CTX}/policydefinitions" "$GEN_DIR/policy.json" >/dev/null \
-  || mgmt "$PROV_CLUSTER" PUT "/participants/${PROV_CTX}/policydefinitions/policy-open" "$GEN_DIR/policy.json" >/dev/null
+  || mgmt "$PROV_CLUSTER" PUT "/participants/${PROV_CTX}/policydefinitions/${POLICY_ID}" "$GEN_DIR/policy.json" >/dev/null
 mgmt "$PROV_CLUSTER" POST "/participants/${PROV_CTX}/contractdefinitions" "$GEN_DIR/contractdef.json" >/dev/null
 
 # ---- consumer: catalog request --------------------------------------------------------------
@@ -244,6 +253,7 @@ EOF
 NEG_ID=$(mgmt "$CONS_CLUSTER" POST "/participants/${CONS_CTX}/contractnegotiations" "$GEN_DIR/negotiation.json" | jq -r '.["@id"]')
 echo ">> Negotiation started: $NEG_ID"
 
+AGREEMENT=""
 for i in $(seq 1 40); do
   NEG=$(mgmt "$CONS_CLUSTER" GET "/participants/${CONS_CTX}/contractnegotiations/${NEG_ID}")
   STATE=$(printf '%s' "$NEG" | jq -r .state)
@@ -251,8 +261,7 @@ for i in $(seq 1 40); do
     FINALIZED)
       AGREEMENT=$(printf '%s' "$NEG" | jq -r .contractAgreementId)
       echo ">> Negotiation FINALIZED — contract agreement: $AGREEMENT"
-      echo "Cross-VE DSP exchange OK: ${CONS_DID} negotiated '${ASSET_ID}' from ${PROV_DID}"
-      exit 0
+      break
       ;;
     TERMINATED)
       echo "ERROR: negotiation TERMINATED: $(printf '%s' "$NEG" | jq -r .errorDetail)" >&2
@@ -261,5 +270,41 @@ for i in $(seq 1 40); do
     *) echo ">> negotiation state: $STATE"; sleep 3 ;;
   esac
 done
-echo "ERROR: negotiation did not reach FINALIZED in time" >&2
+[[ -n "$AGREEMENT" && "$AGREEMENT" != null ]] || { echo "ERROR: negotiation did not reach FINALIZED in time" >&2; exit 1; }
+
+# ---- consumer: transfer process -------------------------------------------------------------
+# HttpData-PULL: the provider's siglet data plane starts the flow and hands the data address to
+# the consumer through the DSP TransferStartMessage; STARTED on the consumer side means both
+# data planes are engaged. (The application-facing pull then goes through the consumer siglet's
+# own API — outside this demo's scope.)
+cat > "$GEN_DIR/transfer.json" <<EOF
+{
+  "@context": ["https://w3id.org/edc/connector/management/v2"],
+  "@type": "TransferRequest",
+  "contractId": "${AGREEMENT}",
+  "counterPartyAddress": "${PROV_DSP}",
+  "protocol": "cx-neptune",
+  "transferType": "HttpData-PULL"
+}
+EOF
+TP_ID=$(mgmt "$CONS_CLUSTER" POST "/participants/${CONS_CTX}/transferprocesses" "$GEN_DIR/transfer.json" | jq -r '.["@id"]')
+echo ">> Transfer process started: $TP_ID"
+
+for i in $(seq 1 40); do
+  TP=$(mgmt "$CONS_CLUSTER" GET "/participants/${CONS_CTX}/transferprocesses/${TP_ID}")
+  STATE=$(printf '%s' "$TP" | jq -r .state)
+  case "$STATE" in
+    STARTED|COMPLETED)
+      echo ">> Transfer process $STATE (type $(printf '%s' "$TP" | jq -r .transferType))"
+      echo "Cross-VE DSP exchange OK: ${CONS_DID} negotiated '${ASSET_ID}' from ${PROV_DID} (agreement ${AGREEMENT}) and established transfer ${TP_ID}"
+      exit 0
+      ;;
+    TERMINATED)
+      echo "ERROR: transfer TERMINATED: $(printf '%s' "$TP" | jq -r .errorDetail)" >&2
+      exit 1
+      ;;
+    *) echo ">> transfer state: $STATE"; sleep 3 ;;
+  esac
+done
+echo "ERROR: transfer did not reach STARTED in time" >&2
 exit 1

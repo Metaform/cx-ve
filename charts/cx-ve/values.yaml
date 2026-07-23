@@ -130,3 +130,12 @@ config:
   participant:
     did:
       template: "did:web:identityhub.edc-v.svc.cluster.local%3A7083:"
+    # Transfer-type mapping installed on the participant's data plane (Siglet) at provisioning.
+    # The mapping key (transfer-type) becomes the catalog distribution format of the
+    # participant's assets; an empty endpoint disables data-plane registration.
+    dataplane:
+      transfer-type: HttpData-PULL
+      endpoint-type: HTTP
+      # Static backend data endpoint the data plane serves for pulls
+      endpoint: ""
+      token-source: provider

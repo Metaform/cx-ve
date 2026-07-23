@@ -4,6 +4,7 @@ import com.metaform.cxve.application.OnboardingOrchestrator;
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
 import io.nats.client.JetStream;
+import io.nats.client.JetStreamApiException;
 import io.nats.client.JetStreamSubscription;
 import io.nats.client.Message;
 import io.nats.client.PushSubscribeOptions;
@@ -25,6 +26,9 @@ import org.springframework.stereotype.Component;
  * — {@link OnboardingOrchestrator#advanceByHolder} is idempotent, so a redelivered event for an
  * already-completed onboarding is harmless. Messages are acked on success and nak'd on failure to
  * trigger redelivery.
+ *
+ * <p>The durable is joined through a <b>deliver group</b> (named after the durable) so several app
+ * replicas can consume concurrently, load-balancing the events across members.
  */
 @Component
 @ConditionalOnProperty(prefix = "nats", name = "enabled", havingValue = "true")
@@ -55,15 +59,34 @@ public class NatsIssuanceListener {
 
     @PostConstruct
     void subscribe() throws Exception {
+        // The deliver group (named after the durable) is what allows several app replicas to share
+        // the durable: each member joins the same server-side consumer and messages are
+        // load-balanced across them. A group-less durable push consumer admits exactly ONE bound
+        // subscription — a second replica would fail with [SUB-90012] "Consumer is already bound
+        // to a subscription".
+        var group = properties.durableName();
         var options = PushSubscribeOptions.builder()
                 .stream(properties.stream())
                 .durable(properties.durableName())
+                .deliverGroup(group)
                 .build();
         dispatcher = connection.createDispatcher();
-        // autoAck=false: we ack explicitly only after the event has been processed.
-        subscription = jetStream.subscribe(properties.subjectFilter(), dispatcher, this::onMessage, false, options);
-        log.info("Subscribed to '{}' on stream '{}' as durable '{}'",
-                properties.subjectFilter(), properties.stream(), properties.durableName());
+        try {
+            // autoAck=false: we ack explicitly only after the event has been processed.
+            subscription = jetStream.subscribe(properties.subjectFilter(), group, dispatcher, this::onMessage, false, options);
+        } catch (IllegalArgumentException | JetStreamApiException e) {
+            // A durable created by an older app version WITHOUT a deliver group cannot be joined —
+            // drop it and recreate with the group. Safe: delivery is at-least-once, the stream
+            // redelivers unacked messages, and advanceByHolder is idempotent. (An old-version
+            // replica still bound during a rolling update loses its subscription, but it is
+            // terminating anyway.)
+            log.warn("Subscribing durable '{}' failed ({}); recreating it with deliver group '{}'",
+                    properties.durableName(), e.getMessage(), group);
+            connection.jetStreamManagement().deleteConsumer(properties.stream(), properties.durableName());
+            subscription = jetStream.subscribe(properties.subjectFilter(), group, dispatcher, this::onMessage, false, options);
+        }
+        log.info("Subscribed to '{}' on stream '{}' as durable '{}' in deliver group '{}'",
+                properties.subjectFilter(), properties.stream(), properties.durableName(), group);
     }
 
     void onMessage(Message message) {
