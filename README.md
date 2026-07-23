@@ -111,6 +111,15 @@ The script's defaults match the install commands above and it verifies itself by
 peer issuer's DID document from inside each cluster. The routes do not survive a restart of
 the kind node containers — re-run the script after a docker restart.
 
+Finally, exercise the federation with a control-plane DSP exchange (no data transfer — the
+platform ships no data plane yet): the provider VE's participant offers an asset, the consumer
+VE's participant requests the catalog and negotiates a contract, which exercises cross-VE DID
+resolution, DCP presentation exchange and peer-issuer credential verification end to end:
+
+```shell
+./scripts/dsp-demo.sh
+```
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).

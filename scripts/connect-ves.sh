@@ -174,6 +174,18 @@ EOF
     --wait
   kubectl rollout restart deployment/obapi-cx-ve -n "$NAMESPACE"
   kubectl rollout status deployment/obapi-cx-ve -n "$NAMESPACE" --timeout=180s
+
+  # The chart's trustedIssuers hook only registers the issuer *id*; the DCP verifier
+  # additionally requires the credential types the issuer may issue, or presentations verify
+  # as "credential types not supported for issuer". No values hook exists for that key, so
+  # patch the rendered ConfigMap directly. CAVEAT: a later core-platform helm upgrade
+  # regenerates the ConfigMap and drops this key — re-run this script afterwards.
+  kubectl get cm controlplane-config -n "$NAMESPACE" -o json \
+    | jq --arg k "edc.iam.trusted-issuer.$4.supportedtypes" \
+         '.data[$k] = "[\"VerifiableCredential\",\"MembershipCredential\",\"BpnCredential\",\"DataExchangeGovernanceCredential\"]"' \
+    | kubectl apply -f -
+  kubectl rollout restart deployment/controlplane -n "$NAMESPACE"
+  kubectl rollout status deployment/controlplane -n "$NAMESPACE" --timeout=180s
 }
 
 # ---- 4. Smoke test: fetch the peer issuer's DID document across clusters --------------------
