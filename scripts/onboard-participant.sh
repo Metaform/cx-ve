@@ -5,12 +5,21 @@
 # the CX-0006 sequence continues asynchronously and is currently only observable via logs.
 #
 # Usage:
-#   ./scripts/onboard-participant.sh [company-name] [short-name]
+#   ./scripts/onboard-participant.sh [-n|--name <company-name>] [-s|--short-name <name>]
+#                                    [-c|--cluster <cluster-name>] [-N|--namespace <ns>]
+#                                    [-u|--api-url <url>] [-h|--help]
 #
-#   company-name  display name of the partner company (default: "ACME Corporation")
-#   short-name    short name appended to the platform's did:web template to form the participant
-#                 DID (default: derived from company-name plus a random suffix, so repeated runs
-#                 don't collide in the Tenant Manager)
+#   -n, --name        display name of the partner company (default: "ACME Corporation")
+#   -s, --short-name  short name appended to the platform's did:web template to form the
+#                     participant DID (default: derived from the company name plus a random
+#                     suffix, so repeated runs don't collide in the Tenant Manager)
+#   -c, --cluster     name of the kind cluster created by install-ve.sh, used to locate the
+#                     kubeconfig at ~/.kube/<cluster-name>.config for log watching
+#                     (default: cxve); an explicitly set KUBECONFIG takes precedence
+#   -N, --namespace   namespace of the obapi deployment, for log watching (default: edc-v,
+#                     or the NAMESPACE env var)
+#   -u, --api-url     base URL of the Onboarding API (default: http://cxve.localhost/onboarding,
+#                     or the API_URL env var), e.g. http://ve2.localhost:8081/onboarding
 #
 # Environment:
 #   API_URL    base URL of the Onboarding API (default: http://cxve.localhost/onboarding, the
@@ -30,15 +39,60 @@ NAMESPACE="${NAMESPACE:-edc-v}"
 BPN="${BPN:-}"
 DEPLOYMENT=obapi-cx-ve
 
-# Default to the local kind cluster created by install-ve.sh unless the caller set a kubeconfig
-if [[ -z "${KUBECONFIG:-}" && -f "$HOME/.kube/cxve.config" ]]; then
-  export KUBECONFIG="$HOME/.kube/cxve.config"
-fi
+NAME="ACME Corporation"
+SHORT_NAME=""
+CLUSTER_NAME=cxve
 
-NAME="${1:-ACME Corporation}"
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [-n|--name <company-name>] [-s|--short-name <name>] [-c|--cluster <cluster-name>] [-h|--help]
+
+Options:
+  -n, --name <company-name>   display name of the partner company (default: "ACME Corporation")
+  -s, --short-name <name>     short name forming the participant DID (default: derived from
+                              the company name plus a random suffix)
+  -c, --cluster <name>        kind cluster whose kubeconfig (~/.kube/<name>.config) is used
+                              for log watching (default: cxve)
+  -N, --namespace <ns>        namespace of the obapi deployment (default: edc-v)
+  -u, --api-url <url>         base URL of the Onboarding API
+                              (default: http://cxve.localhost/onboarding)
+  -h, --help                  show this help
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--name|-s|--short-name|-c|--cluster|-N|--namespace|-u|--api-url)
+      [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
+      case "$1" in
+        -n|--name) NAME="$2" ;;
+        -s|--short-name) SHORT_NAME="$2" ;;
+        -c|--cluster) CLUSTER_NAME="$2" ;;
+        -N|--namespace) NAMESPACE="$2" ;;
+        -u|--api-url) API_URL="$2" ;;
+      esac
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Error: unknown argument '$1'" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
 RUN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 DEFAULT_SHORT="$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | cut -c1-20)-${RUN_ID:0:6}"
-SHORT_NAME="${2:-$DEFAULT_SHORT}"
+SHORT_NAME="${SHORT_NAME:-$DEFAULT_SHORT}"
+
+# Default to the kind cluster's kubeconfig (as written by install-ve.sh) unless the caller set one
+if [[ -z "${KUBECONFIG:-}" && -f "$HOME/.kube/$CLUSTER_NAME.config" ]]; then
+  export KUBECONFIG="$HOME/.kube/$CLUSTER_NAME.config"
+fi
 
 # externalId and the VAT id are unique per run: registrations whose BPN, DID or any unique id
 # matches an onboarded partner or an in-flight registration are rejected as duplicates
@@ -92,17 +146,24 @@ if command -v kubectl >/dev/null && kubectl get "deployment/$DEPLOYMENT" -n "$NA
     echo "Following onboarding progress until a terminal state (Ctrl-C to stop early):"
     exec 3< <(kubectl logs "deployment/$DEPLOYMENT" -n "$NAMESPACE" -f --since=10s 2>/dev/null)
     LOGS_PID=$!
-    while IFS= read -r line <&3; do
+    RESULT=""
+    # -t bounds the wait per log line so a stalled onboarding cannot hang the script forever
+    while IFS= read -r -t 300 line <&3; do
       [[ "$line" == *[Oo]nboarding* ]] || continue
       echo "$line"
       # Terminal states end the follow; "paused at ... awaiting async completion" does not match
       # because the state word must directly follow the process id
       if [[ "$line" =~ Onboarding\ [0-9a-f-]+\ (completed|rejected|failed) ]]; then
+        RESULT="${BASH_REMATCH[1]}"
         break
       fi
     done
     exec 3<&-
     kill "$LOGS_PID" 2>/dev/null || true
+    if [[ "$RESULT" != "completed" ]]; then
+      echo "Onboarding did not complete (terminal state: ${RESULT:-none within timeout})" >&2
+      exit 1
+    fi
   fi
 else
   echo "kubectl or deployment not reachable — watch progress with:"
