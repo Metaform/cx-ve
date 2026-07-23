@@ -37,9 +37,11 @@ Onboarding API — on a [kind](https://kind.sigs.k8s.io) cluster. Run it from th
 
 The script performs the following steps:
 
-1. **Recreates** the kind cluster `cxve` (an existing cluster of that name is deleted first).
-   The kubeconfig is written to `~/.kube/cxve.config`; `kind-config.yaml` maps host ports 80/443
-   into the node, so the gateway is reachable on `http://localhost` without a port-forward.
+1. **Recreates** the kind cluster `cxve` (override the name with `--cluster <name>`; an existing
+   cluster of that name is deleted first).
+   The kubeconfig is written to `~/.kube/cxve.config`; the generated kind config maps host ports
+   80/443 into the node, so the gateway is reachable on `http://localhost` without a
+   port-forward.
 2. Installs Traefik (`traefik-values.yaml`) and the Gateway API CRDs.
 3. Installs the **Core Platform Distribution** as release `core-platform` into namespace `edc-v`,
    with `platform-override-values.yaml` as values. The release name matters: the app's chart
@@ -54,7 +56,7 @@ Once complete, the Onboarding API is reachable through the gateway at
 participant against it with
 
 ```shell
-./scripts/onboard-participant.sh "My Company GmbH"
+./scripts/onboard-participant.sh --name "My Company GmbH"
 ```
 
 which submits a partner registration and follows the onboarding progress in the application
@@ -70,6 +72,32 @@ OBAPI_CHART=charts/cx-ve ./scripts/install-ve.sh
 
 The cluster is left running when the script finishes; remove it with
 `kind delete cluster -n cxve`.
+
+### Running two VEs side by side
+
+Two (or more) VEs can coexist on one host, each in its own kind cluster. Uniqueness comes from
+the **cluster DNS domain** (`--dns-domain`), which is embedded in every participant and issuer
+DID (`did:web:…edc-v.svc.<dns-domain>…`) — the namespace itself must stay `edc-v` because the
+platform's CFM agents hardcode it in the token-exchange client ids they register. Give the
+second VE distinct host ports and, to allow cross-cluster routing later, distinct pod/service
+subnets:
+
+```shell
+OBAPI_CHART=charts/cx-ve ./scripts/install-ve.sh -c ve1 -d ve1.local -H ve1.localhost
+
+OBAPI_CHART=charts/cx-ve ./scripts/install-ve.sh -c ve2 -d ve2.local -H ve2.localhost \
+  --http-port 8081 --https-port 8444 \
+  --pod-subnet 10.245.0.0/16 --service-subnet 10.97.0.0/16
+```
+
+Onboard a participant in each:
+
+```shell
+./scripts/onboard-participant.sh --name "Alpha Manufacturing" --cluster ve1 \
+  --namespace edc-v --api-url http://ve1.localhost/onboarding
+./scripts/onboard-participant.sh --name "Beta Logistics" --cluster ve2 \
+  --namespace edc-v --api-url http://ve2.localhost:8081/onboarding
+```
 
 ## License
 

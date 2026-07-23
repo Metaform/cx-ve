@@ -5,15 +5,21 @@
 # the CX-0006 sequence continues asynchronously and is currently only observable via logs.
 #
 # Usage:
-#   ./scripts/onboard-participant.sh [company-name] [short-name] [cluster-name]
+#   ./scripts/onboard-participant.sh [-n|--name <company-name>] [-s|--short-name <name>]
+#                                    [-c|--cluster <cluster-name>] [-N|--namespace <ns>]
+#                                    [-u|--api-url <url>] [-h|--help]
 #
-#   company-name  display name of the partner company (default: "ACME Corporation")
-#   short-name    short name appended to the platform's did:web template to form the participant
-#                 DID (default: derived from company-name plus a random suffix, so repeated runs
-#                 don't collide in the Tenant Manager)
-#   cluster-name  name of the kind cluster created by install-ve.sh, used to locate the
-#                 kubeconfig at ~/.kube/<cluster-name>.config for log watching (default: cxve);
-#                 an explicitly set KUBECONFIG takes precedence
+#   -n, --name        display name of the partner company (default: "ACME Corporation")
+#   -s, --short-name  short name appended to the platform's did:web template to form the
+#                     participant DID (default: derived from the company name plus a random
+#                     suffix, so repeated runs don't collide in the Tenant Manager)
+#   -c, --cluster     name of the kind cluster created by install-ve.sh, used to locate the
+#                     kubeconfig at ~/.kube/<cluster-name>.config for log watching
+#                     (default: cxve); an explicitly set KUBECONFIG takes precedence
+#   -N, --namespace   namespace of the obapi deployment, for log watching (default: edc-v,
+#                     or the NAMESPACE env var)
+#   -u, --api-url     base URL of the Onboarding API (default: http://cxve.localhost/onboarding,
+#                     or the API_URL env var), e.g. http://ve2.localhost:8081/onboarding
 #
 # Environment:
 #   API_URL    base URL of the Onboarding API (default: http://cxve.localhost/onboarding, the
@@ -33,11 +39,55 @@ NAMESPACE="${NAMESPACE:-edc-v}"
 BPN="${BPN:-}"
 DEPLOYMENT=obapi-cx-ve
 
-NAME="${1:-ACME Corporation}"
+NAME="ACME Corporation"
+SHORT_NAME=""
+CLUSTER_NAME=cxve
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [-n|--name <company-name>] [-s|--short-name <name>] [-c|--cluster <cluster-name>] [-h|--help]
+
+Options:
+  -n, --name <company-name>   display name of the partner company (default: "ACME Corporation")
+  -s, --short-name <name>     short name forming the participant DID (default: derived from
+                              the company name plus a random suffix)
+  -c, --cluster <name>        kind cluster whose kubeconfig (~/.kube/<name>.config) is used
+                              for log watching (default: cxve)
+  -N, --namespace <ns>        namespace of the obapi deployment (default: edc-v)
+  -u, --api-url <url>         base URL of the Onboarding API
+                              (default: http://cxve.localhost/onboarding)
+  -h, --help                  show this help
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--name|-s|--short-name|-c|--cluster|-N|--namespace|-u|--api-url)
+      [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
+      case "$1" in
+        -n|--name) NAME="$2" ;;
+        -s|--short-name) SHORT_NAME="$2" ;;
+        -c|--cluster) CLUSTER_NAME="$2" ;;
+        -N|--namespace) NAMESPACE="$2" ;;
+        -u|--api-url) API_URL="$2" ;;
+      esac
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Error: unknown argument '$1'" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
 RUN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 DEFAULT_SHORT="$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | cut -c1-20)-${RUN_ID:0:6}"
-SHORT_NAME="${2:-$DEFAULT_SHORT}"
-CLUSTER_NAME="${3:-cxve}"
+SHORT_NAME="${SHORT_NAME:-$DEFAULT_SHORT}"
 
 # Default to the kind cluster's kubeconfig (as written by install-ve.sh) unless the caller set one
 if [[ -z "${KUBECONFIG:-}" && -f "$HOME/.kube/$CLUSTER_NAME.config" ]]; then
