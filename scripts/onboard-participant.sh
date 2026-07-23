@@ -95,7 +95,10 @@ if [[ -z "${KUBECONFIG:-}" && -f "$HOME/.kube/$CLUSTER_NAME.config" ]]; then
 fi
 
 # externalId and the VAT id are unique per run: registrations whose BPN, DID or any unique id
-# matches an onboarded partner or an in-flight registration are rejected as duplicates
+# matches an onboarded partner or an in-flight registration are rejected as duplicates.
+# The ACTIVE "Catena-X" agreement matters: the MembershipCredential's memberOf claim is derived
+# from the ACTIVE agreement ids, and the Catena-X CEL policy (cx …/policy/Membership) requires
+# memberOf == 'Catena-X' — without it the participant fails credential-constrained policies.
 payload=$(jq -n \
   --arg name "$NAME" \
   --arg shortName "$SHORT_NAME" \
@@ -123,7 +126,7 @@ payload=$(jq -n \
       email: "jane.doe@example.com"
     } ],
     companyRoles: [ "ACTIVE_PARTICIPANT" ],
-    agreements: [],
+    agreements: [ { agreementId: "Catena-X", consentStatus: "ACTIVE" } ],
     autoSubmit: true
   }')
 

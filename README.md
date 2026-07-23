@@ -112,10 +112,12 @@ peer issuer's DID document from inside each cluster. The routes do not survive a
 the kind node containers — re-run the script after a docker restart.
 
 Finally, exercise the federation with a cross-VE DSP exchange: the provider VE's participant
-offers an asset, the consumer VE's participant requests the catalog, negotiates a contract and
+offers an asset whose access and contract policy require all three credentials issued at
+onboarding (Membership, BPN and DataExchangeGovernance, via the Catena-X CEL policy
+constraints); the consumer VE's participant requests the catalog, negotiates a contract and
 establishes an HttpData-PULL transfer process through the participants' siglet data planes.
 This exercises cross-VE DID resolution, DCP presentation exchange, peer-issuer credential
-verification and data-plane signaling end to end:
+verification, credential-gated policy evaluation and data-plane signaling end to end:
 
 ```shell
 ./scripts/dsp-demo.sh

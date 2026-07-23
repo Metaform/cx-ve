@@ -176,11 +176,29 @@ done
 PROV_DSP="http://controlplane.${NAMESPACE}.svc.${PROV_DOMAIN}:8082/api/dsp/${PROV_CTX}/cx-neptune"
 # Scope the demo object ids by participant context (ids are store-unique across contexts)
 ASSET_ID="${ASSET_ID:-demo-asset-${PROV_CTX:0:8}}"
-POLICY_ID="policy-open-${PROV_CTX:0:8}"
+POLICY_ID="policy-credentials-${PROV_CTX:0:8}"
 echo ">> Provider:  $PROV_DID ($PROV_CTX)"
 echo ">> Consumer:  $CONS_DID ($CONS_CTX)"
 
-# ---- provider: asset + open policy + contract definition ------------------------------------
+# The BusinessPartnerNumber policy constraint pins the consumer's BPN; read it from the
+# consumer VE's tenant manager (the cfm.issuer VPA properties of the participant profile carry
+# the bpn the credentials were issued for)
+CONS_BPN=$(kubectl --kubeconfig "$(kubeconfig "$CONS_CLUSTER")" exec mgmt-probe -n "$NAMESPACE" -- sh -c '
+SA=$(cat /var/run/secrets/jwtlet/token)
+TOK=$(curl -s -m 10 -X POST "http://jwtlet.edc-v.svc.'"$CONS_DOMAIN"':8080/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+  --data-urlencode "subject_token=$SA" \
+  --data-urlencode "resource=issuer" --data-urlencode "scope=cfm-read" --data-urlencode "audience=edcv" | jq -r .access_token)
+TM=http://tenant-manager.edc-v.svc.'"$CONS_DOMAIN"':8080/api/v1alpha1
+for t in $(curl -s -m 10 -H "Authorization: Bearer $TOK" "$TM/tenants" | jq -r ".[].id"); do
+  curl -s -m 10 -H "Authorization: Bearer $TOK" "$TM/tenants/$t/participant-profiles" \
+    | jq -r --arg did "'"$CONS_DID"'" ".[] | select(.identifier==\$did) | .vpas[]? | select(.type==\"cfm.issuer\") | .properties.bpn // empty"
+done | head -1')
+[[ -n "$CONS_BPN" ]] || { echo "ERROR: could not determine the consumer's BPN from the tenant manager" >&2; exit 1; }
+echo ">> Consumer BPN: $CONS_BPN"
+
+# ---- provider: asset + credential-constrained policy + contract definition ------------------
 cat > "$GEN_DIR/asset.json" <<EOF
 {
   "@context": ["https://w3id.org/edc/connector/management/v2"],
@@ -190,14 +208,33 @@ cat > "$GEN_DIR/asset.json" <<EOF
   "dataAddress": {"@type": "DataAddress", "type": "HttpData", "baseUrl": "https://jsonplaceholder.typicode.com/todos/1"}
 }
 EOF
-# ODRL requires at least one rule for a negotiable offer; an unconstrained "use" permission is
-# the closest thing to an open policy
+# The use-permission requires all three credentials issued at onboarding, matching the CEL
+# expressions seeded by the Catena-X profile (leftOperand IRIs under …catenax/2025/9/policy/):
+#   Membership              — MembershipCredential with memberOf == 'Catena-X' (rightOperand
+#                             is ignored by the CEL; 'active' is the CX convention)
+#   FrameworkAgreement      — DataExchangeGovernanceCredential whose contractVersion matches
+#                             the right operand ('DataExchangeGovernance:' + contractVersion;
+#                             the Onboarding API issues contractVersion 1.0.0)
+#   BusinessPartnerNumber   — BpnCredential with bpn == the consumer's BPN
+# The same policy definition serves as BOTH access policy (catalog visibility) and contract
+# policy (negotiation + transfer) via the contract definition below.
 cat > "$GEN_DIR/policy.json" <<EOF
 {
   "@context": ["https://w3id.org/edc/connector/management/v2", "http://www.w3.org/ns/odrl.jsonld"],
   "@type": "PolicyDefinition",
   "@id": "${POLICY_ID}",
-  "policy": {"@context": "http://www.w3.org/ns/odrl.jsonld", "@type": "Set", "permission": [{"action": "use"}]}
+  "policy": {
+    "@context": "http://www.w3.org/ns/odrl.jsonld",
+    "@type": "Set",
+    "permission": [{
+      "action": "use",
+      "constraint": [
+        {"@type": "Constraint", "leftOperand": "https://w3id.org/catenax/2025/9/policy/Membership", "operator": "eq", "rightOperand": "active"},
+        {"@type": "Constraint", "leftOperand": "https://w3id.org/catenax/2025/9/policy/FrameworkAgreement", "operator": "eq", "rightOperand": "DataExchangeGovernance:1.0.0"},
+        {"@type": "Constraint", "leftOperand": "https://w3id.org/catenax/2025/9/policy/BusinessPartnerNumber", "operator": "eq", "rightOperand": "${CONS_BPN}"}
+      ]
+    }]
+  }
 }
 EOF
 cat > "$GEN_DIR/contractdef.json" <<EOF
@@ -212,8 +249,10 @@ cat > "$GEN_DIR/contractdef.json" <<EOF
 EOF
 echo ">> Seeding provider offer"
 mgmt "$PROV_CLUSTER" POST "/participants/${PROV_CTX}/assets" "$GEN_DIR/asset.json" >/dev/null
-mgmt "$PROV_CLUSTER" POST "/participants/${PROV_CTX}/policydefinitions" "$GEN_DIR/policy.json" >/dev/null \
-  || mgmt "$PROV_CLUSTER" PUT "/participants/${PROV_CTX}/policydefinitions/${POLICY_ID}" "$GEN_DIR/policy.json" >/dev/null
+# Upsert: PUT updates an existing definition's content (a tolerated 409 on POST would silently
+# keep stale policy content); fall back to POST for first-time creation
+mgmt "$PROV_CLUSTER" PUT "/participants/${PROV_CTX}/policydefinitions/${POLICY_ID}" "$GEN_DIR/policy.json" >/dev/null 2>&1 \
+  || mgmt "$PROV_CLUSTER" POST "/participants/${PROV_CTX}/policydefinitions" "$GEN_DIR/policy.json" >/dev/null
 mgmt "$PROV_CLUSTER" POST "/participants/${PROV_CTX}/contractdefinitions" "$GEN_DIR/contractdef.json" >/dev/null
 
 # ---- consumer: catalog request --------------------------------------------------------------
@@ -228,28 +267,25 @@ cat > "$GEN_DIR/catalog-request.json" <<EOF
 EOF
 echo ">> Requesting catalog from consumer side"
 CATALOG=$(mgmt "$CONS_CLUSTER" POST "/participants/${CONS_CTX}/catalog/request" "$GEN_DIR/catalog-request.json")
-OFFER_ID=$(printf '%s' "$CATALOG" | jq -r --arg a "$ASSET_ID" \
-  '.dataset | if type=="array" then . else [.] end | .[] | select(.["@id"]==$a) | .hasPolicy | if type=="array" then .[0] else . end | .["@id"]')
-[[ -n "$OFFER_ID" && "$OFFER_ID" != null ]] || { echo "ERROR: asset '$ASSET_ID' not found in catalog: $CATALOG" >&2; exit 1; }
+OFFER=$(printf '%s' "$CATALOG" | jq --arg a "$ASSET_ID" \
+  '.dataset | if type=="array" then . else [.] end | .[] | select(.["@id"]==$a) | .hasPolicy | if type=="array" then .[0] else . end')
+OFFER_ID=$(printf '%s' "$OFFER" | jq -r '.["@id"] // empty')
+[[ -n "$OFFER_ID" ]] || { echo "ERROR: asset '$ASSET_ID' not found in catalog (access policy unsatisfied, or not seeded): $CATALOG" >&2; exit 1; }
 echo ">> Catalog contains '$ASSET_ID', offer: $OFFER_ID"
 
 # ---- consumer: contract negotiation ---------------------------------------------------------
-cat > "$GEN_DIR/negotiation.json" <<EOF
-{
-  "@context": ["https://w3id.org/edc/connector/management/v2", "http://www.w3.org/ns/odrl.jsonld"],
+# The request must reproduce the provider's offer policy EXACTLY (including the credential
+# constraints), so mirror the offer from the catalog response verbatim — under the catalog's
+# own JSON-LD contexts, so compacted terms expand back to the same IRIs.
+CATALOG_CTX=$(printf '%s' "$CATALOG" | jq '.["@context"] | if type=="array" then . else [.] end')
+jq -n --argjson ctx "$CATALOG_CTX" --argjson offer "$OFFER" \
+      --arg dsp "$PROV_DSP" --arg assigner "$PROV_DID" --arg target "$ASSET_ID" '{
+  "@context": (["https://w3id.org/edc/connector/management/v2"] + $ctx),
   "@type": "ContractRequest",
-  "counterPartyAddress": "${PROV_DSP}",
+  "counterPartyAddress": $dsp,
   "protocol": "cx-neptune",
-  "policy": {
-    "@context": "http://www.w3.org/ns/odrl.jsonld",
-    "@id": "${OFFER_ID}",
-    "@type": "Offer",
-    "assigner": "${PROV_DID}",
-    "target": "${ASSET_ID}",
-    "permission": [{"action": "use"}]
-  }
-}
-EOF
+  "policy": ($offer + {"assigner": $assigner, "target": $target})
+}' > "$GEN_DIR/negotiation.json"
 NEG_ID=$(mgmt "$CONS_CLUSTER" POST "/participants/${CONS_CTX}/contractnegotiations" "$GEN_DIR/negotiation.json" | jq -r '.["@id"]')
 echo ">> Negotiation started: $NEG_ID"
 
