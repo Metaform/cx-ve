@@ -1,0 +1,61 @@
+name: E2E test
+
+# Full dual-VE end-to-end test (scripts/e2e.sh): installs two VEs in two kind clusters,
+# onboards a participant in each, federates the clusters and runs the cross-VE DSP exchange.
+# Heavy (~1h, two full platform stacks) — triggered manually or by PRs touching the pieces it
+# exercises.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "charts/**"
+      - "platform-override-values.yaml"
+      - "traefik-values.yaml"
+      - ".github/workflows/e2e.yml"
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Dual-VE end-to-end test
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kind
+        uses: helm/kind-action@v1
+        with:
+          install_only: true
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Add Traefik chart repository
+        run: helm repo add traefik https://traefik.github.io/charts
+
+      # The scripts reach the gateways via ve1.localhost / ve2.localhost; make resolution
+      # deterministic instead of relying on the resolver's *.localhost handling
+      - name: Resolve VE hostnames
+        run: echo "127.0.0.1 ve1.localhost ve2.localhost" | sudo tee -a /etc/hosts
+
+      - name: Run end-to-end test
+        run: ./scripts/e2e.sh
+
+      - name: Export kind cluster logs
+        if: failure()
+        run: |
+          kind export logs --name ve1 logs/ve1 || true
+          kind export logs --name ve2 logs/ve2 || true
+
+      - name: Upload cluster logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-logs
+          path: logs/
+          if-no-files-found: ignore
