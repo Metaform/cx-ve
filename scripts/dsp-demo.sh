@@ -187,7 +187,7 @@ cat > "$GEN_DIR/asset.json" <<EOF
   "@type": "Asset",
   "@id": "${ASSET_ID}",
   "properties": {"name": "Cross-VE DSP demo asset"},
-  "dataAddress": {"@type": "DataAddress", "type": "HttpData", "baseUrl": "http://jwtlet.${NAMESPACE}.svc.${PROV_DOMAIN}:8080/.well-known/jwks.json"}
+  "dataAddress": {"@type": "DataAddress", "type": "HttpData", "baseUrl": "https://jsonplaceholder.typicode.com/todos/1"}
 }
 EOF
 # ODRL requires at least one rule for a negotiable offer; an unconstrained "use" permission is

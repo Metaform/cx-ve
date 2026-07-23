@@ -185,9 +185,9 @@ config:
     did:
       template: "did:web:identityhub.${NAMESPACE}.svc.${DNS_DOMAIN}%3A7083:"
     dataplane:
-      # Demo data source served for HttpData-PULL transfers: jwtlet's JWKS endpoint — a real,
-      # auth-free in-cluster JSON endpoint (also reachable from a federated peer VE)
-      endpoint: http://jwtlet.${NAMESPACE}.svc.${DNS_DOMAIN}:8080/.well-known/jwks.json
+      # Demo data source served for HttpData-PULL transfers: a public sample-JSON API, so the
+      # demo payload is unambiguous sample data rather than platform infrastructure
+      endpoint: https://jsonplaceholder.typicode.com/todos/1
 EOF
 
 # Setup cluster

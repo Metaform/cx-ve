@@ -169,7 +169,7 @@ config:
       template: "did:web:identityhub.${NAMESPACE}.svc.$2%3A7083:"
     dataplane:
       # Keep in sync with install-ve.sh: demo data source for HttpData-PULL transfers
-      endpoint: http://jwtlet.${NAMESPACE}.svc.$2:8080/.well-known/jwks.json
+      endpoint: https://jsonplaceholder.typicode.com/todos/1
 EOF
   helm upgrade --install obapi "$OBAPI_CHART" \
     --namespace "$NAMESPACE" \
