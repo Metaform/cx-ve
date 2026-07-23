@@ -10,8 +10,12 @@
 #   3. connect-ves.sh       — routes, DNS zone forwarding, mutual issuer trust
 #   4. dsp-demo.sh          — cross-VE catalog request + contract negotiation to FINALIZED
 #
-# The clusters are left running afterwards for inspection; remove them with
+# On success the clusters are left running for inspection; remove them with
 #   kind delete cluster -n ve1 && kind delete cluster -n ve2
+# On FAILURE both clusters are deleted, so a broken attempt doesn't leave two large
+# half-configured clusters behind — except when --skip-install was used (the clusters existed
+# before this run) or E2E_KEEP_CLUSTERS=true (e.g. CI, which exports the cluster logs after a
+# failure and discards the runner anyway).
 #
 # Usage:
 #   ./scripts/e2e.sh [--skip-install] [-h|--help]
@@ -44,6 +48,18 @@ done
 
 # The dual-VE setup requires the working-tree app chart
 export OBAPI_CHART="${OBAPI_CHART:-charts/cx-ve}"
+
+# Tear down the clusters when the run fails (see header for the exceptions)
+cleanup() {
+  local ec=$?
+  if [[ $ec -ne 0 && "$SKIP_INSTALL" != "true" && "${E2E_KEEP_CLUSTERS:-false}" != "true" ]]; then
+    echo ""
+    echo "E2E FAILED (exit $ec) — deleting clusters ve1 and ve2"
+    kind delete cluster -n ve1 || true
+    kind delete cluster -n ve2 || true
+  fi
+}
+trap cleanup EXIT
 
 START=$(date +%s)
 step() {

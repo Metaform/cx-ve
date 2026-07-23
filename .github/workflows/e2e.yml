@@ -44,6 +44,10 @@ jobs:
         run: echo "127.0.0.1 ve1.localhost ve2.localhost" | sudo tee -a /etc/hosts
 
       - name: Run end-to-end test
+        env:
+          # Keep failed clusters alive for the log-export step below; the runner is discarded
+          # after the job, so no cleanup is needed here
+          E2E_KEEP_CLUSTERS: "true"
         run: ./scripts/e2e.sh
 
       - name: Export kind cluster logs
