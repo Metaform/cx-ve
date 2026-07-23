@@ -173,7 +173,7 @@ EOF
     -f "$GEN_DIR/obapi.$1.yaml" \
     --wait
   kubectl rollout restart deployment/obapi-cx-ve -n "$NAMESPACE"
-  kubectl rollout status deployment/obapi-cx-ve -n "$NAMESPACE" --timeout=180s
+  kubectl rollout status deployment/obapi-cx-ve -n "$NAMESPACE" --timeout=420s
 
   # The chart's trustedIssuers hook only registers the issuer *id*; the DCP verifier
   # additionally requires the credential types the issuer may issue, or presentations verify
@@ -184,8 +184,10 @@ EOF
     | jq --arg k "edc.iam.trusted-issuer.$4.supportedtypes" \
          '.data[$k] = "[\"VerifiableCredential\",\"MembershipCredential\",\"BpnCredential\",\"DataExchangeGovernanceCredential\"]"' \
     | kubectl apply -f -
+  # Generous timeout: the restart re-pulls :latest images for the init containers and pays JVM
+  # startup, which stacks up when several rollouts run back to back
   kubectl rollout restart deployment/controlplane -n "$NAMESPACE"
-  kubectl rollout status deployment/controlplane -n "$NAMESPACE" --timeout=180s
+  kubectl rollout status deployment/controlplane -n "$NAMESPACE" --timeout=420s
 }
 
 # ---- 4. Smoke test: fetch the peer issuer's DID document across clusters --------------------

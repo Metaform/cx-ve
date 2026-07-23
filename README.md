@@ -120,6 +120,13 @@ resolution, DCP presentation exchange and peer-issuer credential verification en
 ./scripts/dsp-demo.sh
 ```
 
+The whole sequence — both installs, onboarding, federation and the DSP exchange — runs as one
+end-to-end test (~35 minutes; `--skip-install` reuses existing clusters):
+
+```shell
+./scripts/e2e.sh
+```
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).

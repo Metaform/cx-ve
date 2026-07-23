@@ -146,17 +146,24 @@ if command -v kubectl >/dev/null && kubectl get "deployment/$DEPLOYMENT" -n "$NA
     echo "Following onboarding progress until a terminal state (Ctrl-C to stop early):"
     exec 3< <(kubectl logs "deployment/$DEPLOYMENT" -n "$NAMESPACE" -f --since=10s 2>/dev/null)
     LOGS_PID=$!
-    while IFS= read -r line <&3; do
+    RESULT=""
+    # -t bounds the wait per log line so a stalled onboarding cannot hang the script forever
+    while IFS= read -r -t 300 line <&3; do
       [[ "$line" == *[Oo]nboarding* ]] || continue
       echo "$line"
       # Terminal states end the follow; "paused at ... awaiting async completion" does not match
       # because the state word must directly follow the process id
       if [[ "$line" =~ Onboarding\ [0-9a-f-]+\ (completed|rejected|failed) ]]; then
+        RESULT="${BASH_REMATCH[1]}"
         break
       fi
     done
     exec 3<&-
     kill "$LOGS_PID" 2>/dev/null || true
+    if [[ "$RESULT" != "completed" ]]; then
+      echo "Onboarding did not complete (terminal state: ${RESULT:-none within timeout})" >&2
+      exit 1
+    fi
   fi
 else
   echo "kubectl or deployment not reachable — watch progress with:"
