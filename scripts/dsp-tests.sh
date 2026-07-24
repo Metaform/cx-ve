@@ -2,10 +2,10 @@
 
 # Cross-VE DSP test: as the provider VE's newest onboarded participant, offers an asset under
 # a credential-constrained use-policy; as the consumer VE's newest participant, requests the
-# provider's catalog, negotiates a contract and establishes an HttpData-PULL transfer process
-# through the participants' siglet data planes. Succeeds when the negotiation reaches
-# FINALIZED and the transfer process reaches STARTED, and prints the agreement and
-# transfer-process ids.
+# provider's catalog, negotiates a contract, establishes an HttpData-PULL transfer process
+# through the participants' siglet data planes and downloads the payload. Succeeds when the
+# negotiation reaches FINALIZED, the transfer process reaches STARTED and the endpoint from
+# the transfer's EDR serves the payload; prints the agreement/transfer ids and the payload.
 #
 # The test is driven from the host with curl: every management-plane request traverses the
 # platform's real edge — Traefik (HTTPRoute with URL rewrite) → clearglass (JWT forward-auth
@@ -24,6 +24,7 @@
 #   /api/auth       → jwtlet /                    (token exchange, no auth middleware)
 #   /api/management → controlplane /api/mgmt      (management API)
 #   /api/tm         → tenant-manager /api/v1alpha1
+#   /api/siglet     → siglet /                    (data-plane token cache: EDR retrieval)
 #
 # The DSP counterparty address stays the in-cluster URL (controlplane.edc-v.svc.<domain>:8082)
 # — it is dereferenced by the consumer VE's controlplane over the connect-ves.sh routing, not
@@ -281,10 +282,10 @@ done
 [[ -n "$AGREEMENT" && "$AGREEMENT" != null ]] || { echo "ERROR: negotiation did not reach FINALIZED in time" >&2; exit 1; }
 
 # ---- consumer: transfer process -------------------------------------------------------------
-# HttpData-PULL: the provider's siglet data plane starts the flow and hands the data address to
-# the consumer through the DSP TransferStartMessage; STARTED on the consumer side means both
-# data planes are engaged. (The application-facing pull then goes through the consumer siglet's
-# own API — outside this demo's scope.)
+# HttpData-PULL: the provider's siglet data plane starts the flow and hands the data address
+# (EDR: endpoint + provider-minted access token) to the consumer through the DSP
+# TransferStartMessage; STARTED on the consumer side means both data planes are engaged and
+# the consumer siglet caches the EDR for applications.
 cat > "$GEN_DIR/transfer.json" <<EOF
 {
   "@context": ["https://w3id.org/edc/connector/management/v2"],
@@ -298,14 +299,15 @@ EOF
 TP_ID=$(mgmt "$CONS_CLUSTER" POST "/participants/${CONS_CTX}/transferprocesses" "$GEN_DIR/transfer.json" | jq -r '.["@id"]')
 echo ">> Transfer process started: $TP_ID"
 
+TP_STATE=""
 for i in $(seq 1 40); do
   TP=$(mgmt "$CONS_CLUSTER" GET "/participants/${CONS_CTX}/transferprocesses/${TP_ID}")
   STATE=$(printf '%s' "$TP" | jq -r .state)
   case "$STATE" in
     STARTED|COMPLETED)
+      TP_STATE=$STATE
       echo ">> Transfer process $STATE (type $(printf '%s' "$TP" | jq -r .transferType))"
-      echo "Cross-VE DSP exchange OK: ${CONS_DID} negotiated '${ASSET_ID}' from ${PROV_DID} (agreement ${AGREEMENT}) and established transfer ${TP_ID}"
-      exit 0
+      break
       ;;
     TERMINATED)
       echo "ERROR: transfer TERMINATED: $(printf '%s' "$TP" | jq -r .errorDetail)" >&2
@@ -314,5 +316,32 @@ for i in $(seq 1 40); do
     *) echo ">> transfer state: $STATE"; sleep 3 ;;
   esac
 done
-echo "ERROR: transfer did not reach STARTED in time" >&2
-exit 1
+[[ -n "$TP_STATE" ]] || { echo "ERROR: transfer did not reach STARTED in time" >&2; exit 1; }
+
+# ---- consumer: data download ----------------------------------------------------------------
+# The consumer siglet caches the transfer's EDR (with automatic renewal against the provider
+# siglet) and serves it to applications at GET /tokens/{participant-context}/{transfer-id}.
+# Retrieve it through the consumer gateway — the `read` role scope expands to siglet-api:read,
+# which clearglass's /tokens/** rule accepts — then pull the payload from the EDR endpoint
+# with the EDR token. NOTE the demo data source (jsonplaceholder) ignores the Authorization
+# header, so the download proves EDR delivery end to end, not token enforcement at the source.
+SIGLET_TOK=$(xtoken "$CONS_CLUSTER" read)
+EDR=""
+for i in $(seq 1 10); do
+  EDR=$(curl -s -m 15 -H "Authorization: Bearer $SIGLET_TOK" \
+    "$CONS_URL/api/siglet/tokens/${CONS_CTX}/${TP_ID}")
+  [[ -n "$(printf '%s' "$EDR" | jq -r '.token // empty' 2>/dev/null)" ]] && break
+  echo ">> EDR not cached yet, retrying"; sleep 3
+done
+EDR_ENDPOINT=$(printf '%s' "$EDR" | jq -r '.endpoint // empty')
+EDR_TOKEN=$(printf '%s' "$EDR" | jq -r '.token // empty')
+[[ -n "$EDR_ENDPOINT" && -n "$EDR_TOKEN" ]] || { echo "ERROR: could not retrieve the EDR from the consumer siglet: $EDR" >&2; exit 1; }
+echo ">> EDR retrieved from consumer siglet — endpoint: $EDR_ENDPOINT"
+
+PAYLOAD_FILE="$GEN_DIR/payload"
+DL_STATUS=$(curl -s -m 30 -o "$PAYLOAD_FILE" -w '%{http_code}' -H "Authorization: Bearer $EDR_TOKEN" "$EDR_ENDPOINT")
+[[ "$DL_STATUS" == 200 && -s "$PAYLOAD_FILE" ]] || { echo "ERROR: data download failed (HTTP $DL_STATUS): $(cat "$PAYLOAD_FILE" 2>/dev/null)" >&2; exit 1; }
+echo ">> Downloaded payload ($(wc -c < "$PAYLOAD_FILE" | tr -d ' ') bytes):"
+cat "$PAYLOAD_FILE"; echo
+
+echo "Cross-VE DSP exchange OK: ${CONS_DID} negotiated '${ASSET_ID}' from ${PROV_DID} (agreement ${AGREEMENT}), established transfer ${TP_ID} (${TP_STATE}) and downloaded the payload from ${EDR_ENDPOINT}"

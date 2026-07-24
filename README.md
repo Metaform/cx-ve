@@ -114,8 +114,9 @@ the kind node containers — re-run the script after a docker restart.
 Finally, exercise the federation with a cross-VE DSP exchange: the provider VE's participant
 offers an asset whose access and contract policy require all three credentials issued at
 onboarding (Membership, BPN and DataExchangeGovernance, via the Catena-X CEL policy
-constraints); the consumer VE's participant requests the catalog, negotiates a contract and
-establishes an HttpData-PULL transfer process through the participants' siglet data planes.
+constraints); the consumer VE's participant requests the catalog, negotiates a contract,
+establishes an HttpData-PULL transfer process through the participants' siglet data planes,
+retrieves the transfer's EDR from its siglet's token cache and downloads the payload.
 The test runs on the host and reaches each VE's management plane through its gateway
 (Traefik → clearglass → backend), so besides cross-VE DID resolution, DCP presentation
 exchange, peer-issuer credential verification, credential-gated policy evaluation and

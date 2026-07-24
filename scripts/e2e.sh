@@ -9,7 +9,8 @@
 #                             COMPLETED (exits non-zero on rejected/failed/stalled)
 #   3. connect-ves.sh       — routes, DNS zone forwarding, mutual issuer trust
 #   4. dsp-tests.sh         — cross-VE DSP exchange driven from the host through each VE's
-#                             gateway (catalog, negotiation to FINALIZED, transfer to STARTED)
+#                             gateway (catalog, negotiation to FINALIZED, transfer to STARTED,
+#                             EDR retrieval + payload download)
 #
 # On success the clusters are left running for inspection; remove them with
 #   kind delete cluster -n ve1 && kind delete cluster -n ve2
