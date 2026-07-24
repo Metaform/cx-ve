@@ -100,11 +100,11 @@ KUBECONFIG_FILE="$HOME/.kube/$CLUSTER_NAME.config"
 
 # Helm chart of the core-platform-distribution
 CORE_CHART="${CORE_CHART:-oci://ghcr.io/eclipse-cfm/charts/core-platform-distribution}"
-CORE_CHART_VERSION=0.0.14
+CORE_CHART_VERSION=0.0.15
 
 # Helm chart of the Catena-X Profile
 CXPROF_CHART="${CXPROF_CHART:-oci://ghcr.io/metaform/charts/catenax-profile}"
-CXPROF_CHART_VERSION=0.0.2
+CXPROF_CHART_VERSION=0.0.3
 
 # Helm chart of the Onboarding API
 OBAPI_CHART="${OBAPI_CHART:-oci://ghcr.io/metaform/charts/cx-ve}"

@@ -34,7 +34,7 @@ NAMESPACE=edc-v
 
 # Charts (must match what the VEs were installed with)
 CORE_CHART="${CORE_CHART:-oci://ghcr.io/eclipse-cfm/charts/core-platform-distribution}"
-CORE_CHART_VERSION=0.0.14
+CORE_CHART_VERSION=0.0.15
 # The dual-VE setup requires the working-tree app chart (see install-ve.sh)
 OBAPI_CHART="${OBAPI_CHART:-charts/cx-ve}"
 

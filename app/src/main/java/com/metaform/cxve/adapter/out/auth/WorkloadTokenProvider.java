@@ -57,6 +57,7 @@ public class WorkloadTokenProvider implements TokenProvider {
             MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
             formData.add("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange");
             formData.add("subject_token", tokenContent);
+            formData.add("subject_token_type", "urn:ietf:params:oauth:token-type:jwt");
             formData.add("audience", tokenExchangeAudience);
             formData.add("resource", ofNullable(resource).orElse(defaultResource));
             formData.add("scope", scopes);

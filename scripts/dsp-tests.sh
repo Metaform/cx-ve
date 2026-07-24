@@ -1,54 +1,76 @@
 #!/bin/bash
 
-# Cross-VE DSP demo: as the provider VE's newest onboarded participant, offers an asset under an
-# open use-policy; as the consumer VE's newest participant, requests the provider's catalog,
-# negotiates a contract and establishes an HttpData-PULL transfer process through the
-# participants' siglet data planes. Succeeds when the negotiation reaches FINALIZED and the
-# transfer process reaches STARTED, and prints the agreement and transfer-process ids.
+# Cross-VE DSP test: as the provider VE's newest onboarded participant, offers an asset under
+# a credential-constrained use-policy; as the consumer VE's newest participant, requests the
+# provider's catalog, negotiates a contract and establishes an HttpData-PULL transfer process
+# through the participants' siglet data planes. Succeeds when the negotiation reaches
+# FINALIZED and the transfer process reaches STARTED, and prints the agreement and
+# transfer-process ids.
+#
+# The test is driven from the host with curl: every management-plane request traverses the
+# platform's real edge — Traefik (HTTPRoute with URL rewrite) → clearglass (JWT forward-auth
+# against the route→scope map) → backend — so it also covers the gateway auth chain, which
+# an in-cluster probe pod would bypass.
+#
+# Auth: kubectl mints a TokenRequest token for the seed-jobs ServiceAccount with audience
+# https://kubernetes.default.svc.cluster.local — equivalent to the projected token a pod
+# would mount — and jwtlet exchanges it (RFC 8693) at <gateway>/api/auth/token for a scoped
+# access token. jwtlet expands the role scopes into the API-grammar scopes clearglass
+# requires (admin → "management-api:admin identity-api:admin issuer-admin-api:admin",
+# cfm-read → "provision-manager-api:read tenant-manager-api:read"); bare role scopes would
+# NOT pass clearglass, which matches non-grammar scopes exactly.
+#
+# Gateway paths (prefix rewrites done by the platform's HTTPRoutes):
+#   /api/auth       → jwtlet /                    (token exchange, no auth middleware)
+#   /api/management → controlplane /api/mgmt      (management API)
+#   /api/tm         → tenant-manager /api/v1alpha1
+#
+# The DSP counterparty address stays the in-cluster URL (controlplane.edc-v.svc.<domain>:8082)
+# — it is dereferenced by the consumer VE's controlplane over the connect-ves.sh routing, not
+# from the host (the DSP port has no gateway route).
 #
 # Prerequisites: both VEs installed (install-ve.sh), a participant onboarded in each
-# (onboard-participant.sh) and the VEs connected (connect-ves.sh — routes, DNS forwarding,
-# mutual issuer trust incl. supported credential types).
-#
-# Management-API access follows the platform's own seeding pattern: a helper pod with the
-# `seed-jobs` ServiceAccount and a projected jwtlet subject token exchanges it (RFC 8693,
-# resource=issuer scope=admin) for an EDC Management API token and calls
-# controlplane:8081/api/mgmt/v5beta in-cluster.
+# (onboard-participant.sh) and the VEs connected (connect-ves.sh). Requires kubectl, curl, jq.
 #
 # Usage:
-#   ./scripts/dsp-demo.sh [--pc <cluster>] [--pd <domain>] [--cc <cluster>] [--cd <domain>]
-#                         [--asset <id>] [-h|--help]
+#   ./scripts/dsp-tests.sh [--pc <cluster>] [--pd <domain>] [--pu <gateway-url>]
+#                          [--cc <cluster>] [--cd <domain>] [--cu <gateway-url>]
+#                          [--asset <id>] [-h|--help]
 
 set -euo pipefail
 
-PROV_CLUSTER=ve1; PROV_DOMAIN=ve1.local
-CONS_CLUSTER=ve2; CONS_DOMAIN=ve2.local
+PROV_CLUSTER=ve1; PROV_DOMAIN=ve1.local; PROV_URL=http://ve1.localhost
+CONS_CLUSTER=ve2; CONS_DOMAIN=ve2.local; CONS_URL=http://ve2.localhost:8081
 # Default derived from the provider participant context after discovery: ids are unique across
 # participant contexts in the store, so a fixed id would 409 against an older participant's
 # asset without ever appearing in this participant's catalog
 ASSET_ID=""
 NAMESPACE=edc-v
+AUDIENCE=edcv
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--pc <cluster>] [--pd <domain>] [--cc <cluster>] [--cd <domain>]
+Usage: $(basename "$0") [--pc <cluster>] [--pd <domain>] [--pu <gateway-url>]
+                        [--cc <cluster>] [--cd <domain>] [--cu <gateway-url>]
                         [--asset <id>] [-h|--help]
 
 Options (defaults match the dual-VE install convention):
-  --pc/--pd   provider cluster / DNS domain (default: ve1 / ve1.local)
-  --cc/--cd   consumer cluster / DNS domain (default: ve2 / ve2.local)
-  --asset     asset id to offer and negotiate (default: demo-asset-<provider-ctx-prefix>)
-  -h, --help  show this help
+  --pc/--pd/--pu  provider cluster / DNS domain / gateway base URL
+                  (default: ve1 / ve1.local / http://ve1.localhost)
+  --cc/--cd/--cu  consumer cluster / DNS domain / gateway base URL
+                  (default: ve2 / ve2.local / http://ve2.localhost:8081)
+  --asset         asset id to offer and negotiate (default: demo-asset-<provider-ctx-prefix>)
+  -h, --help      show this help
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --pc|--pd|--cc|--cd|--asset)
+    --pc|--pd|--pu|--cc|--cd|--cu|--asset)
       [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
       case "$1" in
-        --pc) PROV_CLUSTER="$2" ;; --pd) PROV_DOMAIN="$2" ;;
-        --cc) CONS_CLUSTER="$2" ;; --cd) CONS_DOMAIN="$2" ;;
+        --pc) PROV_CLUSTER="$2" ;; --pd) PROV_DOMAIN="$2" ;; --pu) PROV_URL="$2" ;;
+        --cc) CONS_CLUSTER="$2" ;; --cd) CONS_DOMAIN="$2" ;; --cu) CONS_URL="$2" ;;
         --asset) ASSET_ID="$2" ;;
       esac
       shift 2
@@ -61,92 +83,52 @@ done
 GEN_DIR=$(mktemp -d)
 kubeconfig() { echo "$HOME/.kube/$1.config"; }
 
-# ---- helper pod with seed-jobs SA + projected jwtlet subject token --------------------------
-ensure_probe() { # <cluster>
-  local kc; kc=$(kubeconfig "$1")
-  # Pod specs are largely immutable — recreate instead of apply-over (a leftover pod from an
-  # earlier run may carry a different spec)
-  kubectl --kubeconfig "$kc" delete pod mgmt-probe -n "$NAMESPACE" --ignore-not-found --wait >/dev/null
-  cat > "$GEN_DIR/probe.yaml" <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: mgmt-probe
-  namespace: ${NAMESPACE}
-spec:
-  serviceAccountName: seed-jobs
-  restartPolicy: Never
-  containers:
-    - name: probe
-      image: alpine:latest
-      # The marker file signals that curl/jq are actually installed — pod readiness alone
-      # races the package installation
-      command: ["sh", "-c", "apk add --no-cache curl jq >/dev/null 2>&1 && touch /tmp/pkgs-ready; sleep 7200"]
-      env:
-        # The VE's DNS domain, injected so the helper needs no resolv.conf guesswork (the
-        # host's own search domains leak into pod resolv.conf on some runners)
-        - name: VE_DOMAIN
-          value: "$2"
-      volumeMounts:
-        - name: jwtlet-subject-token
-          mountPath: /var/run/secrets/jwtlet
-          readOnly: true
-  volumes:
-    - name: jwtlet-subject-token
-      projected:
-        sources:
-          - serviceAccountToken:
-              path: token
-              audience: https://kubernetes.default.svc.cluster.local
-              expirationSeconds: 3600
-EOF
-  kubectl --kubeconfig "$kc" apply -f "$GEN_DIR/probe.yaml" >/dev/null
-  kubectl --kubeconfig "$kc" wait pod/mgmt-probe -n "$NAMESPACE" --for=condition=Ready --timeout=120s >/dev/null
-  local i
-  for i in $(seq 1 30); do
-    kubectl --kubeconfig "$kc" exec mgmt-probe -n "$NAMESPACE" -- test -f /tmp/pkgs-ready 2>/dev/null && break
-    [[ $i -eq 30 ]] && { echo "ERROR: $1: probe pod packages not ready" >&2; return 1; }
-    sleep 2
-  done
+base_of() { # <cluster> -> gateway base URL
+  if [[ "$1" == "$PROV_CLUSTER" ]]; then echo "$PROV_URL"; else echo "$CONS_URL"; fi
+}
+sa_of() { # <cluster> -> cached SA subject token
+  if [[ "$1" == "$PROV_CLUSTER" ]]; then echo "$PROV_SA"; else echo "$CONS_SA"; fi
+}
 
-  # In-pod management-API helper: exchanges the projected SA token and calls v5beta
-  cat > "$GEN_DIR/m.sh" <<'EOF'
-#!/bin/sh
-# usage: m.sh METHOD PATH ['-' to read JSON body from stdin]
-D=$VE_DOMAIN
-SA=$(cat /var/run/secrets/jwtlet/token)
-TOK=""
-for i in 1 2 3 4 5; do
-  TOK=$(curl -s -m 10 -X POST "http://jwtlet.edc-v.svc.$D:8080/token" \
-    -H 'Content-Type: application/x-www-form-urlencoded' \
-    --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
-    --data-urlencode "subject_token=$SA" \
-    --data-urlencode 'resource=issuer' --data-urlencode 'scope=admin' --data-urlencode 'audience=edcv' | jq -r .access_token)
-  [ -n "$TOK" ] && [ "$TOK" != null ] && break
-  sleep 3
-done
-[ -n "$TOK" ] && [ "$TOK" != null ] || { echo "token exchange failed" >&2; exit 1; }
-M=$1; P=$2; shift 2
-if [ "${1:-}" = '-' ]; then
-  curl -s -m 30 -w '\n%{http_code}' -X "$M" "http://controlplane.edc-v.svc.$D:8081/api/mgmt/v5beta$P" \
-    -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' --data @-
-else
-  curl -s -m 30 -w '\n%{http_code}' -X "$M" "http://controlplane.edc-v.svc.$D:8081/api/mgmt/v5beta$P" \
-    -H "Authorization: Bearer $TOK"
-fi
-EOF
-  kubectl --kubeconfig "$kc" cp "$GEN_DIR/m.sh" "${NAMESPACE}/mgmt-probe:/tmp/m.sh" >/dev/null
-  kubectl --kubeconfig "$kc" exec mgmt-probe -n "$NAMESPACE" -- chmod +x /tmp/m.sh
+# The subject tokens are minted once up front (valid 1h); the scoped access tokens are
+# exchanged per request below — mgmt() runs in command substitutions, so a lazily filled
+# cache would not survive the subshell anyway, and per-request exchange sidesteps any
+# access-token TTL during the polling loops.
+echo ">> Minting seed-jobs subject tokens"
+PROV_SA=$(kubectl --kubeconfig "$(kubeconfig "$PROV_CLUSTER")" create token seed-jobs -n "$NAMESPACE" \
+  --audience=https://kubernetes.default.svc.cluster.local --duration=3600s)
+CONS_SA=$(kubectl --kubeconfig "$(kubeconfig "$CONS_CLUSTER")" create token seed-jobs -n "$NAMESPACE" \
+  --audience=https://kubernetes.default.svc.cluster.local --duration=3600s)
+
+xtoken() { # <cluster> <scope> -> access token on stdout
+  local base sa tok i
+  base=$(base_of "$1"); sa=$(sa_of "$1")
+  for i in 1 2 3 4 5; do
+    tok=$(curl -s -m 10 -X POST "$base/api/auth/token" \
+      -H 'Content-Type: application/x-www-form-urlencoded' \
+      --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+      --data-urlencode "subject_token=$sa" \
+      --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
+      --data-urlencode 'resource=issuer' --data-urlencode "scope=$2" \
+      --data-urlencode "audience=$AUDIENCE" | jq -r '.access_token // empty')
+    [[ -n "$tok" ]] && { printf '%s' "$tok"; return 0; }
+    sleep 3
+  done
+  echo "ERROR: $1: token exchange failed at $base/api/auth/token (scope $2)" >&2
+  return 1
 }
 
 # mgmt <cluster> <method> <path> [json-file] -> body on stdout, fails on HTTP >= 400 (409 ok)
 mgmt() {
-  local kc; kc=$(kubeconfig "$1")
-  local out status body
+  local base tok out status body
+  base=$(base_of "$1")
+  tok=$(xtoken "$1" admin)
   if [[ $# -ge 4 ]]; then
-    out=$(kubectl --kubeconfig "$kc" exec -i mgmt-probe -n "$NAMESPACE" -- /tmp/m.sh "$2" "$3" - < "$4")
+    out=$(curl -s -m 30 -w '\n%{http_code}' -X "$2" "$base/api/management/v5beta$3" \
+      -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' --data @"$4")
   else
-    out=$(kubectl --kubeconfig "$kc" exec mgmt-probe -n "$NAMESPACE" -- /tmp/m.sh "$2" "$3")
+    out=$(curl -s -m 30 -w '\n%{http_code}' -X "$2" "$base/api/management/v5beta$3" \
+      -H "Authorization: Bearer $tok")
   fi
   status=$(printf '%s' "$out" | tail -1)
   body=$(printf '%s' "$out" | sed '$d')
@@ -158,10 +140,6 @@ mgmt() {
   fi
   printf '%s' "$body"
 }
-
-echo ">> Preparing management probe pods"
-ensure_probe "$PROV_CLUSTER" "$PROV_DOMAIN"
-ensure_probe "$CONS_CLUSTER" "$CONS_DOMAIN"
 
 # ---- discover the participant contexts ------------------------------------------------------
 # Newest participant (last in the list): participants onboarded by the current app version carry
@@ -183,18 +161,12 @@ echo ">> Consumer:  $CONS_DID ($CONS_CTX)"
 # The BusinessPartnerNumber policy constraint pins the consumer's BPN; read it from the
 # consumer VE's tenant manager (the cfm.issuer VPA properties of the participant profile carry
 # the bpn the credentials were issued for)
-CONS_BPN=$(kubectl --kubeconfig "$(kubeconfig "$CONS_CLUSTER")" exec mgmt-probe -n "$NAMESPACE" -- sh -c '
-SA=$(cat /var/run/secrets/jwtlet/token)
-TOK=$(curl -s -m 10 -X POST "http://jwtlet.edc-v.svc.'"$CONS_DOMAIN"':8080/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
-  --data-urlencode "subject_token=$SA" \
-  --data-urlencode "resource=issuer" --data-urlencode "scope=cfm-read" --data-urlencode "audience=edcv" | jq -r .access_token)
-TM=http://tenant-manager.edc-v.svc.'"$CONS_DOMAIN"':8080/api/v1alpha1
-for t in $(curl -s -m 10 -H "Authorization: Bearer $TOK" "$TM/tenants" | jq -r ".[].id"); do
-  curl -s -m 10 -H "Authorization: Bearer $TOK" "$TM/tenants/$t/participant-profiles" \
-    | jq -r --arg did "'"$CONS_DID"'" ".[] | select(.identifier==\$did) | .vpas[]? | select(.type==\"cfm.issuer\") | .properties.bpn // empty"
-done | head -1')
+CFM_TOK=$(xtoken "$CONS_CLUSTER" cfm-read)
+TM="$CONS_URL/api/tm"
+CONS_BPN=$(for t in $(curl -s -m 10 -H "Authorization: Bearer $CFM_TOK" "$TM/tenants" | jq -r '.[].id'); do
+  curl -s -m 10 -H "Authorization: Bearer $CFM_TOK" "$TM/tenants/$t/participant-profiles" \
+    | jq -r --arg did "$CONS_DID" '.[] | select(.identifier==$did) | .vpas[]? | select(.type=="cfm.issuer") | .properties.bpn // empty'
+done | head -1)
 [[ -n "$CONS_BPN" ]] || { echo "ERROR: could not determine the consumer's BPN from the tenant manager" >&2; exit 1; }
 echo ">> Consumer BPN: $CONS_BPN"
 

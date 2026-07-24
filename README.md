@@ -116,11 +116,14 @@ offers an asset whose access and contract policy require all three credentials i
 onboarding (Membership, BPN and DataExchangeGovernance, via the Catena-X CEL policy
 constraints); the consumer VE's participant requests the catalog, negotiates a contract and
 establishes an HttpData-PULL transfer process through the participants' siglet data planes.
-This exercises cross-VE DID resolution, DCP presentation exchange, peer-issuer credential
-verification, credential-gated policy evaluation and data-plane signaling end to end:
+The test runs on the host and reaches each VE's management plane through its gateway
+(Traefik → clearglass → backend), so besides cross-VE DID resolution, DCP presentation
+exchange, peer-issuer credential verification, credential-gated policy evaluation and
+data-plane signaling it also exercises the platform's edge auth chain (jwtlet token
+exchange, clearglass route/scope enforcement) end to end:
 
 ```shell
-./scripts/dsp-demo.sh
+./scripts/dsp-tests.sh
 ```
 
 Participants get their data plane registered at onboarding time: the Onboarding API attaches

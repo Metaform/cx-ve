@@ -8,7 +8,8 @@
 #   2. onboard-participant  — one participant per VE, gated on the onboarding reaching
 #                             COMPLETED (exits non-zero on rejected/failed/stalled)
 #   3. connect-ves.sh       — routes, DNS zone forwarding, mutual issuer trust
-#   4. dsp-demo.sh          — cross-VE catalog request + contract negotiation to FINALIZED
+#   4. dsp-tests.sh         — cross-VE DSP exchange driven from the host through each VE's
+#                             gateway (catalog, negotiation to FINALIZED, transfer to STARTED)
 #
 # On success the clusters are left running for inspection; remove them with
 #   kind delete cluster -n ve1 && kind delete cluster -n ve2
@@ -90,8 +91,8 @@ FOLLOW=true ./scripts/onboard-participant.sh --name "Beta Logistics" \
 step "Connect the VEs (routes, DNS, mutual issuer trust)"
 ./scripts/connect-ves.sh
 
-step "Cross-VE DSP exchange (catalog + contract negotiation)"
-./scripts/dsp-demo.sh
+step "Cross-VE DSP exchange (host-driven via the gateways)"
+./scripts/dsp-tests.sh
 
 step "RESULT"
 echo "E2E PASSED in $(( ($(date +%s) - START) / 60 ))m $(( ($(date +%s) - START) % 60 ))s"
