@@ -109,7 +109,11 @@ DNS domain, and each VE trusting the peer's issuer):
 
 The script's defaults match the install commands above and it verifies itself by fetching the
 peer issuer's DID document from inside each cluster. The routes do not survive a restart of
-the kind node containers — re-run the script after a docker restart.
+the kind node containers — re-run the script after a docker restart. Every request that
+crosses the VE boundary (DID resolution, DCP presentation exchange, DSP messages, data-plane
+token renewal) is catalogued in [docs/cross-ve-communication.md](docs/cross-ve-communication.md);
+[docs/sut-verification.md](docs/sut-verification.md) builds on it to define the state
+obligations and request ping-pong for verifying a third-party solution in ve2's place.
 
 Finally, exercise the federation with a cross-VE DSP exchange: the provider VE's participant
 offers an asset whose access and contract policy require all three credentials issued at
