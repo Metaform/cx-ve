@@ -104,11 +104,11 @@ KUBECONFIG_FILE="$HOME/.kube/$CLUSTER_NAME.config"
 
 # Helm chart of the core-platform-distribution
 CORE_CHART="${CORE_CHART:-oci://ghcr.io/eclipse-cfm/charts/core-platform-distribution}"
-CORE_CHART_VERSION=0.0.15
+CORE_CHART_VERSION=0.0.17
 
 # Helm chart of the Catena-X Profile
 CXPROF_CHART="${CXPROF_CHART:-oci://ghcr.io/metaform/charts/catenax-profile}"
-CXPROF_CHART_VERSION=0.0.4
+CXPROF_CHART_VERSION=0.0.5
 
 # Helm chart of the Onboarding API. Defaults to the working-tree chart: the script always
 # builds and loads the working-tree IMAGE anyway, so deploying the published chart with it
