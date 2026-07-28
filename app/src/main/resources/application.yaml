@@ -47,10 +47,13 @@ identityhub:
   url: http://cxve.localhost/api/identity                        # IDENTITYHUB_URL
 
 # Prefix for participant DIDs when the registration doesn't supply one; the participant's short
-# name is appended. %3A is the percent-encoded port colon required by did:web.
+# name is appended. Must match the platform's IdentityHub did:web hostname (identity.<host>) —
+# IdentityHub resolves a DID document by the request URL, so a DID minted under any other
+# authority will not resolve through the gateway. A non-default gateway port is percent-encoded
+# into the authority, e.g. "did:web:identity.example.com%3A8080:".
 participant:
   did:
-    template: "did:web:identityhub.edc-v.svc.cluster.local%3A7083:"   # PARTICIPANT_DID_TEMPLATE
+    template: "did:web:identity.cxve.localhost:"   # PARTICIPANT_DID_TEMPLATE
   # Transfer-type mapping configured on the participant's data plane (Siglet) at provisioning
   # time, via the cfm.dataplane VPA properties. The CFM siglet agent installs the mapping and
   # registers the data-plane instance with the control plane; the mapping key (transfer-type)

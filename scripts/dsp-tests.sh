@@ -26,22 +26,23 @@
 #   /api/tm         → tenant-manager /api/v1alpha1
 #   /api/siglet     → siglet /                    (data-plane token cache: EDR retrieval)
 #
-# The DSP counterparty address stays the in-cluster URL (controlplane.edc-v.svc.<domain>:8082)
-# — it is dereferenced by the consumer VE's controlplane over the connect-ves.sh routing, not
-# from the host (the DSP port has no gateway route).
+# The DSP counterparty address is the provider's gateway URL (http://<prov-host>/api/dsp/…) —
+# the address the platform actually advertises to counterparties. It is dereferenced by the
+# consumer VE's controlplane, which resolves the provider's gateway hostname through the peer
+# DNS forwarding connect-ves.sh sets up (setup-did-dns.sh --peer).
 #
 # Prerequisites: both VEs installed (install-ve.sh), a participant onboarded in each
 # (onboard-participant.sh) and the VEs connected (connect-ves.sh). Requires kubectl, curl, jq.
 #
 # Usage:
-#   ./scripts/dsp-tests.sh [--pc <cluster>] [--pd <domain>] [--pu <gateway-url>]
-#                          [--cc <cluster>] [--cd <domain>] [--cu <gateway-url>]
+#   ./scripts/dsp-tests.sh [--pc <cluster>] [--pu <gateway-url>]
+#                          [--cc <cluster>] [--cu <gateway-url>]
 #                          [--asset <id>] [-h|--help]
 
 set -euo pipefail
 
-PROV_CLUSTER=ve1; PROV_DOMAIN=ve1.local; PROV_URL=http://ve1.localhost
-CONS_CLUSTER=ve2; CONS_DOMAIN=ve2.local; CONS_URL=http://ve2.localhost:8081
+PROV_CLUSTER=ve1; PROV_URL=http://ve1.localhost
+CONS_CLUSTER=ve2; CONS_URL=http://ve2.localhost:8081
 # Default derived from the provider participant context after discovery: ids are unique across
 # participant contexts in the store, so a fixed id would 409 against an older participant's
 # asset without ever appearing in this participant's catalog
@@ -51,27 +52,25 @@ AUDIENCE=edcv
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--pc <cluster>] [--pd <domain>] [--pu <gateway-url>]
-                        [--cc <cluster>] [--cd <domain>] [--cu <gateway-url>]
+Usage: $(basename "$0") [--pc <cluster>] [--pu <gateway-url>]
+                        [--cc <cluster>] [--cu <gateway-url>]
                         [--asset <id>] [-h|--help]
 
 Options (defaults match the dual-VE install convention):
-  --pc/--pd/--pu  provider cluster / DNS domain / gateway base URL
-                  (default: ve1 / ve1.local / http://ve1.localhost)
-  --cc/--cd/--cu  consumer cluster / DNS domain / gateway base URL
-                  (default: ve2 / ve2.local / http://ve2.localhost:8081)
-  --asset         asset id to offer and negotiate (default: demo-asset-<provider-ctx-prefix>)
-  -h, --help      show this help
+  --pc/--pu  provider cluster / gateway base URL (default: ve1 / http://ve1.localhost)
+  --cc/--cu  consumer cluster / gateway base URL (default: ve2 / http://ve2.localhost:8081)
+  --asset    asset id to offer and negotiate (default: demo-asset-<provider-ctx-prefix>)
+  -h, --help show this help
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --pc|--pd|--pu|--cc|--cd|--cu|--asset)
+    --pc|--pu|--cc|--cu|--asset)
       [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
       case "$1" in
-        --pc) PROV_CLUSTER="$2" ;; --pd) PROV_DOMAIN="$2" ;; --pu) PROV_URL="$2" ;;
-        --cc) CONS_CLUSTER="$2" ;; --cd) CONS_DOMAIN="$2" ;; --cu) CONS_URL="$2" ;;
+        --pc) PROV_CLUSTER="$2" ;; --pu) PROV_URL="$2" ;;
+        --cc) CONS_CLUSTER="$2" ;; --cu) CONS_URL="$2" ;;
         --asset) ASSET_ID="$2" ;;
       esac
       shift 2
@@ -119,20 +118,33 @@ xtoken() { # <cluster> <scope> -> access token on stdout
   return 1
 }
 
-# mgmt <cluster> <method> <path> [json-file] -> body on stdout, fails on HTTP >= 400 (409 ok)
+# mgmt <cluster> <method> <path> [json-file] -> body on stdout, fails on HTTP >= 400 (409 ok).
+# 502/503/504 are retried: they mean Traefik could not reach (or complete against) the backend,
+# so the request was not processed. The window is real — connect-ves.sh restarts the controlplanes
+# for the trusted-issuer config, and the gateway's endpoint view can lag the rollout by a few
+# seconds, so the first management call afterwards may hit a stale endpoint.
 mgmt() {
-  local base tok out status body
+  local base tok out status body attempt
   base=$(base_of "$1")
   tok=$(xtoken "$1" admin)
-  if [[ $# -ge 4 ]]; then
-    out=$(curl -s -m 30 -w '\n%{http_code}' -X "$2" "$base/api/management/v5beta$3" \
-      -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' --data @"$4")
-  else
-    out=$(curl -s -m 30 -w '\n%{http_code}' -X "$2" "$base/api/management/v5beta$3" \
-      -H "Authorization: Bearer $tok")
-  fi
-  status=$(printf '%s' "$out" | tail -1)
-  body=$(printf '%s' "$out" | sed '$d')
+  for attempt in 1 2 3 4 5; do
+    if [[ $# -ge 4 ]]; then
+      out=$(curl -s -m 30 -w '\n%{http_code}' -X "$2" "$base/api/management/v5beta$3" \
+        -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' --data @"$4")
+    else
+      out=$(curl -s -m 30 -w '\n%{http_code}' -X "$2" "$base/api/management/v5beta$3" \
+        -H "Authorization: Bearer $tok")
+    fi
+    status=$(printf '%s' "$out" | tail -1)
+    body=$(printf '%s' "$out" | sed '$d')
+    case "$status" in
+      502|503|504)
+        echo ">> $1 $2 $3: HTTP $status (gateway/backend not settled), retry $attempt" >&2
+        sleep 3
+        ;;
+      *) break ;;
+    esac
+  done
   if [[ "$status" == 409 ]]; then
     echo ">> $1 $2 $3: already present (409)" >&2
   elif [[ "$status" -ge 400 ]]; then
@@ -152,7 +164,11 @@ CONS_DID=$(mgmt "$CONS_CLUSTER" GET /participants | jq -r '.[-1].identity')
 for v in PROV_CTX PROV_DID CONS_CTX CONS_DID; do
   [[ -n "${!v}" && "${!v}" != null ]] || { echo "ERROR: participant discovery failed ($v empty) — are participants onboarded in both VEs?" >&2; exit 1; }
 done
-PROV_DSP="http://controlplane.${NAMESPACE}.svc.${PROV_DOMAIN}:8082/api/dsp/${PROV_CTX}/cx-neptune"
+# The provider's advertised DSP endpoint (see header). Note the consumer's controlplane — not
+# the host — dereferences this, so the URL must work from the consumer's pods: true for the
+# default topology, where the provider's gateway listens on port 80 both in-cluster and on the
+# host. A provider on a non-default host port would need the in-cluster port here instead.
+PROV_DSP="${PROV_URL}/api/dsp/${PROV_CTX}/cx-neptune"
 # Scope the demo object ids by participant context (ids are store-unique across contexts)
 ASSET_ID="${ASSET_ID:-demo-asset-${PROV_CTX:0:8}}"
 POLICY_ID="policy-credentials-${PROV_CTX:0:8}"

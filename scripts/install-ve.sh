@@ -4,10 +4,11 @@
 # Onboarding API — on a kind cluster. Run from the repository root.
 #
 # Multiple VEs can coexist on one host: give each its own cluster name, DNS domain, hostname,
-# host ports and (for later cross-cluster routing) pod/service subnets. The cluster's DNS
-# domain doubles as the VE's identity domain — participant and issuer DIDs embed the in-cluster
-# FQDNs (…<service>.edc-v.svc.<dns-domain>…), so two VEs MUST use distinct DNS domains to mint
-# distinct DIDs, e.g.:
+# host ports and (for later cross-cluster routing) pod/service subnets. The HOSTNAME (-H) is the
+# VE's identity domain — participant and issuer DIDs embed the gateway hostnames derived from it
+# (did:web:identity.<host>:<participant>, did:web:issuer.<host>:issuer), so two VEs MUST use
+# distinct hostnames to mint distinct DIDs. Distinct DNS DOMAINS (-d) are still required, but
+# for cross-cluster DNS (connect-ves.sh forwards the peer's zone to the peer's kube-dns), e.g.:
 #
 #   ./scripts/install-ve.sh -c ve1 -d ve1.local -H ve1.localhost
 #   ./scripts/install-ve.sh -c ve2 -d ve2.local -H ve2.localhost --http-port 8081 --https-port 8444 \
@@ -25,10 +26,12 @@
 #   -c, --cluster <name>      name of the kind cluster to (re)create (default: cxve). CAUTION:
 #                             an existing cluster of that name is deleted first. The kubeconfig
 #                             is written to ~/.kube/<name>.config
-#   -d, --dns-domain <dom>    cluster DNS domain (default: cluster.local). Distinct per VE: it
-#                             is embedded in participant/issuer DIDs
-#   -H, --host <hostname>     HTTPRoute hostname the VE's APIs are exposed under (default:
-#                             cxve.localhost; any *.localhost name resolves to loopback)
+#   -d, --dns-domain <dom>    cluster DNS domain (default: cluster.local). Distinct per VE for
+#                             cross-cluster DNS (connect-ves.sh zone forwarding)
+#   -H, --host <hostname>     HTTPRoute hostname the VE's APIs are exposed under, and the VE's
+#                             identity domain — DIDs embed identity.<host> / issuer.<host>
+#                             (default: cxve.localhost; *.localhost resolves to loopback on the
+#                             host, and setup-did-dns.sh makes it resolve in-cluster)
 #   --http-port <port>        host port mapped to the gateway's HTTP port 80 (default: 80)
 #   --https-port <port>       host port mapped to the gateway's HTTPS port 443 (default: 443)
 #   --pod-subnet <cidr>       pod CIDR (default: 10.244.0.0/16); distinct per VE to allow
@@ -58,9 +61,10 @@ Options:
   -c, --cluster <name>     name of the kind cluster to (re)create (default: cxve).
                            CAUTION: an existing cluster of that name is deleted first.
                            The kubeconfig is written to ~/.kube/<name>.config
-  -d, --dns-domain <dom>   cluster DNS domain (default: cluster.local). Distinct per VE:
-                           it is embedded in participant/issuer DIDs.
-  -H, --host <hostname>    HTTPRoute hostname of the VE's APIs (default: cxve.localhost)
+  -d, --dns-domain <dom>   cluster DNS domain (default: cluster.local). Distinct per VE for
+                           cross-cluster DNS (connect-ves.sh zone forwarding).
+  -H, --host <hostname>    HTTPRoute hostname of the VE's APIs and its identity domain — DIDs
+                           embed identity.<host> / issuer.<host> (default: cxve.localhost)
   --http-port <port>       host port mapped to the gateway's HTTP port (default: 80)
   --https-port <port>      host port mapped to the gateway's HTTPS port (default: 443)
   --pod-subnet <cidr>      pod CIDR (default: 10.244.0.0/16)
@@ -100,14 +104,17 @@ KUBECONFIG_FILE="$HOME/.kube/$CLUSTER_NAME.config"
 
 # Helm chart of the core-platform-distribution
 CORE_CHART="${CORE_CHART:-oci://ghcr.io/eclipse-cfm/charts/core-platform-distribution}"
-CORE_CHART_VERSION=0.0.15
+CORE_CHART_VERSION=0.0.17
 
 # Helm chart of the Catena-X Profile
 CXPROF_CHART="${CXPROF_CHART:-oci://ghcr.io/metaform/charts/catenax-profile}"
-CXPROF_CHART_VERSION=0.0.4
+CXPROF_CHART_VERSION=0.0.5
 
-# Helm chart of the Onboarding API
-OBAPI_CHART="${OBAPI_CHART:-oci://ghcr.io/metaform/charts/cx-ve}"
+# Helm chart of the Onboarding API. Defaults to the working-tree chart: the script always
+# builds and loads the working-tree IMAGE anyway, so deploying the published chart with it
+# would mix versions. Set OBAPI_CHART=oci://ghcr.io/metaform/charts/cx-ve for the published
+# one (--version below only applies to such remote refs; helm ignores it for a directory).
+OBAPI_CHART="${OBAPI_CHART:-charts/cx-ve}"
 OBAPI_CHART_VERSION=0.0.1
 
 # Always tear down the cluster on exit, whether the run succeeds, fails on any
@@ -183,7 +190,10 @@ config:
     url: http://identityhub.${NAMESPACE}.svc.${DNS_DOMAIN}:7081/api/identity/v1beta
   participant:
     did:
-      template: "did:web:identityhub.${NAMESPACE}.svc.${DNS_DOMAIN}%3A7083:"
+      # Must match the platform's IdentityHub did:web hostname (identity.<host>), since
+      # IdentityHub resolves a DID document by the request URL — a participant DID minted
+      # under any other authority will not resolve through the gateway.
+      template: "did:web:identity.${HOST}:"
     dataplane:
       # Demo data source served for HttpData-PULL transfers: a public sample-JSON API, so the
       # demo payload is unambiguous sample data rather than platform infrastructure
@@ -214,13 +224,27 @@ helm upgrade --install core-platform "$CORE_CHART" \
   --version $CORE_CHART_VERSION \
   --wait --timeout 15m
 
+# Make the platform's gateway hostnames resolvable from inside the cluster. The platform
+# advertises itself under them (DSP callback, credential service, issuance, did:web), and the
+# runtimes dereference those URLs themselves — without this, a *.localhost name resolves to the
+# pod's own loopback and every DID lookup fails. Must run after the platform install, since the
+# hostname list is read off the deployed HTTPRoutes; also verifies the result, so a failure here
+# stops the install rather than surfacing later as a credential-verification error.
+"$(dirname "$0")/setup-did-dns.sh" -c "$CLUSTER_NAME"
+
 
 # Deploy the CX Profile chart (global.namespace/clusterDomain tell its seed jobs where the
-# platform lives)
+# platform lives). issuer.did must equal the DID the platform minted for the issuer participant
+# context — it is pinned into the dataspace profile's credentialSpecs, and a mismatch only
+# surfaces at credential verification during onboarding, far from the cause. The platform derives
+# that DID from its gateway hostname as did:web:issuer.<host>:issuer unless it was pinned there
+# via edc.issuerservice.did.id; read the live value back with
+#   kubectl -n "$NAMESPACE" get httproute issuerservice-did -o jsonpath='{.spec.hostnames[0]}'
 helm upgrade --install cx-profile "$CXPROF_CHART" \
   --namespace "$NAMESPACE" \
   --set global.namespace="$NAMESPACE" \
   --set global.clusterDomain="svc.${DNS_DOMAIN}" \
+  --set issuer.did="did:web:issuer.${HOST}:issuer" \
   --version "$CXPROF_CHART_VERSION" \
   --wait
 

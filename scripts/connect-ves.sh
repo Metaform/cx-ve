@@ -8,11 +8,17 @@
 #   2. CoreDNS zone forwarding: each cluster forwards the peer's DNS domain (e.g. ve2.local)
 #      to the peer's kube-dns service, making <svc>.edc-v.svc.<peer-domain> names resolve
 #      cluster-to-cluster.
-#   3. Mutual trust: each VE's controlplane gets the peer's issuer DID added to its
-#      edc.controlplane.trustedIssuers via helm upgrade. Because a platform upgrade regenerates
-#      the NATS users.conf (dropping the Onboarding API's NKey entry), the obapi release is
-#      upgraded right after to re-merge it, and the obapi deployment is restarted.
-#   4. Smoke test: each cluster resolves and fetches the peer issuer's DID document.
+#   3. Peer gateway-hostname DNS (setup-did-dns.sh --peer): each cluster forwards the peer's
+#      HTTPRoute hostnames (ve2.localhost, issuer.ve2.localhost, identity.ve2.localhost) to the
+#      peer's kube-dns. Everything a VE advertises about itself — issuer and participant DIDs,
+#      the DSP callback, the CredentialService endpoint — lives under those hostnames, and the
+#      runtimes dereference them on every cross-VE interaction. Includes its own verification
+#      (DNS + an end-to-end fetch of the peer issuer's DID document).
+#   4. Mutual trust: each VE's controlplane gets the peer's issuer DID
+#      (did:web:issuer.<peer-host>:issuer) added to its edc.controlplane.trustedIssuers via helm
+#      upgrade. Because a platform upgrade regenerates the NATS users.conf (dropping the
+#      Onboarding API's NKey entry), the obapi release is upgraded right after to re-merge it,
+#      and the obapi deployment is restarted.
 #
 # Assumes the two VEs were installed with the conventions of install-ve.sh, e.g.:
 #   ./scripts/install-ve.sh -c ve1 -d ve1.local -H ve1.localhost
@@ -34,7 +40,7 @@ NAMESPACE=edc-v
 
 # Charts (must match what the VEs were installed with)
 CORE_CHART="${CORE_CHART:-oci://ghcr.io/eclipse-cfm/charts/core-platform-distribution}"
-CORE_CHART_VERSION=0.0.15
+CORE_CHART_VERSION=0.0.17
 # The dual-VE setup requires the working-tree app chart (see install-ve.sh)
 OBAPI_CHART="${OBAPI_CHART:-charts/cx-ve}"
 
@@ -112,13 +118,15 @@ forward_dns() { # <cluster> <peer-domain> <peer-dns-ip>
   kubectl --kubeconfig "$kc" rollout status deployment/coredns -n kube-system --timeout=120s
 }
 
-# ---- 3. Mutual issuer trust -----------------------------------------------------------------
-trust_peer() { # <cluster> <own-domain> <own-host> <peer-cluster> <peer-domain>
+# ---- 4. Mutual issuer trust -----------------------------------------------------------------
+trust_peer() { # <cluster> <own-domain> <own-host> <peer-cluster> <peer-domain> <peer-host>
   local kc; kc=$(kubeconfig "$1")
   export KUBECONFIG="$kc"
 
   # Full trustedIssuers list: this file wins over platform-override-values.yaml, so it must
-  # repeat the cxtck entry alongside the peer issuer
+  # repeat the cxtck entry alongside the peer issuer. The peer issuer DID is the one the peer
+  # platform minted from its gateway hostname (did:web:issuer.<peer-host>:issuer) — resolvable
+  # here thanks to the peer gateway-hostname forwarding in step 3.
   cat > "$GEN_DIR/trust.$1.yaml" <<EOF
 edc:
   controlplane:
@@ -126,10 +134,10 @@ edc:
       - name: cxtck
         id: "did:web:cx-tck.edc-v.svc.cluster.local:issuer"
       - name: $4
-        id: "did:web:issuerservice.${NAMESPACE}.svc.$5%3A10016:issuer"
+        id: "did:web:issuer.$6:issuer"
 EOF
 
-  echo ">> $1: trusting issuer of $4 (did:web:issuerservice.${NAMESPACE}.svc.$5%3A10016:issuer)"
+  echo ">> $1: trusting issuer of $4 (did:web:issuer.$6:issuer)"
   helm upgrade --install core-platform "$CORE_CHART" \
     --namespace "$NAMESPACE" \
     -f platform-override-values.yaml \
@@ -166,7 +174,9 @@ config:
     url: http://identityhub.${NAMESPACE}.svc.$2:7081/api/identity/v1beta
   participant:
     did:
-      template: "did:web:identityhub.${NAMESPACE}.svc.$2%3A7083:"
+      # Keep in sync with install-ve.sh: must match the platform's IdentityHub did:web
+      # hostname (identity.<host>), or participant DIDs will not resolve through the gateway.
+      template: "did:web:identity.$3:"
     dataplane:
       # Keep in sync with install-ve.sh: demo data source for HttpData-PULL transfers
       endpoint: https://jsonplaceholder.typicode.com/todos/1
@@ -193,25 +203,22 @@ EOF
   kubectl rollout status deployment/controlplane -n "$NAMESPACE" --timeout=420s
 }
 
-# ---- 4. Smoke test: fetch the peer issuer's DID document across clusters --------------------
-smoke() { # <cluster> <peer-domain>
-  local url="http://issuerservice.${NAMESPACE}.svc.$2:10016/issuer/did.json"
-  echo ">> $1: fetching $url"
-  kubectl --kubeconfig "$(kubeconfig "$1")" run "peercheck-$RANDOM" --rm -i --restart=Never \
-    --image=curlimages/curl:latest -- -sf --max-time 10 "$url" > /dev/null
-  echo ">> $1: peer issuer DID document of $2 resolved OK"
-}
-
 add_routes "$C1" "$C2"
 add_routes "$C2" "$C1"
 
 forward_dns "$C1" "$D2" "$(dns_ip_of "$C2")"
 forward_dns "$C2" "$D1" "$(dns_ip_of "$C1")"
 
-trust_peer "$C1" "$D1" "$H1" "$C2" "$D2"
-trust_peer "$C2" "$D2" "$H2" "$C1" "$D1"
+# ---- 3. Peer gateway-hostname DNS -----------------------------------------------------------
+# setup-did-dns.sh --peer forwards the peer's HTTPRoute hostnames to the peer's kube-dns and
+# verifies the result, including an end-to-end fetch of the peer issuer's DID document from a
+# pod — the exact resolution path the runtimes use. (This replaced the old smoke test, which
+# fetched the in-cluster Service URL nothing advertises anymore.) Needs the routes and zone
+# forwarding above.
+"$(dirname "$0")/setup-did-dns.sh" -c "$C1" --peer "$C2"
+"$(dirname "$0")/setup-did-dns.sh" -c "$C2" --peer "$C1"
 
-smoke "$C1" "$D2"
-smoke "$C2" "$D1"
+trust_peer "$C1" "$D1" "$H1" "$C2" "$D2" "$H2"
+trust_peer "$C2" "$D2" "$H2" "$C1" "$D1" "$H1"
 
 echo "VEs connected: $C1 ($D1) <-> $C2 ($D2)"

@@ -40,7 +40,7 @@ public class ParticipantOnboardingService implements WalletService {
     private final String dataplaneTokenSource;
 
     public ParticipantOnboardingService(@Autowired TenantManagerClient tenantManagerClient,
-                                        @Value("${participant.did.template:did:web:identityhub.edc-v.svc.cluster.local%3A7083:}") String didTemplate,
+                                        @Value("${participant.did.template:did:web:identity.cxve.localhost:}") String didTemplate,
                                         @Value("${participant.dataplane.transfer-type:HttpData-PULL}") String dataplaneTransferType,
                                         @Value("${participant.dataplane.endpoint-type:HTTP}") String dataplaneEndpointType,
                                         @Value("${participant.dataplane.endpoint:}") String dataplaneEndpoint,
