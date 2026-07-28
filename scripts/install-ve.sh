@@ -110,8 +110,11 @@ CORE_CHART_VERSION=0.0.15
 CXPROF_CHART="${CXPROF_CHART:-oci://ghcr.io/metaform/charts/catenax-profile}"
 CXPROF_CHART_VERSION=0.0.4
 
-# Helm chart of the Onboarding API
-OBAPI_CHART="${OBAPI_CHART:-oci://ghcr.io/metaform/charts/cx-ve}"
+# Helm chart of the Onboarding API. Defaults to the working-tree chart: the script always
+# builds and loads the working-tree IMAGE anyway, so deploying the published chart with it
+# would mix versions. Set OBAPI_CHART=oci://ghcr.io/metaform/charts/cx-ve for the published
+# one (--version below only applies to such remote refs; helm ignores it for a directory).
+OBAPI_CHART="${OBAPI_CHART:-charts/cx-ve}"
 OBAPI_CHART_VERSION=0.0.1
 
 # Always tear down the cluster on exit, whether the run succeeds, fails on any
