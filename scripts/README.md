@@ -16,17 +16,24 @@ resolves the issuer DID to verify credential signatures and calls the Credential
 `*.localhost` name otherwise resolves to the pod's own loopback and every one of those lookups fails.
 
 ```bash
-./scripts/setup-did-dns.sh -c ve1               # apply + verify
+./scripts/setup-did-dns.sh -c ve1               # apply + verify (own hostnames)
 ./scripts/setup-did-dns.sh -c ve1 --verify-only # dry-run
+./scripts/setup-did-dns.sh -c ve1 --peer ve2    # make ve1 resolve ve2's hostnames
 ```
 
-Re-run it after `install-ve.sh`, since recreating the KinD cluster discards the rewrites. It is idempotent — the rules
-live between marker comments in the Corefile and are replaced wholesale.
+`install-ve.sh` runs the own-hostname mode automatically; recreating the KinD cluster discards the rules, so re-run it
+after a reinstall. It is idempotent — each mode's rules live between marker comments in the Corefile and are replaced
+wholesale.
 
-Everything but the cluster name is discovered from the cluster (DNS domain, Traefik Service, hostname list), so the
-rules cannot drift from what is deployed. That matters most for the DNS domain: each VE gets its own (`ve1.local`,
-`ve2.local`), and a rewrite target under `cluster.local` silently NXDOMAINs because CoreDNS is not authoritative for it.
+Everything but the cluster names is discovered from the clusters (DNS domain, Traefik Service, kube-dns, hostname
+lists), so the rules cannot drift from what is deployed. That matters most for the DNS domain: each VE gets its own
+(`ve1.local`, `ve2.local`), and a rewrite target under `cluster.local` silently NXDOMAINs because CoreDNS is not
+authoritative for it.
 
-> For the dual-VE setup each cluster additionally needs the **peer's** hostnames rewritten to
-> `traefik.traefik.svc.<peer-dns-domain>`, which resolves over the zone forwarding and static
-> routes `connect-ves.sh` installs. That is not handled yet.
+**Peer mode** (`--peer <cluster>`, run automatically by `connect-ves.sh`) makes one VE resolve the *other's* gateway
+hostnames, which every advertised URL and DID of the peer lives under. It cannot use `rewrite`: a rewritten name does
+not re-enter CoreDNS server-block selection, so it would bypass the peer-zone forwarding and NXDOMAIN. Instead it adds
+a dedicated server block forwarding the peer's hostnames themselves to the peer's kube-dns, whose own rewrite rules
+answer with the peer's Traefik ClusterIP — automatically tracking it. Peer hostnames the local cluster also serves
+(the telemetry hosts, identical in every VE) are excluded, since a dedicated server block would hijack the local name.
+Peer mode needs the static routes and zone forwarding from `connect-ves.sh`, which sequences it correctly.

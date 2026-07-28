@@ -4,10 +4,11 @@
 # Onboarding API — on a kind cluster. Run from the repository root.
 #
 # Multiple VEs can coexist on one host: give each its own cluster name, DNS domain, hostname,
-# host ports and (for later cross-cluster routing) pod/service subnets. The cluster's DNS
-# domain doubles as the VE's identity domain — participant and issuer DIDs embed the in-cluster
-# FQDNs (…<service>.edc-v.svc.<dns-domain>…), so two VEs MUST use distinct DNS domains to mint
-# distinct DIDs, e.g.:
+# host ports and (for later cross-cluster routing) pod/service subnets. The HOSTNAME (-H) is the
+# VE's identity domain — participant and issuer DIDs embed the gateway hostnames derived from it
+# (did:web:identity.<host>:<participant>, did:web:issuer.<host>:issuer), so two VEs MUST use
+# distinct hostnames to mint distinct DIDs. Distinct DNS DOMAINS (-d) are still required, but
+# for cross-cluster DNS (connect-ves.sh forwards the peer's zone to the peer's kube-dns), e.g.:
 #
 #   ./scripts/install-ve.sh -c ve1 -d ve1.local -H ve1.localhost
 #   ./scripts/install-ve.sh -c ve2 -d ve2.local -H ve2.localhost --http-port 8081 --https-port 8444 \
@@ -25,10 +26,12 @@
 #   -c, --cluster <name>      name of the kind cluster to (re)create (default: cxve). CAUTION:
 #                             an existing cluster of that name is deleted first. The kubeconfig
 #                             is written to ~/.kube/<name>.config
-#   -d, --dns-domain <dom>    cluster DNS domain (default: cluster.local). Distinct per VE: it
-#                             is embedded in participant/issuer DIDs
-#   -H, --host <hostname>     HTTPRoute hostname the VE's APIs are exposed under (default:
-#                             cxve.localhost; any *.localhost name resolves to loopback)
+#   -d, --dns-domain <dom>    cluster DNS domain (default: cluster.local). Distinct per VE for
+#                             cross-cluster DNS (connect-ves.sh zone forwarding)
+#   -H, --host <hostname>     HTTPRoute hostname the VE's APIs are exposed under, and the VE's
+#                             identity domain — DIDs embed identity.<host> / issuer.<host>
+#                             (default: cxve.localhost; *.localhost resolves to loopback on the
+#                             host, and setup-did-dns.sh makes it resolve in-cluster)
 #   --http-port <port>        host port mapped to the gateway's HTTP port 80 (default: 80)
 #   --https-port <port>       host port mapped to the gateway's HTTPS port 443 (default: 443)
 #   --pod-subnet <cidr>       pod CIDR (default: 10.244.0.0/16); distinct per VE to allow
@@ -58,9 +61,10 @@ Options:
   -c, --cluster <name>     name of the kind cluster to (re)create (default: cxve).
                            CAUTION: an existing cluster of that name is deleted first.
                            The kubeconfig is written to ~/.kube/<name>.config
-  -d, --dns-domain <dom>   cluster DNS domain (default: cluster.local). Distinct per VE:
-                           it is embedded in participant/issuer DIDs.
-  -H, --host <hostname>    HTTPRoute hostname of the VE's APIs (default: cxve.localhost)
+  -d, --dns-domain <dom>   cluster DNS domain (default: cluster.local). Distinct per VE for
+                           cross-cluster DNS (connect-ves.sh zone forwarding).
+  -H, --host <hostname>    HTTPRoute hostname of the VE's APIs and its identity domain — DIDs
+                           embed identity.<host> / issuer.<host> (default: cxve.localhost)
   --http-port <port>       host port mapped to the gateway's HTTP port (default: 80)
   --https-port <port>      host port mapped to the gateway's HTTPS port (default: 443)
   --pod-subnet <cidr>      pod CIDR (default: 10.244.0.0/16)
