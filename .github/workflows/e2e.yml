@@ -1,9 +1,8 @@
 name: E2E test
 
-# Full dual-VE end-to-end test (scripts/e2e.sh): installs two VEs in two kind clusters,
-# onboards a participant in each, federates the clusters and runs the cross-VE DSP exchange.
-# Heavy (~1h, two full platform stacks) — triggered manually or by PRs touching the pieces it
-# exercises.
+# End-to-end test of the Verification Environment (scripts/e2e.sh): installs the VE on a
+# single kind cluster, onboards the Verification Participant, and verifies the participant's
+# DID document resolves from outside the cluster through the gateway.
 
 on:
   workflow_dispatch:
@@ -35,29 +34,25 @@ jobs:
       - name: Add Traefik chart repository
         run: helm repo add traefik https://traefik.github.io/charts
 
-      # The scripts reach the gateways via ve1.localhost / ve2.localhost; make resolution
-      # deterministic instead of relying on the resolver's *.localhost handling. The issuer./
-      # identity. names are the VEs' did:web hostnames — only resolved from inside the clusters
-      # today (setup-did-dns.sh wires that up), but listed here so any host-side check against
-      # a DID URL resolves the same way regardless of the tool (curl short-circuits
-      # *.localhost internally; getent-based tools would otherwise NXDOMAIN)
+      # The scripts reach the gateway via cxve.localhost; make resolution deterministic
+      # instead of relying on the resolver's *.localhost handling. The issuer./identity. names
+      # are the VE's did:web hostnames — the e2e's external DID check resolves one of them from
+      # this host, and listing them keeps that working the same way regardless of the tool
+      # (curl short-circuits *.localhost internally; getent-based tools would otherwise
+      # NXDOMAIN)
       - name: Resolve VE hostnames
-        run: |
-          echo "127.0.0.1 ve1.localhost issuer.ve1.localhost identity.ve1.localhost" | sudo tee -a /etc/hosts
-          echo "127.0.0.1 ve2.localhost issuer.ve2.localhost identity.ve2.localhost" | sudo tee -a /etc/hosts
+        run: echo "127.0.0.1 cxve.localhost issuer.cxve.localhost identity.cxve.localhost" | sudo tee -a /etc/hosts
 
       - name: Run end-to-end test
         env:
-          # Keep failed clusters alive for the log-export step below; the runner is discarded
+          # Keep a failed cluster alive for the log-export step below; the runner is discarded
           # after the job, so no cleanup is needed here
           E2E_KEEP_CLUSTERS: "true"
         run: ./scripts/e2e.sh
 
       - name: Export kind cluster logs
         if: failure()
-        run: |
-          kind export logs --name ve1 logs/ve1 || true
-          kind export logs --name ve2 logs/ve2 || true
+        run: kind export logs --name cxve logs/cxve || true
 
       - name: Upload cluster logs
         if: failure()

@@ -1,10 +1,15 @@
 # Cross-VE communication
 
-Every network request that crosses the boundary between two connected VEs (as set up by
-`scripts/install-ve.sh` + `scripts/connect-ves.sh`, exercised end to end by
-`scripts/dsp-tests.sh`). Concrete hostnames/ports below use the dual-VE convention — ve1
-(`ve1.local`) in the provider role, ve2 (`ve2.local`) in the consumer role — but every flow is
-symmetric: whichever VE initiates a catalog request is the consumer for that exchange.
+> **Historical reference.** This catalogue was written for the first iteration's dual-VE demo
+> (`connect-ves.sh` / `dsp-tests.sh`, since removed — see git history). It is kept because the
+> flows are exactly what an **external dataspace solution** performs against the single
+> Verification Environment: replace "ve2" with the external solution and "ve1" with the VE.
+
+Every network request that crosses the boundary between two connected VEs (as set up by the
+first iteration's `install-ve.sh` + `connect-ves.sh`, exercised end to end by `dsp-tests.sh`).
+Concrete hostnames/ports below use the dual-VE convention — ve1 (`ve1.local`) in the provider
+role, ve2 (`ve2.local`) in the consumer role — but every flow is symmetric: whichever VE
+initiates a catalog request is the consumer for that exchange.
 
 A key architectural fact up front: **cross-VE traffic never passes through the gateways**
 (Traefik/clearglass). All of it is pod-to-pod HTTP between in-cluster FQDNs

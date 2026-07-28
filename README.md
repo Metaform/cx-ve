@@ -73,75 +73,30 @@ OBAPI_CHART=charts/cx-ve ./scripts/install-ve.sh
 The cluster is left running when the script finishes; remove it with
 `kind delete cluster -n cxve`.
 
-### Running two VEs side by side
+### Verifying the VE end to end
 
-Two (or more) VEs can coexist on one host, each in its own kind cluster. Uniqueness comes from
-the **cluster DNS domain** (`--dns-domain`), which is embedded in every participant and issuer
-DID (`did:web:…edc-v.svc.<dns-domain>…`) — the namespace itself must stay `edc-v` because the
-platform's CFM agents hardcode it in the token-exchange client ids they register. Give the
-second VE distinct host ports and, to allow cross-cluster routing later, distinct pod/service
-subnets:
+The whole sequence — install, onboarding of the "Verification Participant", and an external
+resolution of its DID document (plain HTTP from the host through the gateway, exactly the way
+an external dataspace solution resolves it) — runs as one end-to-end test (`--skip-install`
+reuses an existing cluster):
 
 ```shell
-OBAPI_CHART=charts/cx-ve ./scripts/install-ve.sh -c ve1 -d ve1.local -H ve1.localhost
-
-OBAPI_CHART=charts/cx-ve ./scripts/install-ve.sh -c ve2 -d ve2.local -H ve2.localhost \
-  --http-port 8081 --https-port 8444 \
-  --pod-subnet 10.245.0.0/16 --service-subnet 10.97.0.0/16
+./scripts/e2e.sh
 ```
 
-Onboard a participant in each:
-
-```shell
-./scripts/onboard-participant.sh --name "Alpha Manufacturing" --cluster ve1 \
-  --namespace edc-v --api-url http://ve1.localhost/onboarding
-./scripts/onboard-participant.sh --name "Beta Logistics" --cluster ve2 \
-  --namespace edc-v --api-url http://ve2.localhost:8081/onboarding
-```
-
-Then connect the two VEs so their participants can resolve each other's DIDs and verify each
-other's credentials (static routes between the kind nodes, CoreDNS zone forwarding of the peer
-DNS domain, and each VE trusting the peer's issuer):
-
-```shell
-./scripts/connect-ves.sh
-```
-
-The script's defaults match the install commands above and it verifies itself by fetching the
-peer issuer's DID document from inside each cluster. The routes do not survive a restart of
-the kind node containers — re-run the script after a docker restart. Every request that
-crosses the VE boundary (DID resolution, DCP presentation exchange, DSP messages, data-plane
-token renewal) is catalogued in [docs/cross-ve-communication.md](docs/cross-ve-communication.md);
-[docs/sut-verification.md](docs/sut-verification.md) builds on it to define the state
-obligations and request ping-pong for verifying a third-party solution in ve2's place.
-
-Finally, exercise the federation with a cross-VE DSP exchange: the provider VE's participant
-offers an asset whose access and contract policy require all three credentials issued at
-onboarding (Membership, BPN and DataExchangeGovernance, via the Catena-X CEL policy
-constraints); the consumer VE's participant requests the catalog, negotiates a contract,
-establishes an HttpData-PULL transfer process through the participants' siglet data planes,
-retrieves the transfer's EDR from its siglet's token cache and downloads the payload.
-The test runs on the host and reaches each VE's management plane through its gateway
-(Traefik → clearglass → backend), so besides cross-VE DID resolution, DCP presentation
-exchange, peer-issuer credential verification, credential-gated policy evaluation and
-data-plane signaling it also exercises the platform's edge auth chain (jwtlet token
-exchange, clearglass route/scope enforcement) end to end:
-
-```shell
-./scripts/dsp-tests.sh
-```
+> The first iteration of this repo demonstrated **two** federated VEs (cross-cluster routing,
+> peer DNS, mutual issuer trust, cross-VE DSP exchange via `connect-ves.sh` / `dsp-tests.sh`).
+> That machinery was removed when the repo pivoted to a single Verification Environment that
+> external solutions connect to; see git history and
+> [docs/cross-ve-communication.md](docs/cross-ve-communication.md) (kept as a reference for
+> the request flows that cross the VE boundary — the same flows an external solution
+> performs). [docs/sut-verification.md](docs/sut-verification.md) builds on it to define the
+> state obligations and request ping-pong for verifying a third-party solution.
 
 Participants get their data plane registered at onboarding time: the Onboarding API attaches
 the configured transfer-type mapping (`participant.dataplane.*`) to the `cfm.dataplane` VPA of
 the participant profile, and the platform's siglet agent installs it in Siglet and registers
 the data-plane instance with the control plane.
-
-The whole sequence — both installs, onboarding, federation and the DSP exchange — runs as one
-end-to-end test (~35 minutes; `--skip-install` reuses existing clusters):
-
-```shell
-./scripts/e2e.sh
-```
 
 ## License
 
