@@ -126,10 +126,14 @@ config:
   identityhub:
     url: http://identityhub.edc-v.svc.cluster.local:7081/api/identity/v1beta
   # Prefix for participant DIDs when the registration doesn't supply one; the participant's
-  # short name is appended. %3A is the percent-encoded port colon required by did:web.
+  # short name is appended. Must match the platform's IdentityHub did:web hostname
+  # (identity.<host>): IdentityHub reconstructs the DID from the request URL and looks it up by
+  # exact match, so a DID minted under any other authority will not resolve through the gateway.
+  # A non-default gateway port belongs in the authority percent-encoded, e.g.
+  # "did:web:identity.example.com%3A8080:".
   participant:
     did:
-      template: "did:web:identityhub.edc-v.svc.cluster.local%3A7083:"
+      template: "did:web:identity.cxve.localhost:"
     # Transfer-type mapping installed on the participant's data plane (Siglet) at provisioning.
     # The mapping key (transfer-type) becomes the catalog distribution format of the
     # participant's assets; an empty endpoint disables data-plane registration.

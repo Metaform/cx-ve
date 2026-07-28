@@ -183,7 +183,10 @@ config:
     url: http://identityhub.${NAMESPACE}.svc.${DNS_DOMAIN}:7081/api/identity/v1beta
   participant:
     did:
-      template: "did:web:identityhub.${NAMESPACE}.svc.${DNS_DOMAIN}%3A7083:"
+      # Must match the platform's IdentityHub did:web hostname (identity.<host>), since
+      # IdentityHub resolves a DID document by the request URL — a participant DID minted
+      # under any other authority will not resolve through the gateway.
+      template: "did:web:identity.${HOST}:"
     dataplane:
       # Demo data source served for HttpData-PULL transfers: a public sample-JSON API, so the
       # demo payload is unambiguous sample data rather than platform infrastructure
@@ -214,13 +217,27 @@ helm upgrade --install core-platform "$CORE_CHART" \
   --version $CORE_CHART_VERSION \
   --wait --timeout 15m
 
+# Make the platform's gateway hostnames resolvable from inside the cluster. The platform
+# advertises itself under them (DSP callback, credential service, issuance, did:web), and the
+# runtimes dereference those URLs themselves — without this, a *.localhost name resolves to the
+# pod's own loopback and every DID lookup fails. Must run after the platform install, since the
+# hostname list is read off the deployed HTTPRoutes; also verifies the result, so a failure here
+# stops the install rather than surfacing later as a credential-verification error.
+"$(dirname "$0")/setup-did-dns.sh" -c "$CLUSTER_NAME"
+
 
 # Deploy the CX Profile chart (global.namespace/clusterDomain tell its seed jobs where the
-# platform lives)
+# platform lives). issuer.did must equal the DID the platform minted for the issuer participant
+# context — it is pinned into the dataspace profile's credentialSpecs, and a mismatch only
+# surfaces at credential verification during onboarding, far from the cause. The platform derives
+# that DID from its gateway hostname as did:web:issuer.<host>:issuer unless it was pinned there
+# via edc.issuerservice.did.id; read the live value back with
+#   kubectl -n "$NAMESPACE" get httproute issuerservice-did -o jsonpath='{.spec.hostnames[0]}'
 helm upgrade --install cx-profile "$CXPROF_CHART" \
   --namespace "$NAMESPACE" \
   --set global.namespace="$NAMESPACE" \
   --set global.clusterDomain="svc.${DNS_DOMAIN}" \
+  --set issuer.did="did:web:issuer.${HOST}:issuer" \
   --version "$CXPROF_CHART_VERSION" \
   --wait
 

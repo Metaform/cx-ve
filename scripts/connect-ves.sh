@@ -166,7 +166,9 @@ config:
     url: http://identityhub.${NAMESPACE}.svc.$2:7081/api/identity/v1beta
   participant:
     did:
-      template: "did:web:identityhub.${NAMESPACE}.svc.$2%3A7083:"
+      # Keep in sync with install-ve.sh: must match the platform's IdentityHub did:web
+      # hostname (identity.<host>), or participant DIDs will not resolve through the gateway.
+      template: "did:web:identity.$3:"
     dataplane:
       # Keep in sync with install-ve.sh: demo data source for HttpData-PULL transfers
       endpoint: https://jsonplaceholder.typicode.com/todos/1
