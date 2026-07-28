@@ -189,12 +189,31 @@ apply_corefile() { # <new-corefile> <description>
 
 # Every hostname must resolve, from a pod in THIS cluster, to the given IP. Values reach the
 # probe as environment variables so its script can stay single-quoted.
+#
+# The probe retries before judging: apply_corefile's rollout wait does not make the new config
+# authoritative — terminating pods keep answering with the OLD Corefile through their lameduck
+# window, and the kubelet can hand a freshly started pod a stale ConfigMap volume (healed by its
+# periodic sync plus CoreDNS's `reload` poll, worst case ~2 minutes). Inside that window a
+# *.localhost query falls through `.:53` to the host resolver, which per RFC 6761 answers ::1 —
+# a transient WRONG answer, not a timeout, so only comparing against the expected IP catches it.
 verify_dns() { # <expected-ip> <hostname...>
   local expect="$1"; shift
   echo ">> verifying in-cluster DNS resolution"
   kubectl run "dnscheck-$RANDOM" --rm -i --restart=Never --image="$PROBE_IMAGE" \
     --env="NAMES=$*" --env="EXPECT_IP=$expect" \
-    --timeout=180s --command -- sh -c '
+    --timeout=300s --command -- sh -c '
+      attempt=1
+      while :; do
+        fail=0
+        for n in $NAMES; do
+          ip=$(getent ahosts "$n" 2>/dev/null | awk "{print \$1; exit}")
+          [ "$ip" = "$EXPECT_IP" ] || fail=1
+        done
+        [ $fail -eq 0 ] || [ $attempt -ge 36 ] && break
+        echo "     ...  not propagated yet, retrying ($attempt/36)"
+        attempt=$((attempt + 1))
+        sleep 5
+      done
       fail=0
       for n in $NAMES; do
         ip=$(getent ahosts "$n" 2>/dev/null | awk "{print \$1; exit}")
@@ -222,13 +241,24 @@ verify_did_document() { # <did-host>
   echo ">> verifying DID resolution: did:web:${did_host}:issuer"
   # bash rather than sh: the probe image ships no HTTP client, and bash's /dev/tcp needs no extra
   # image. The explicit Host header is the whole point — it is what the DID is reconstructed from.
+  # Retries for the same reason as verify_dns — and a dnscheck pass does not cover this probe:
+  # CoreDNS runs two replicas, so this lookup may hit a replica the dnscheck never exercised.
   kubectl run "didcheck-$RANDOM" --rm -i --restart=Never --image="$PROBE_IMAGE" \
     --env="DID_HOST=$did_host" --env="DID_PATH=$path" --env="EXPECT=$expect" \
-    --timeout=180s --command -- bash -c '
-      exec 3<>/dev/tcp/$DID_HOST/80 2>/dev/null || {
-        echo "     FAIL could not connect to $DID_HOST:80"; exit 1; }
-      printf "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n" "$DID_PATH" "$DID_HOST" >&3
-      response=$(cat <&3)
+    --timeout=300s --command -- bash -c '
+      for attempt in $(seq 1 36); do
+        response=""
+        if { exec 3<>"/dev/tcp/$DID_HOST/80"; } 2>/dev/null; then
+          printf "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n" "$DID_PATH" "$DID_HOST" >&3
+          response=$(cat <&3)
+          exec 3<&-
+        fi
+        printf "%s" "$response" | grep -qF "$EXPECT" && break
+        [ "$attempt" -lt 36 ] && { echo "     ...  document not served yet, retrying ($attempt/36)"; sleep 5; }
+      done
+      if [ -z "$response" ]; then
+        echo "     FAIL could not connect to $DID_HOST:80"; exit 1
+      fi
       printf "     %s\n" "$(printf "%s" "$response" | head -1 | tr -d "\r")"
       if printf "%s" "$response" | grep -qF "$EXPECT"; then
         echo "     OK   document id matches the DID"
