@@ -108,7 +108,7 @@ CORE_CHART_VERSION=0.0.17
 
 # Helm chart of the Catena-X Profile
 CXPROF_CHART="${CXPROF_CHART:-oci://ghcr.io/metaform/charts/catenax-profile}"
-CXPROF_CHART_VERSION=0.0.6
+CXPROF_CHART_VERSION=0.0.8
 
 # Helm chart of the Onboarding API. Defaults to the working-tree chart: the script always
 # builds and loads the working-tree IMAGE anyway, so deploying the published chart with it

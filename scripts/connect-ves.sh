@@ -14,11 +14,12 @@
 #      the DSP callback, the CredentialService endpoint — lives under those hostnames, and the
 #      runtimes dereference them on every cross-VE interaction. Includes its own verification
 #      (DNS + an end-to-end fetch of the peer issuer's DID document).
-#   4. Mutual trust: each VE's controlplane gets the peer's issuer DID
-#      (did:web:issuer.<peer-host>:issuer) added to its edc.controlplane.trustedIssuers via helm
-#      upgrade. Because a platform upgrade regenerates the NATS users.conf (dropping the
-#      Onboarding API's NKey entry), the obapi release is upgraded right after to re-merge it,
-#      and the obapi deployment is restarted.
+#   4. Mutual trust: each VE gets the peer's issuer DID (did:web:issuer.<peer-host>:issuer) added
+#      both to its controlplane's edc.controlplane.trustedIssuers and to the cx-neptune dataspace
+#      profile's trustedIssuers (the latter is what credential verification actually reads), via
+#      helm upgrades of the core-platform and cx-profile releases. Because a platform upgrade
+#      regenerates the NATS users.conf (dropping the Onboarding API's NKey entry), the obapi
+#      release is upgraded right after to re-merge it, and the obapi deployment is restarted.
 #
 # Assumes the two VEs were installed with the conventions of install-ve.sh, e.g.:
 #   ./scripts/install-ve.sh -c ve1 -d ve1.local -H ve1.localhost
@@ -41,6 +42,10 @@ NAMESPACE=edc-v
 # Charts (must match what the VEs were installed with)
 CORE_CHART="${CORE_CHART:-oci://ghcr.io/eclipse-cfm/charts/core-platform-distribution}"
 CORE_CHART_VERSION=0.0.17
+# Keep in sync with install-ve.sh. The version MUST be one that exposes issuer.trustedIssuers,
+# or the profile-level peer trust below is silently dropped.
+CXPROF_CHART="${CXPROF_CHART:-oci://ghcr.io/metaform/charts/catenax-profile}"
+CXPROF_CHART_VERSION=0.0.8
 # The dual-VE setup requires the working-tree app chart (see install-ve.sh)
 OBAPI_CHART="${OBAPI_CHART:-charts/cx-ve}"
 
@@ -187,6 +192,23 @@ EOF
     --wait
   kubectl rollout restart deployment/obapi-cx-ve -n "$NAMESPACE"
   kubectl rollout status deployment/obapi-cx-ve -n "$NAMESPACE" --timeout=420s
+
+  # Credential verification reads its trust anchors off the DATASPACE PROFILE (HasValidIssuer is
+  # built from the profile context), so the peer issuer must be in the cx-neptune profile's
+  # trustedIssuers as well — the controlplane config above is not enough. The chart always keeps
+  # issuer.did as the first entry, so only the peer DID is passed here. Every other value has to be
+  # repeated verbatim from install-ve.sh: helm upgrade resets anything not given back to the chart
+  # defaults. The chart's edc-seed job upserts the profile (409 -> PUT), so this actually replaces
+  # the trustedIssuers of the profile created at install time.
+  echo ">> $1: adding issuer of $4 to the cx-neptune profile trustedIssuers"
+  helm upgrade --install cx-profile "$CXPROF_CHART" \
+    --namespace "$NAMESPACE" \
+    --set global.namespace="$NAMESPACE" \
+    --set global.clusterDomain="svc.$2" \
+    --set issuer.did="did:web:issuer.$3:issuer" \
+    --set issuer.trustedIssuers[0]="did:web:issuer.$6:issuer" \
+    --version "$CXPROF_CHART_VERSION" \
+    --wait
 
   # The chart's trustedIssuers hook only registers the issuer *id*; the DCP verifier
   # additionally requires the credential types the issuer may issue, or presentations verify
