@@ -1,0 +1,37 @@
+global:
+  host: cxve.localhost
+
+edc:
+  controlplane:
+    trustedIssuers:
+      - name: cxtck
+        id: "did:web:cx-tck.edc-v.svc.cluster.local:issuer"
+  identityhub:
+    scopes:
+      - name: membership
+        pattern: 'org\.eclipse\.tractusx\.vc\.type:(.+):(read|\*|all)'
+        leftOperand: "verifiableCredential.credential.type"
+        operator: "contains"
+        rightOperand: "$1"
+  siglet:
+    transferTypes:
+      - transferType: "HttpData-PULL"
+        endpointType: "https://w3id.org/idsa/v4.1/HTTP"
+        endpoint: "http://provider:8080/data"
+        tokenSource: "provider"
+        txRenewalSupport: true
+
+# certo needs its "certo" database provisioned by
+# the platform's postgres-init hook. Helm replaces lists wholesale, so the platform's
+# default databases must be repeated here alongside the CX-VE-specific entry.
+postgresql:
+  databases:
+    - { db: controlplane,  user: cp,      password: cp }
+    - { db: identityhub,   user: ih,      password: ih }
+    - { db: issuerservice, user: issuer,  password: issuer }
+    - { db: dataplane,     user: dp,      password: dp }
+    - { db: cfm,           user: cfm,     password: cfm }
+    - { db: sigletdb,      user: siglet,  password: siglet }
+    - { db: jwtlet,        user: jwtlet,  password: jwtlet }
+    # CXVE-only: certo database
+    - { db: certo,     user: certo, password: certo }

@@ -1,0 +1,14 @@
+httpRoute:
+  hostnames:
+    - cxve.localhost
+config:
+  participant:
+    did:
+      # Must match the platform's IdentityHub did:web hostname (identity.<host>), since
+      # IdentityHub resolves a DID document by the request URL — a participant DID minted
+      # under any other authority will not resolve through the gateway.
+      template: "did:web:identity.cxve.localhost:"
+    dataplane:
+      # Demo data source served for HttpData-PULL transfers: a public sample-JSON API, so the
+      # demo payload is unambiguous sample data rather than platform infrastructure
+      endpoint: https://jsonplaceholder.typicode.com/todos/1

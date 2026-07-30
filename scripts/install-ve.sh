@@ -162,7 +162,7 @@ kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-s
 # OCI/registry reference: the published chart bundles its sub-chart dependencies.
 helm upgrade --install core-platform "$CORE_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
-  -f platform-override-values.yaml \
+  -f platform-values.yaml \
   --set global.host="$HOST" \
   --set global.namespace="$NAMESPACE" \
   --version $CORE_CHART_VERSION \

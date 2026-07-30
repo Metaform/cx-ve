@@ -44,7 +44,7 @@ The script performs the following steps:
    port-forward.
 2. Installs Traefik (`traefik-values.yaml`) and the Gateway API CRDs.
 3. Installs the **Core Platform Distribution** as release `core-platform` into namespace `edc-v`,
-   with `platform-override-values.yaml` as values. The release name matters: the app's chart
+   with `platform-values.yaml` as values. The release name matters: the app's chart
    values reference resources derived from it (`core-platform-nats`, `core-platform-vault`,
    `core-platform-nats-auth`).
 4. Installs the **Catena-X profile** (dataspace-specific seeding) as release `cx-profile`.
