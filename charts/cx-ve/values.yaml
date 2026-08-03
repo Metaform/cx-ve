@@ -10,6 +10,18 @@ image:
 service:
   port: 8080
 
+# Remote JVM debugging (JDWP). When enabled the container starts the debug agent (via
+# JAVA_TOOL_OPTIONS, honored by any JVM launcher) and exposes the port on the pod only —
+# deliberately not on the Service. Attach with
+#   kubectl port-forward deploy/<fullname> 5005:5005
+# and an IDE "Remote JVM Debug" run configuration pointed at localhost:5005.
+debug:
+  enabled: true
+  port: 5005
+  # Suspend the JVM until a debugger attaches (to step through startup code). While suspended the
+  # app cannot answer health probes, so enabling this also disables liveness/readiness probes.
+  suspend: false
+
 # The app's workload identity: the jwtlet seed job registers
 # "system:serviceaccount:<namespace>:onboarding-api", and Vault's kubernetes auth method binds
 # the NKey role to this SA.
@@ -103,13 +115,15 @@ config:
   logging:
     level:
       com.metaform.cxve: INFO
-  # NATS/JetStream issuance-event subscriber (drives onboarding completion)
+  # NATS/JetStream subscribers for IdentityHub events: issuance (drives onboarding completion)
+  # and participant-context lifecycle (drives it past the wallet-provisioning gate)
   nats:
     enabled: true
     url: nats://core-platform-nats.edc-v.svc.cluster.local:4222
     stream: edc-events
     durable-name: onboarding-api
     subject-filter: "events.issuance.>"
+    participant-context-subject-filter: "events.participantcontext.>"
     # Blank -> connect unauthenticated (e.g. local dev NATS)
     nkey-seed-path: /vault/secrets/nats.nk
   # Token exchange (RFC 8693): workload token file + exchange endpoint

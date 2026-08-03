@@ -57,9 +57,19 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if .Values.debug.enabled }}
+            - name: debug
+              containerPort: {{ .Values.debug.port }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: SPRING_CONFIG_ADDITIONALLOCATION
               value: /etc/cx-ve/application.yaml
+            {{- if .Values.debug.enabled }}
+            - name: JAVA_TOOL_OPTIONS
+              value: "-agentlib:jdwp=transport=dt_socket,server=y,suspend={{ ternary "y" "n" .Values.debug.suspend }},address=*:{{ .Values.debug.port }}"
+            {{- end }}
+          {{- if not (and .Values.debug.enabled .Values.debug.suspend) }}
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
@@ -68,6 +78,7 @@ spec:
             httpGet:
               path: /actuator/health/readiness
               port: http
+          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /etc/cx-ve
