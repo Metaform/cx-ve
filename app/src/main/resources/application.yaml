@@ -17,7 +17,8 @@ logging:
   level:
     com.metaform.cxve: INFO                                     # LOGGING_LEVEL_COM_METAFORM_CXVE
 
-# NATS/JetStream issuance-event subscriber (drives onboarding completion).
+# NATS/JetStream subscribers for IdentityHub events: issuance (drives onboarding completion) and
+# participant-context lifecycle (drives it past the wallet-provisioning gate).
 # Disable when running without a broker (local docker run, tests).
 nats:
   enabled: true                                                 # NATS_ENABLED
@@ -25,6 +26,7 @@ nats:
   stream: edc-events                                            # NATS_STREAM
   durable-name: onboarding-api                                  # NATS_DURABLENAME
   subject-filter: "events.issuance.>"                           # NATS_SUBJECTFILTER
+  participant-context-subject-filter: "events.participantcontext.>"   # NATS_PARTICIPANTCONTEXTSUBJECTFILTER
   # Absent -> connect unauthenticated (e.g. local dev NATS)
   # nkey-seed-path: /vault/secrets/nats.nk                      # NATS_NKEYSEEDPATH
 
