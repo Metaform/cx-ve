@@ -94,6 +94,12 @@ CXPROF_CHART_VERSION=0.0.8
 OBAPI_CHART="${OBAPI_CHART:-charts/cx-ve}"
 OBAPI_CHART_VERSION=0.0.1
 
+# Helm chart of Certo (CX-0135 certificate exchange). Published chart by default; set
+# CERTO_CHART=../certo/charts/certo to deploy the sibling working-tree chart instead
+# (--version below only applies to remote refs; helm ignores it for a directory).
+CERTO_CHART="${CERTO_CHART:-oci://ghcr.io/metaform/charts/certo}"
+CERTO_CHART_VERSION=0.1.0
+
 # Always tear down the cluster on exit, whether the run succeeds, fails on any
 # command (set -e), or is interrupted.
 cleanup() {
@@ -132,6 +138,11 @@ cat > "$GEN_DIR/obapi-values.yaml" <<EOF
 httpRoute:
   hostnames:
     - ${HOST}
+image:
+  pullPolicy: Never
+debug:
+  enabled:
+    true
 config:
   participant:
     did:
@@ -143,6 +154,31 @@ config:
       # Demo data source served for HttpData-PULL transfers: a public sample-JSON API, so the
       # demo payload is unambiguous sample data rather than platform infrastructure
       endpoint: https://jsonplaceholder.typicode.com/todos/1
+EOF
+
+# Overrides for the Certo chart: the HTTPRoute and siglet URL follow the VE's host; management-API
+# tokens are validated against the platform's jwtlet (the explicit JWKS URI activates certo's
+# EdDSA-capable decoder); the database is the platform's Postgres.
+cat > "$GEN_DIR/certo-values.yaml" <<EOF
+image:
+  tag: "latest"
+gateway:
+  name: edcv-gateway
+  namespace: ${NAMESPACE}
+  hostnames:
+    - ${HOST}
+  pathPrefix: /api/certo
+sigletBaseUrl: "http://${HOST}/api/siglet"
+extraEnv:
+  - name: CERTO_MGMT_ISSUER_URI
+    value: http://jwtlet.${NAMESPACE}.svc.cluster.local:8080
+  - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI
+    value: http://jwtlet.${NAMESPACE}.svc.cluster.local:8080/.well-known/jwks.json
+database:
+  url: jdbc:postgresql://core-platform-postgresql.${NAMESPACE}.svc.cluster.local:5432/certo
+  username: certo
+  password: certo
+  ddlAuto: update
 EOF
 
 # Setup cluster
@@ -162,7 +198,7 @@ kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-s
 # OCI/registry reference: the published chart bundles its sub-chart dependencies.
 helm upgrade --install core-platform "$CORE_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
-  -f platform-values.yaml \
+  -f deploy/values/platform.yaml \
   --set global.host="$HOST" \
   --set global.namespace="$NAMESPACE" \
   --version $CORE_CHART_VERSION \
@@ -200,4 +236,13 @@ helm upgrade --install obapi "$OBAPI_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
   -f "$GEN_DIR/obapi-values.yaml" \
   --version "$OBAPI_CHART_VERSION" \
+  --wait
+
+# Deploy Certo (installed after the Onboarding API: its jwtlet seed job registers the mappings
+# and certo-mgmt-api scopes that authorize calls to certo's management API)
+kind load docker-image ghcr.io/metaform/certo:latest -n "$CLUSTER_NAME"
+helm upgrade --install certo "$CERTO_CHART" \
+  --namespace "$NAMESPACE" \
+  -f "$GEN_DIR/certo-values.yaml" \
+  --version "$CERTO_CHART_VERSION" \
   --wait

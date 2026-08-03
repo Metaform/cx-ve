@@ -59,26 +59,58 @@ spec:
                 exit 1
               fi
 
-              echo "Creating JWTlet mapping entry for the '{{ .Values.serviceAccount.name }}' SA"
-              RESP=$(curl -s -w "\n%{http_code}" -X POST "${JWTLET_MGMT_URL}/mappings" \
-                -H "Authorization: Bearer ${TOKEN}" \
-                -H "Content-Type: application/json" \
-                -d '{
+              # POSTs a JSON body to the jwtlet management API and handles the response:
+              # 409 = already exists (fine, seeding is idempotent), >= 400 = fail the job.
+              create() {
+                desc="$1"; url="$2"; body="$3"
+                echo "Creating ${desc}"
+                resp=$(curl -s -w "\n%{http_code}" -X POST "${url}" \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d "${body}")
+                status=$(printf '%s\n' "$resp" | tail -1)
+                if [ "$status" -eq 409 ]; then
+                  echo "${desc} already exists"
+                elif [ "$status" -ge 400 ]; then
+                  echo "ERROR: Failed to create ${desc} (HTTP $status): $(printf '%s\n' "$resp" | sed '$d')"
+                  exit 1
+                else
+                  echo "${desc} created"
+                fi
+              }
+
+              create "mapping entry for the '{{ .Values.serviceAccount.name }}' SA" \
+                "${JWTLET_MGMT_URL}/mappings" \
+                '{
                     "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.serviceAccount.name }}",
                     "participantContext": {{ .Values.jwtlet.seed.participantContext | quote }},
                     "scopes": {{ .Values.jwtlet.seed.scopes | toJson }},
                     "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
-                }')
-              RESP_STATUS=$(printf '%s\n' "$RESP" | tail -1)
-              RESP_BODY=$(printf '%s\n' "$RESP" | sed '$d')
-              if [ "$RESP_STATUS" -eq 409 ]; then
-                echo "mapping entry already exists"
-              elif [ "$RESP_STATUS" -ge 400 ]; then
-                echo "ERROR: Failed to create mapping entry (HTTP $RESP_STATUS): $RESP_BODY"
-                exit 1
-              else
-                echo "mapping entry created"
-              fi
+                }'
+
+              create "mapping entry for the 'certo' SA" \
+                "${JWTLET_MGMT_URL}/mappings" \
+                '{
+                    "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:certo",
+                    "participantContext": "sudo",
+                    "scopes": ["certo-mgmt-api:read", "certo-mgmt-api:write"],
+                    "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
+                }'
+
+              create "scope mapping 'certo-mgmt-api:read'" \
+                "${JWTLET_MGMT_URL}/scopes" \
+                '{
+                    "scope": "certo-mgmt-api:read",
+                    "claims": {"scope": "certo-mgmt-api:read"}
+                }'
+
+              create "scope mapping 'certo-mgmt-api:write'" \
+                "${JWTLET_MGMT_URL}/scopes" \
+                '{
+                    "scope": "certo-mgmt-api:write",
+                    "claims": {"scope": "certo-mgmt-api:write"}
+                }'
+
       volumes:
         # RFC 8693 subject_token used to authenticate against the jwtlet management API.
         # Audience must match jwtlet's `client_audience`.
