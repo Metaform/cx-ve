@@ -1,0 +1,30 @@
+# Management-API token validation: the jwtlet is the issuer. In-cluster DNS on both — the issuer
+# value must match the `iss` claim the jwtlet stamps into tokens, and the explicit JWKS URI activates
+# certo's EdDSA-capable decoder (Spring's own decoders cannot verify Ed25519 signatures).
+extraEnv:
+  - name: CERTO_MGMT_ISSUER_URI
+    value: http://jwtlet.edc-v.svc.cluster.local:8080
+  - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI
+    value: http://jwtlet.edc-v.svc.cluster.local:8080/.well-known/jwks.json
+
+gateway:
+  name: "edcv-gateway"
+  namespace: "edc-v"
+  hostnames:
+    - cxve.localhost
+  pathPrefix: /api/certo
+
+sigletBaseUrl: "http://cxve.localhost/api/siglet"
+
+database:
+  url:  jdbc:postgresql://core-platform-postgresql.edc-v.svc.cluster.local:5432/certo
+  username: certo
+  password: certo
+  # the certo chart already creates a secret, so we only need to reference it
+  existingSecretKey: password
+  ddlAuto: "update"
+
+image:
+  tag: "latest"
+  pullPolicy: "Never"
+
