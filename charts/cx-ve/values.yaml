@@ -115,15 +115,13 @@ config:
   logging:
     level:
       com.metaform.cxve: INFO
-  # NATS/JetStream subscribers for IdentityHub events: issuance (drives onboarding completion)
-  # and participant-context lifecycle (drives it past the wallet-provisioning gate)
+  # NATS/JetStream issuance-event subscriber (drives onboarding completion)
   nats:
     enabled: true
     url: nats://core-platform-nats.edc-v.svc.cluster.local:4222
     stream: edc-events
     durable-name: onboarding-api
     subject-filter: "events.issuance.>"
-    participant-context-subject-filter: "events.participantcontext.>"
     # Blank -> connect unauthenticated (e.g. local dev NATS)
     nkey-seed-path: /vault/secrets/nats.nk
   # Token exchange (RFC 8693): workload token file + exchange endpoint

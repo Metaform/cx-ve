@@ -3,8 +3,7 @@ package com.metaform.cxve.adapter.out.nats;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Configuration for the NATS/JetStream subscribers that consume IdentityHub events (credential
- * issuance and participant-context lifecycle).
+ * Configuration for the NATS/JetStream subscriber that consumes IdentityHub issuance events.
  *
  * <p>Defaults target the platform: the shared {@code edc-events} JetStream stream, subject prefix
  * {@code events.} (see the EDC {@code events-nats} bridge), and the Vault-delivered NKey seed at
@@ -17,7 +16,6 @@ public record NatsProperties(
         String stream,
         String durableName,
         String subjectFilter,
-        String participantContextSubjectFilter,
         String nkeySeedPath
 ) {
 
@@ -34,18 +32,6 @@ public record NatsProperties(
         if (subjectFilter == null || subjectFilter.isBlank()) {
             subjectFilter = "events.issuance.>";
         }
-        if (participantContextSubjectFilter == null || participantContextSubjectFilter.isBlank()) {
-            participantContextSubjectFilter = "events.participantcontext.>";
-        }
-    }
-
-    /**
-     * Durable for the participant-context consumer, derived from {@link #durableName()}: a JetStream
-     * consumer has a single subject filter, so this subscription needs its own durable next to the
-     * issuance one.
-     */
-    public String participantContextDurableName() {
-        return durableName + "-participantcontext";
     }
 
     /** An NKey seed path is optional (absent → connect unauthenticated, e.g. against a local dev NATS). */

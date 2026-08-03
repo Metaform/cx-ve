@@ -31,7 +31,7 @@ class NatsIssuanceListenerTest {
 
     private final NatsIssuanceListener listener = new NatsIssuanceListener(
             mock(Connection.class), mock(JetStream.class), parser, orchestrator,
-            new NatsProperties(true, null, null, null, null, null, null));
+            new NatsProperties(true, null, null, null, null, null));
 
     private byte[] deliveredEvent(String holderId) throws Exception {
         var event = CloudEventBuilder.v1()
@@ -73,7 +73,7 @@ class NatsIssuanceListenerTest {
         var dispatcher = mock(Dispatcher.class);
         when(connection.createDispatcher()).thenReturn(dispatcher);
         var l = new NatsIssuanceListener(connection, jetStream, parser, orchestrator,
-                new NatsProperties(true, null, null, null, null, null, null));
+                new NatsProperties(true, null, null, null, null, null));
 
         l.subscribe();
 
@@ -96,7 +96,7 @@ class NatsIssuanceListenerTest {
                 .thenThrow(new IllegalArgumentException("[SUB-90012] Consumer is already bound to a subscription."))
                 .thenReturn(mock(JetStreamSubscription.class));
         var l = new NatsIssuanceListener(connection, jetStream, parser, orchestrator,
-                new NatsProperties(true, null, null, null, null, null, null));
+                new NatsProperties(true, null, null, null, null, null));
 
         l.subscribe();
 
