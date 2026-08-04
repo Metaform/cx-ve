@@ -10,6 +10,6 @@ dependencies:
   version: 0.1.0
 - name: certo
   repository: oci://ghcr.io/metaform/charts
-  version: 0.0.1
-digest: sha256:f520f44dfd6a99a3b65349b0a739187fc61fc516d6a8a5c5e568071535081b74
-generated: "2026-08-04T10:27:47.62864+02:00"
+  version: 0.0.2
+digest: sha256:5a5ca30e51e31917cc3c294834382a8a8af7e2b752b3ddd1d902706c4a970d56
+generated: "2026-08-04T11:43:30.529779+02:00"

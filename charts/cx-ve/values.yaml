@@ -86,6 +86,14 @@ certo:
     username: certo
     password: certo
     ddlAuto: update
+  # Certo's workload identity: the umbrella's certo-jwtlet-seed maps
+  # system:serviceaccount:edc-v:certo to the "sudo" participant context with the
+  # certo-mgmt-api scopes — the SA name here and that mapping must agree.
+  # NOTE requires a certo chart > 0.0.1: the published 0.0.1 predates the ServiceAccount
+  # template and runs the pod under the namespace default SA.
+  serviceAccount:
+    create: true
+    name: certo
 
 # ---- jwtlet endpoints for the umbrella's own seed jobs and the certo agent -------------------
 jwtlet:
