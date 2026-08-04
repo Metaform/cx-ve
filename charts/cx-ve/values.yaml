@@ -67,8 +67,6 @@ certo:
   enabled: true
   image:
     tag: "latest"
-    # Always: with a moving "latest" tag, IfNotPresent would pin whatever a node pulled first
-    pullPolicy: Always
   gateway:
     name: edcv-gateway
     namespace: edc-v
