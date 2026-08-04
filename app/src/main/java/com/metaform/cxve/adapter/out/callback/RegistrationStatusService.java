@@ -1,4 +1,4 @@
-package com.metaform.cxve.application;
+package com.metaform.cxve.adapter.out.callback;
 
 import com.metaform.cxve.domain.model.OnboardingServiceProviderCallbackRequestData;
 
@@ -13,4 +13,6 @@ public interface RegistrationStatusService {
      * Sets the callback address of the onboarding service provider.
      */
     void setCallbackAddress(OnboardingServiceProviderCallbackRequestData callbackData);
+
+    void invokeCallback();
 }

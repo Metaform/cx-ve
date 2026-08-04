@@ -1,6 +1,6 @@
 package com.metaform.cxve.adapter.in.web;
 
-import com.metaform.cxve.application.RegistrationStatusService;
+import com.metaform.cxve.adapter.out.callback.RegistrationStatusService;
 import com.metaform.cxve.domain.model.OnboardingServiceProviderCallbackRequestData;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
