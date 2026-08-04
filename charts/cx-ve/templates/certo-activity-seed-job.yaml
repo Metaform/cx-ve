@@ -1,0 +1,240 @@
+## Registers the certo-activity in the provision manager and inserts it into the participant
+## provisioning orchestration. Mirrors the platform's provision-manager-seed job: it obtains a
+## cfm-write token via jwtlet token exchange and POSTs to the provision manager's management API.
+##
+## CAVEAT: the provision manager upserts orchestration definitions by orchestration type, so the
+## template POSTed below REPLACES the platform-seeded VPA deploy/dispose definitions. Its DAG must
+## therefore repeat the platform's activities (see the platform's provision-manager-seed-job)
+## verbatim, plus the certo steps. A PLATFORM upgrade re-runs the platform's seed job and
+## overwrites this definition again — re-run `helm upgrade` on this release to re-apply it
+## (the job re-runs on every revision).
+{{- if and .Values.certoAgent.enabled .Values.certoAgent.seed.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cx-ve.fullname" . }}-certo-activity-seed
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # Weight 220: MUST run after the platform's provision-manager-seed (weight 20) — both write
+    # the same orchestration definition and the later writer wins. 220 also puts it after the
+    # catenax-profile seeds (110-130) and the jwtlet mapping seeds (200/210).
+    "helm.sh/hook-weight": "220"
+    "helm.sh/hook-delete-policy": {{ .Values.certoAgent.seed.hookDeletePolicy | quote }}
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: {{ .Values.certoAgent.seed.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "cx-ve.fullname" . }}-certo-activity-seed
+    spec:
+      # must act under the "seed-jobs" SA — its jwtlet mapping covers the cfm-write role scope
+      # that expands to provision-manager-api:write
+      serviceAccountName: seed-jobs
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-provision-manager
+          image: {{ .Values.certoAgent.seed.image }}
+          env:
+            - name: JWTLET_TOKEN_URL
+              value: "{{ .Values.certoAgent.config.tokenExchangeUrl }}/token"
+            - name: PM_BASE_URL
+              value: {{ .Values.certoAgent.seed.pmUrl | quote }}
+          volumeMounts:
+            - name: jwtlet-subject-token
+              mountPath: /var/run/secrets/jwtlet
+              readOnly: true
+          command:
+            - sh
+            - -c
+            - |
+              SA_TOKEN=$(cat /var/run/secrets/jwtlet/token)
+              TOKEN=$(curl -sf -X POST "${JWTLET_TOKEN_URL}" \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+                --data-urlencode "subject_token=${SA_TOKEN}" \
+                --data-urlencode "subject_token_type=urn:ietf:params:oauth:token-type:jwt" \
+                --data-urlencode "resource=issuer" \
+                --data-urlencode "scope=cfm-read" \
+                --data-urlencode "audience={{ .Values.certoAgent.config.tokenExchangeAudience }}" \
+                | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+              until curl -sf -H "Authorization: Bearer ${TOKEN}" "${PM_BASE_URL}/api/v1alpha1/activity-definitions"; do
+                echo "Waiting for provision-manager to be ready..."
+                sleep 5
+              done
+              echo "Provision Manager is ready!"
+      containers:
+        - name: seed-certo-activity
+          image: {{ .Values.certoAgent.seed.image }}
+          env:
+            - name: JWTLET_TOKEN_URL
+              value: "{{ .Values.certoAgent.config.tokenExchangeUrl }}/token"
+            - name: PM_BASE_URL
+              value: {{ .Values.certoAgent.seed.pmUrl | quote }}
+          volumeMounts:
+            - name: jwtlet-subject-token
+              mountPath: /var/run/secrets/jwtlet
+              readOnly: true
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+
+              # Executes a curl request and stores the response body in RESP_BODY and status code in RESP_STATUS.
+              do_curl() {
+                RESP=$(curl -s -w "\n%{http_code}" "$@")
+                RESP_STATUS=$(printf '%s\n' "$RESP" | tail -1)
+                RESP_BODY=$(printf '%s\n' "$RESP" | sed '$d')
+              }
+
+              SA_TOKEN=$(cat /var/run/secrets/jwtlet/token)
+              if [ -z "$SA_TOKEN" ]; then
+                echo "ERROR: subject token at /var/run/secrets/jwtlet/token is empty"
+                exit 1
+              fi
+
+              do_curl -X POST "${JWTLET_TOKEN_URL}" \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+                --data-urlencode "subject_token=${SA_TOKEN}" \
+                --data-urlencode "subject_token_type=urn:ietf:params:oauth:token-type:jwt" \
+                --data-urlencode "resource=issuer" \
+                --data-urlencode "scope=cfm-write" \
+                --data-urlencode "audience={{ .Values.certoAgent.config.tokenExchangeAudience }}"
+              if [ "$RESP_STATUS" -ge 400 ]; then
+                echo "ERROR: Failed to exchange SA token (HTTP $RESP_STATUS): $RESP_BODY"
+                exit 1
+              fi
+              EXCHANGED_TOKEN=$(printf '%s\n' "$RESP_BODY" | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+              if [ -z "$EXCHANGED_TOKEN" ]; then
+                echo "ERROR: Failed to parse exchanged token from response: $RESP_BODY"
+                exit 1
+              fi
+              echo "✓ Provisioner token obtained"
+
+              echo "Step 1: Create certo-activity ActivityDefinition"
+              # creation is an upsert, so re-runs are idempotent
+              do_curl -X POST "${PM_BASE_URL}/api/v1alpha1/activity-definitions" \
+                -H "Authorization: Bearer ${EXCHANGED_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "description": "Provisions the participant context in Certo (CX-0135 certificate exchange)",
+                  "inputSchema": {},
+                  "outputSchema": {},
+                  "type": "certo-activity"
+                }'
+              if [ "$RESP_STATUS" -ge 400 ]; then
+                echo "ERROR: Failed to create certo-activity (HTTP $RESP_STATUS): $RESP_BODY"
+                exit 1
+              fi
+              echo "✓ certo-activity created"
+
+              echo "Step 2: Re-create the VPA orchestration definition with the certo steps"
+              # The platform's DAG (keep in sync with its provision-manager-seed-job!) plus
+              # certo-provisioner/certo-rollback. certo-provisioner depends on the jwtlet agent
+              # because that activity generates the participantContextId the certo agent reads.
+              do_curl -X POST "${PM_BASE_URL}/api/v1alpha1/orchestration-definitions" \
+                -H "Authorization: Bearer ${EXCHANGED_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "activities": {
+                    "cfm.orchestration.vpa.dispose": [{
+                      "id": "offboarding-agent",
+                      "type": "onboarding-activity",
+                      "dependsOn": []
+                    },
+                    {
+                      "id": "registration-rollback",
+                      "type": "registration-activity",
+                      "dependsOn": []
+                    },
+                    {
+                      "id": "connector-rollback",
+                      "type": "edcv-activity",
+                      "dependsOn": []
+                    },
+                    {
+                      "id": "siglet-rollback",
+                      "type": "siglet-activity",
+                      "dependsOn": []
+                    },
+                    {
+                      "id": "certo-rollback",
+                      "type": "certo-activity",
+                      "dependsOn": []
+                    }],
+                    "cfm.orchestration.vpa.deploy": [
+                    {
+                      "id": "jwtlet-tokenexchange-agent",
+                      "type": "jwtlet-activity"
+                    },
+                    {
+                      "id": "registration-agent",
+                      "type": "registration-activity",
+                      "dependsOn": [
+                        "jwtlet-tokenexchange-agent"
+                      ]
+                    },
+                    {
+                      "id": "connector-provisioner",
+                      "type": "edcv-activity",
+                      "dependsOn": [
+                        "jwtlet-tokenexchange-agent"
+                      ]
+                    },
+                    {
+                      "id": "siglet-provisioner",
+                      "type": "siglet-activity",
+                      "dependsOn": [
+                        "jwtlet-tokenexchange-agent",
+                        "connector-provisioner"
+                      ]
+                    },
+                    {
+                      "id": "identityhub-provisioner",
+                      "type": "identityhub-activity",
+                      "dependsOn": [
+                        "jwtlet-tokenexchange-agent"
+                      ]
+                    },
+                    {
+                      "id": "certo-provisioner",
+                      "type": "certo-activity",
+                      "dependsOn": [
+                        "jwtlet-tokenexchange-agent"
+                      ]
+                    },
+                    {
+                      "id": "onboarding-agent",
+                      "type": "onboarding-activity",
+                      "dependsOn": [
+                        "jwtlet-tokenexchange-agent",
+                        "connector-provisioner",
+                        "identityhub-provisioner",
+                        "registration-agent"
+                      ]
+                    }]
+                  },
+                  "description": "Orchestrates the deployment of a new dataspace member (incl. Certo)",
+                  "schema": {},
+                  "id": "cx-ve-vpa-orchestration"
+                }'
+              if [ "$RESP_STATUS" -ge 400 ]; then
+                echo "ERROR: Failed to create Orchestration Definition (HTTP $RESP_STATUS): $RESP_BODY"
+                exit 1
+              fi
+              echo "✓ Orchestration definition updated with certo-activity"
+      volumes:
+        # RFC 8693 subject_token exchanged at jwtlet's /token endpoint for a cfm-write-scoped
+        # token. Audience must match jwtlet's `client_audience`.
+        - name: jwtlet-subject-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ .Values.jwtlet.subjectTokenAudience | quote }}
+                  expirationSeconds: {{ .Values.jwtlet.subjectTokenExpirationSeconds }}
+{{- end }}

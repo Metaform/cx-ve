@@ -2,9 +2,9 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: {{ include "cx-ve.fullname" . }}
+  name: {{ include "onboarding-api.fullname" . }}
   labels:
-    {{- include "cx-ve.labels" . | nindent 4 }}
+    {{- include "onboarding-api.labels" . | nindent 4 }}
 spec:
   parentRefs:
     {{- toYaml .Values.httpRoute.parentRefs | nindent 4 }}
@@ -34,6 +34,6 @@ spec:
                 value: {{ .Values.httpRoute.pathPrefix | quote }}
       {{- end }}
       backendRefs:
-        - name: {{ include "cx-ve.fullname" . }}
+        - name: {{ include "onboarding-api.fullname" . }}
           port: {{ .Values.service.port }}
 {{- end }}

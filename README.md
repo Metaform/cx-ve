@@ -5,7 +5,8 @@ Monorepo containing:
 | Path | Contents |
 |---|---|
 | `app/` | Spring Boot application (Java 17, Gradle) |
-| `charts/cx-ve/` | Helm chart for deploying the application |
+| `charts/onboarding-api/` | Helm chart for the Onboarding API application |
+| `charts/cx-ve/` | Umbrella chart: the whole VE (platform, Catena-X profile, Onboarding API, Certo + agent) as one release |
 | `scripts/` | Utility and automation scripts |
 
 ## Building
@@ -18,15 +19,26 @@ Monorepo containing:
 
 ## Deploying
 
+The whole VE deploys as ONE umbrella release. The release name `cx-ve` is load-bearing — the
+platform names its infra resources `<release>-nats` / `<release>-vault` / `<release>-postgresql`
+and the checked-in values reference those names:
+
 ```shell
-helm lint charts/cx-ve
-helm install cx-ve charts/cx-ve
+helm dependency update charts/cx-ve
+helm lint charts/onboarding-api charts/cx-ve
+helm install cx-ve charts/cx-ve -n edc-v --create-namespace
 ```
+
+The umbrella pulls the Core Platform Distribution, the Catena-X profile and Certo as OCI
+dependencies and vendors the local `charts/onboarding-api`. All seeding runs as post-install
+hooks of the single release, in one ordered hook space: platform seeds (weights 10/20) →
+Catena-X profile (110-130) → onboarding-api jwtlet mapping (200) → certo jwtlet mappings (210)
+→ certo activity/orchestration (220).
 
 ## Local deployment (kind)
 
-`scripts/install-ve.sh` stands up a complete local environment — platform, Catena-X profile and
-Onboarding API — on a [kind](https://kind.sigs.k8s.io) cluster. Run it from the repository root:
+`scripts/install-ve.sh` stands up the complete VE on a [kind](https://kind.sigs.k8s.io)
+cluster. Run it from the repository root:
 
 ```shell
 ./scripts/install-ve.sh
@@ -43,13 +55,13 @@ The script performs the following steps:
    80/443 into the node, so the gateway is reachable on `http://localhost` without a
    port-forward.
 2. Installs Traefik (`traefik-values.yaml`) and the Gateway API CRDs.
-3. Installs the **Core Platform Distribution** as release `core-platform` into namespace `edc-v`,
-   with `deploy/values/platform.yaml` as values. The release name matters: the app's chart
-   values reference resources derived from it (`core-platform-nats`, `core-platform-vault`,
-   `core-platform-nats-auth`).
-4. Installs the **Catena-X profile** (dataspace-specific seeding) as release `cx-profile`.
-5. Builds the Onboarding API image from source, loads it into the kind cluster and installs the
-   app chart as release `obapi`.
+3. Pre-patches CoreDNS (`setup-did-dns.sh --pre`) so the gateway hostnames resolve in-cluster —
+   the release's own seed hooks already dereference them during the install.
+4. Installs the **umbrella release** `cx-ve` into namespace `edc-v` (dependencies resolved via
+   `helm dependency update`; all images are pulled from their registries — nothing is built or
+   kind-loaded).
+5. Re-runs `setup-did-dns.sh` in discovery mode: rewrites are re-derived from the deployed
+   HTTPRoutes and verified end to end (in-cluster DNS + the issuer DID document).
 
 Once complete, the Onboarding API is reachable through the gateway at
 `http://cxve.localhost/onboarding` (Swagger UI at `/onboarding/swagger`). Register a test
@@ -62,13 +74,9 @@ participant against it with
 which submits a partner registration and follows the onboarding progress in the application
 logs (requires `curl` and `jq`).
 
-The charts default to the published OCI versions pinned in the script; override the chart
-sources via the environment variables `CORE_CHART`, `CXPROF_CHART` and `OBAPI_CHART`, e.g. to
-install the app chart from the working tree:
-
-```shell
-OBAPI_CHART=charts/cx-ve ./scripts/install-ve.sh
-```
+All configuration is checked in statically in `charts/cx-ve/values.yaml`; a non-default
+hostname (`--host`) is applied through a small, documented set of `--set` overrides in the
+script.
 
 The cluster is left running when the script finishes; remove it with
 `kind delete cluster -n cxve`.

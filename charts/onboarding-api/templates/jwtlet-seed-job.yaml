@@ -5,12 +5,15 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "cx-ve.fullname" . }}-jwtlet-seed
+  name: {{ include "onboarding-api.fullname" . }}-jwtlet-seed
   labels:
-    {{- include "cx-ve.labels" . | nindent 4 }}
+    {{- include "onboarding-api.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "10"
+    # Weight 200: in the umbrella release all subcharts share one hook space — the platform's
+    # seeds run at 10/20 and the catenax-profile ones at 110-130; this job only needs jwtlet up
+    # but a deterministic late slot keeps the ordering obvious.
+    "helm.sh/hook-weight": "200"
     "helm.sh/hook-delete-policy": {{ .Values.jwtlet.seed.hookDeletePolicy | quote }}
 spec:
   backoffLimit: 5
@@ -18,7 +21,7 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ include "cx-ve.fullname" . }}-jwtlet-seed
+        app: {{ include "onboarding-api.fullname" . }}-jwtlet-seed
     spec:
       # must act under the "seed-jobs" SA, so that JWTlet's management API can be accessed
       serviceAccountName: seed-jobs
@@ -79,6 +82,8 @@ spec:
                 fi
               }
 
+              # The certo/cfm-agents mappings and the certo-mgmt-api scopes are seeded by the
+              # cx-ve umbrella chart — this job only registers the app's own ServiceAccount.
               create "mapping entry for the '{{ .Values.serviceAccount.name }}' SA" \
                 "${JWTLET_MGMT_URL}/mappings" \
                 '{
@@ -86,29 +91,6 @@ spec:
                     "participantContext": {{ .Values.jwtlet.seed.participantContext | quote }},
                     "scopes": {{ .Values.jwtlet.seed.scopes | toJson }},
                     "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
-                }'
-
-              create "mapping entry for the 'certo' SA" \
-                "${JWTLET_MGMT_URL}/mappings" \
-                '{
-                    "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:certo",
-                    "participantContext": "sudo",
-                    "scopes": ["certo-mgmt-api:read", "certo-mgmt-api:write"],
-                    "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
-                }'
-
-              create "scope mapping 'certo-mgmt-api:read'" \
-                "${JWTLET_MGMT_URL}/scopes" \
-                '{
-                    "scope": "certo-mgmt-api:read",
-                    "claims": {"scope": "certo-mgmt-api:read"}
-                }'
-
-              create "scope mapping 'certo-mgmt-api:write'" \
-                "${JWTLET_MGMT_URL}/scopes" \
-                '{
-                    "scope": "certo-mgmt-api:write",
-                    "claims": {"scope": "certo-mgmt-api:write"}
                 }'
 
       volumes:

@@ -25,11 +25,26 @@
 # NOTE the Corefile changes are lost when the KinD cluster is recreated — re-run after
 # install-ve.sh (which does it itself).
 #
+# Two-phase use with the cx-ve umbrella release: the profile/certo seed hooks of the single
+# release already need in-cluster DNS while the install is still running, so there is no
+# "between the releases" moment to patch CoreDNS in. Instead:
+#   1. BEFORE the umbrella install:  setup-did-dns.sh --pre -H <host>
+#      writes the rewrite block from the DERIVED hostname list (<host>, issuer.<host>,
+#      identity.<host>) — no HTTPRoutes exist yet — and verifies plain DNS resolution.
+#   2. AFTER the install: a normal run re-derives the list from the deployed HTTPRoutes
+#      (replacing the marker block wholesale, so the rules cannot drift from what is actually
+#      routed) and additionally verifies the issuer DID document.
+#
 # Usage:
-#   ./scripts/setup-did-dns.sh [-c|--cluster <name>] [--verify-only] [-h|--help]
+#   ./scripts/setup-did-dns.sh [-c|--cluster <name>] [--pre] [-H|--host <host>]
+#                              [--verify-only] [-h|--help]
 #
 #   -c, --cluster <name>   KinD cluster whose CoreDNS is configured (default: cxve). The
 #                          kubeconfig is read from ~/.kube/<name>.config, matching install-ve.sh
+#       --pre              pre-install mode: derive the hostnames from --host instead of the
+#                          (not yet existing) HTTPRoutes, and skip the DID document check
+#   -H, --host <host>      the VE's hostname the derived list is built from (default:
+#                          cxve.localhost; only used with --pre)
 #       --verify-only      run the checks without touching CoreDNS
 #   -h, --help             show usage and exit
 
@@ -37,6 +52,8 @@ set -euo pipefail
 
 CLUSTER_NAME=cxve
 VERIFY_ONLY=false
+PRE=false
+HOST=cxve.localhost
 
 # Fixed, as in install-ve.sh: the CFM agents hardcode system:serviceaccount:edc-v:… client ids
 NAMESPACE=edc-v
@@ -53,11 +70,15 @@ PROBE_IMAGE=debian:stable-slim
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-c|--cluster <name>] [--verify-only] [-h|--help]
+Usage: $(basename "$0") [-c|--cluster <name>] [--pre] [-H|--host <host>] [--verify-only] [-h|--help]
 
 Options:
   -c, --cluster <name>  KinD cluster whose CoreDNS is configured (default: cxve). Kubeconfig is
                         read from ~/.kube/<name>.config
+      --pre             pre-install mode: derive hostnames from --host instead of the (not yet
+                        existing) HTTPRoutes; skips the DID document check
+  -H, --host <host>     the VE hostname the derived list is built from (default: cxve.localhost;
+                        only used with --pre)
       --verify-only     run the checks without modifying CoreDNS
   -h, --help            show this help
 EOF
@@ -65,15 +86,24 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -c|--cluster)
+    -c|--cluster|-H|--host)
       [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
-      CLUSTER_NAME="$2"
+      case "$1" in
+        -c|--cluster) CLUSTER_NAME="$2" ;;
+        -H|--host) HOST="$2" ;;
+      esac
       shift 2 ;;
+    --pre) PRE=true; shift ;;
     --verify-only) VERIFY_ONLY=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Error: unknown argument '$1'" >&2; usage >&2; exit 1 ;;
   esac
 done
+
+if [[ "$PRE" == "true" && "$VERIFY_ONLY" == "true" ]]; then
+  echo "Error: --pre and --verify-only are mutually exclusive (--pre exists to patch before install)" >&2
+  exit 1
+fi
 
 kubeconfig_of() { # <cluster> -> kubeconfig path, verified readable
   local f="$HOME/.kube/$1.config"
@@ -258,8 +288,15 @@ run_own_mode() {
   traefik_ip=$(kubectl --kubeconfig "$KUBECONFIG_FILE" -n "$traefik_ns" get svc "$traefik_name" -o jsonpath='{.spec.clusterIP}')
 
   local hostnames=()
-  read_hostnames_into hostnames "$KUBECONFIG_FILE"
-  [[ ${#hostnames[@]} -gt 0 ]] || { echo "Error: no HTTPRoutes found in namespace $NAMESPACE" >&2; exit 1; }
+  if [[ "$PRE" == "true" ]]; then
+    # Pre-install: no HTTPRoutes to discover from yet — derive the platform's gateway hostnames
+    # from the VE host. The post-install run replaces this block wholesale from the actual
+    # routes, so any drift is corrected then.
+    hostnames=("$HOST" "issuer.$HOST" "identity.$HOST")
+  else
+    read_hostnames_into hostnames "$KUBECONFIG_FILE"
+    [[ ${#hostnames[@]} -gt 0 ]] || { echo "Error: no HTTPRoutes found in namespace $NAMESPACE" >&2; exit 1; }
+  fi
 
   echo "Cluster:      $CLUSTER_NAME (kubeconfig $KUBECONFIG_FILE)"
   echo "DNS domain:   $dns_domain"
@@ -290,6 +327,13 @@ run_own_mode() {
 
   verify_dns "$traefik_ip" "${hostnames[@]}"
   echo
+
+  if [[ "$PRE" == "true" ]]; then
+    echo ">> skipping DID document check (pre-install mode: nothing serves it yet)"
+    echo
+    echo "Pre-install DID DNS setup done for cluster '$CLUSTER_NAME' — re-run without --pre after the install."
+    return
+  fi
 
   local did_host
   did_host=$(detect_issuer_did_host "$KUBECONFIG_FILE")

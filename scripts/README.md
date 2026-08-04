@@ -6,8 +6,9 @@ supports `--help`.
 ## `install-ve.sh`
 
 Stands up the complete Verification Environment on a single kind cluster (default `cxve`, gateway hostname
-`cxve.localhost`): Core Platform Distribution, Catena-X profile, and the Onboarding API. Runs `setup-did-dns.sh`
-automatically after the platform install.
+`cxve.localhost`) as ONE umbrella helm release (`charts/cx-ve`, release name `cx-ve`): Core Platform Distribution,
+Catena-X profile, Onboarding API, Certo and the Certo agent. Runs `setup-did-dns.sh --pre` before the release (its
+seed hooks need in-cluster DNS mid-install) and again in discovery mode after it.
 
 ## `setup-did-dns.sh`
 
@@ -21,8 +22,9 @@ resolves the issuer DID to verify credential signatures and calls the Credential
 `*.localhost` name otherwise resolves to the pod's own loopback and every one of those lookups fails.
 
 ```bash
-./scripts/setup-did-dns.sh -c cxve               # apply + verify
-./scripts/setup-did-dns.sh -c cxve --verify-only # dry-run
+./scripts/setup-did-dns.sh -c cxve                  # apply (from HTTPRoutes) + verify
+./scripts/setup-did-dns.sh -c cxve --pre -H <host>  # pre-install: derived hostnames, no DID check
+./scripts/setup-did-dns.sh -c cxve --verify-only    # dry-run
 ```
 
 `install-ve.sh` runs it automatically; recreating the KinD cluster discards the rules, so re-run it after a

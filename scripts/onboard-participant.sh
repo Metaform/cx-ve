@@ -37,7 +37,7 @@ set -euo pipefail
 API_URL="${API_URL:-http://cxve.localhost/onboarding}"
 NAMESPACE="${NAMESPACE:-edc-v}"
 BPN="${BPN:-}"
-DEPLOYMENT=obapi-cx-ve
+DEPLOYMENT=cx-ve-onboarding-api
 
 NAME="ACME Corporation"
 SHORT_NAME=""

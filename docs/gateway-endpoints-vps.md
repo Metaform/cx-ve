@@ -307,7 +307,7 @@ which means "for any GET request to /api/mgmt/ */participants/*/transferprocesse
 - **Host-header matching, not DNS, decides routing**: anyone who reaches the VPS's port 80 can hit them with
   `curl -H "Host: prometheus.localhost" http://vps.yourdomain.com/`. They are effectively public on the VPS.
 - **Grafana** runs with anonymous auth = org role **Admin** (currently unreachable through the gateway only because the
-  chart defines no `core-platform-grafana` Service — a chart bug).
+  chart defines no `<release>-grafana` Service (`cx-ve-grafana` under the umbrella release) — a chart bug).
 - **Loki** (`auth_enabled: false`) and **Prometheus** (`--web.enable-otlp-receiver`) accept unauthenticated **writes**
   (log/metric injection), not just reads.
 - **Jaeger** UI has no auth.

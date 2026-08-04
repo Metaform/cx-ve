@@ -1,14 +1,21 @@
 #!/bin/bash
 
-# Stands up the complete Verification Environment (VE) — Core Platform Distribution, Catena-X
-# profile and Onboarding API — on a kind cluster. Run from the repository root.
+# Stands up the complete Verification Environment (VE) on a kind cluster: ONE umbrella helm
+# release (charts/cx-ve) containing the Core Platform Distribution, the Catena-X profile
+# seeding, the Onboarding API, Certo and the Certo CFM agent. Run from the repository root.
 #
 # The VE is a SINGLE cluster: external dataspace solutions connect to it from outside, onboard
 # a participant through the Onboarding API and exchange data with it. The HOSTNAME (-H) is the
 # VE's identity domain — participant and issuer DIDs embed the gateway hostnames derived from
 # it (did:web:identity.<host>:<participant>, did:web:issuer.<host>:issuer).
 #
-# NOTE the namespace is fixed to edc-v: the CFM agents hardcode
+# All configuration is checked in statically in charts/cx-ve/values.yaml (defaults target
+# cxve.localhost); all images are published — nothing is built or kind-loaded here. A
+# non-default host is applied through the --set overrides assembled below.
+#
+# NOTE the release name cx-ve is load-bearing: the platform chart names its infra resources
+# <release>-nats / <release>-vault / <release>-postgresql, and the umbrella values reference
+# those names. NOTE also the namespace is fixed to edc-v: the CFM agents hardcode
 # "system:serviceaccount:edc-v:…" client ids when registering jwtlet mappings during
 # participant provisioning, so any other namespace breaks provisioning with 403s.
 #
@@ -32,6 +39,9 @@ set -euo pipefail
 CLUSTER_NAME=cxve
 # Fixed: the CFM agents hardcode system:serviceaccount:edc-v:… client ids (see header)
 NAMESPACE=edc-v
+# Fixed: the platform derives its infra resource names from the release name (see header)
+RELEASE=cx-ve
+UMBRELLA_CHART=charts/cx-ve
 HOST=cxve.localhost
 HTTP_PORT=80
 HTTPS_PORT=443
@@ -79,35 +89,24 @@ done
 
 KUBECONFIG_FILE="$HOME/.kube/$CLUSTER_NAME.config"
 
-# Helm chart of the core-platform-distribution
-CORE_CHART="${CORE_CHART:-oci://ghcr.io/eclipse-cfm/charts/core-platform-distribution}"
-CORE_CHART_VERSION=0.0.17
+# Everything host-derived in the checked-in values, always overridden from $HOST so the chosen
+# host wins no matter what the values file says. The list is deliberately explicit — it
+# documents exactly which values follow the host.
+HOST_OVERRIDES=(
+  --set "global.host=${HOST}"
+  --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
+  --set "onboarding-api.httpRoute.hostnames={${HOST}}"
+  --set-string "onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
+  --set "certo.gateway.hostnames={${HOST}}"
+  --set "certo.sigletBaseUrl=http://${HOST}/api/siglet"
+)
 
-# Helm chart of the Catena-X Profile
-CXPROF_CHART="${CXPROF_CHART:-oci://ghcr.io/metaform/charts/catenax-profile}"
-CXPROF_CHART_VERSION=0.0.8
-
-# Helm chart of the Onboarding API. Defaults to the working-tree chart: the script always
-# builds and loads the working-tree IMAGE anyway, so deploying the published chart with it
-# would mix versions. Set OBAPI_CHART=oci://ghcr.io/metaform/charts/cx-ve for the published
-# one (--version below only applies to such remote refs; helm ignores it for a directory).
-OBAPI_CHART="${OBAPI_CHART:-charts/cx-ve}"
-OBAPI_CHART_VERSION=0.0.1
-
-# Helm chart of Certo (CX-0135 certificate exchange). Published chart by default; set
-# CERTO_CHART=../certo/charts/certo to deploy the sibling working-tree chart instead
-# (--version below only applies to remote refs; helm ignores it for a directory).
-CERTO_CHART="${CERTO_CHART:-oci://ghcr.io/metaform/charts/certo}"
-CERTO_CHART_VERSION=0.1.0
-
-# Always tear down the cluster on exit, whether the run succeeds, fails on any
-# command (set -e), or is interrupted.
 cleanup() {
   # kind delete cluster -n "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG_FILE"
   echo "Cleanup complete"
 }
 
-# Generated config files (kind cluster config, app value overrides)
+# Generated infra config (kind cluster topology; all helm values are checked in)
 GEN_DIR=$(mktemp -d)
 
 # Trace the actual work (kept off during argument parsing / help output)
@@ -132,55 +131,6 @@ nodes:
         protocol: TCP
 EOF
 
-# Overrides for the Onboarding API chart: the HTTPRoute hostname and the participant DID
-# template follow the VE's host; the in-cluster URLs match the chart defaults.
-cat > "$GEN_DIR/obapi-values.yaml" <<EOF
-httpRoute:
-  hostnames:
-    - ${HOST}
-image:
-  pullPolicy: Never
-debug:
-  enabled:
-    true
-config:
-  participant:
-    did:
-      # Must match the platform's IdentityHub did:web hostname (identity.<host>), since
-      # IdentityHub resolves a DID document by the request URL — a participant DID minted
-      # under any other authority will not resolve through the gateway.
-      template: "did:web:identity.${HOST}:"
-    dataplane:
-      # Demo data source served for HttpData-PULL transfers: a public sample-JSON API, so the
-      # demo payload is unambiguous sample data rather than platform infrastructure
-      endpoint: https://jsonplaceholder.typicode.com/todos/1
-EOF
-
-# Overrides for the Certo chart: the HTTPRoute and siglet URL follow the VE's host; management-API
-# tokens are validated against the platform's jwtlet (the explicit JWKS URI activates certo's
-# EdDSA-capable decoder); the database is the platform's Postgres.
-cat > "$GEN_DIR/certo-values.yaml" <<EOF
-image:
-  tag: "latest"
-gateway:
-  name: edcv-gateway
-  namespace: ${NAMESPACE}
-  hostnames:
-    - ${HOST}
-  pathPrefix: /api/certo
-sigletBaseUrl: "http://${HOST}/api/siglet"
-extraEnv:
-  - name: CERTO_MGMT_ISSUER_URI
-    value: http://jwtlet.${NAMESPACE}.svc.cluster.local:8080
-  - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI
-    value: http://jwtlet.${NAMESPACE}.svc.cluster.local:8080/.well-known/jwks.json
-database:
-  url: jdbc:postgresql://core-platform-postgresql.${NAMESPACE}.svc.cluster.local:5432/certo
-  username: certo
-  password: certo
-  ddlAuto: update
-EOF
-
 # Setup cluster
 kind delete cluster -n "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG_FILE" || true
 kind create cluster -n "$CLUSTER_NAME" --config "$GEN_DIR/kind-config.yaml" --kubeconfig "$KUBECONFIG_FILE"
@@ -192,57 +142,26 @@ helm upgrade --install --namespace traefik traefik traefik/traefik --create-name
 kubectl rollout status deployment/traefik -n traefik --timeout=120s
 kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
 
+# CoreDNS pre-patch: the umbrella's seed hooks (profile seeding, certo activity) dereference
+# gateway-hostname URLs while the install is still running, so the rewrites must exist BEFORE
+# the release is applied. Hostnames are derived from the host here; the post-install run below
+# replaces them with the list discovered from the actual HTTPRoutes.
+"$(dirname "$0")/setup-did-dns.sh" --pre -c "$CLUSTER_NAME" -H "$HOST"
 
-# Deploy the Core Platform Distribution (connector, identity hub, issuer service, siglet, CFM,
-# jwtlet/clearglass, gateway, infra + generic platform seeding).
-# OCI/registry reference: the published chart bundles its sub-chart dependencies.
-helm upgrade --install core-platform "$CORE_CHART" \
+# Resolve the umbrella's dependencies (platform, catenax-profile, certo from OCI; the local
+# onboarding-api chart is vendored from ../onboarding-api)
+helm dependency update "$UMBRELLA_CHART"
+
+# The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
+# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> onboarding-api jwtlet
+# mapping (200) -> certo jwtlet mappings (210) -> certo activity/orchestration (220).
+helm upgrade --install "$RELEASE" "$UMBRELLA_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
-  -f deploy/values/platform.yaml \
-  --set global.host="$HOST" \
-  --set global.namespace="$NAMESPACE" \
-  --version $CORE_CHART_VERSION \
-  --wait --timeout 15m
+  "${HOST_OVERRIDES[@]}" \
+  --wait --timeout 20m
 
-# Make the platform's gateway hostnames resolvable from inside the cluster. The platform
-# advertises itself under them (DSP callback, credential service, issuance, did:web), and the
-# runtimes dereference those URLs themselves — without this, a *.localhost name resolves to the
-# pod's own loopback and every DID lookup fails. Must run after the platform install, since the
-# hostname list is read off the deployed HTTPRoutes; also verifies the result, so a failure here
-# stops the install rather than surfacing later as a credential-verification error.
+# Re-derive the CoreDNS rewrites from the deployed HTTPRoutes (replacing the pre-patch block)
+# and verify: in-cluster DNS resolution plus the issuer DID document served through the
+# gateway. A failure here stops the install rather than surfacing later as a
+# credential-verification error during onboarding.
 "$(dirname "$0")/setup-did-dns.sh" -c "$CLUSTER_NAME"
-
-
-# Deploy the CX Profile chart (global.namespace tells its seed jobs where the platform lives).
-# issuer.did must equal the DID the platform minted for the issuer participant context — it is
-# pinned into the dataspace profile's credentialSpecs, and a mismatch only surfaces at
-# credential verification during onboarding, far from the cause. The platform derives that DID
-# from its gateway hostname as did:web:issuer.<host>:issuer unless it was pinned there via
-# edc.issuerservice.did.id; read the live value back with
-#   kubectl -n "$NAMESPACE" get httproute issuerservice-did -o jsonpath='{.spec.hostnames[0]}'
-helm upgrade --install cx-profile "$CXPROF_CHART" \
-  --namespace "$NAMESPACE" \
-  --set global.namespace="$NAMESPACE" \
-  --set issuer.did="did:web:issuer.${HOST}:issuer" \
-  --version "$CXPROF_CHART_VERSION" \
-  --wait
-
-docker buildx build -f Dockerfile -t ghcr.io/metaform/cx-ve/onboardingapi:latest .
-kind load docker-image ghcr.io/metaform/cx-ve/onboardingapi:latest -n "$CLUSTER_NAME"
-
-# Deploy the Onboarding API application (app only — the platform was installed as its own
-# release above)
-helm upgrade --install obapi "$OBAPI_CHART" \
-  --namespace "$NAMESPACE" --create-namespace \
-  -f "$GEN_DIR/obapi-values.yaml" \
-  --version "$OBAPI_CHART_VERSION" \
-  --wait
-
-# Deploy Certo (installed after the Onboarding API: its jwtlet seed job registers the mappings
-# and certo-mgmt-api scopes that authorize calls to certo's management API)
-kind load docker-image ghcr.io/metaform/certo:latest -n "$CLUSTER_NAME"
-helm upgrade --install certo "$CERTO_CHART" \
-  --namespace "$NAMESPACE" \
-  -f "$GEN_DIR/certo-values.yaml" \
-  --version "$CERTO_CHART_VERSION" \
-  --wait

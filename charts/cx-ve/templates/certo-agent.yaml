@@ -1,0 +1,127 @@
+## CFM orchestration agent for Certo (CX-0135 certificate exchange): subscribes to the platform's
+## CFM activity stream on NATS and creates a participant context in Certo for every provisioned
+## participant. Deployed with this umbrella rather than the platform because Certo is CX-VE-specific.
+## The agent authenticates to certo's management API by exchanging its projected SA token at
+## jwtlet (scope certo-mgmt-api:write, resource sudo) — the certo-jwtlet-seed job registers the
+## mapping for the agent's ServiceAccount.
+{{- if .Values.certoAgent.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: certo-agent-config
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+data:
+  # The file name must be the agent's config prefix ("certoagent"), and the extension one of
+  # "json", "toml", "yaml", "yml", "properties", "props", "prop", "hcl", "tfvars", "dotenv", "env", "ini"
+  certoagent.env: |
+    uri: {{ .Values.certoAgent.config.natsUrl }}
+    bucket: {{ .Values.certoAgent.config.bucket }}
+    stream: {{ .Values.certoAgent.config.stream }}
+    certo.url: {{ .Values.certoAgent.config.certoUrl }}
+    tokenexchange.url: {{ .Values.certoAgent.config.tokenExchangeUrl }}
+    tokenexchange.audience: {{ .Values.certoAgent.config.tokenExchangeAudience }}
+    tokenexchange.tokenFilePath: /var/run/secrets/jwtlet/token
+    {{- if .Values.certoAgent.natsAuth.enabled }}
+    nats.auth.method: nkey
+    nats.auth.nkeySeedFile: /vault/secrets/nats.nk
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: certo-agent
+  labels:
+    app: certo-agent
+    {{- include "cx-ve.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.certoAgent.replicas }}
+  selector:
+    matchLabels:
+      app: certo-agent
+  template:
+    metadata:
+      labels:
+        app: certo-agent
+      annotations:
+        # Roll the pods whenever the agent config changes
+        checksum/config: {{ .Values.certoAgent.config | toJson | sha256sum }}
+    spec:
+      serviceAccountName: cfm-agents
+      {{- if .Values.certoAgent.natsAuth.enabled }}
+      initContainers:
+        # Logs into Vault with the pod's SA token and drops the cfm-agents NKey seed on the
+        # pod-private in-memory volume. The platform's own bootstrap provisions both the Vault
+        # role and the seed (cfm-agents is a platform component); this only fetches them,
+        # retrying until the bootstrap jobs have run.
+        - name: fetch-nats-nkey
+          image: {{ .Values.certoAgent.natsAuth.image }}
+          command: [ "sh", "-ec" ]
+          args:
+            - |
+              export VAULT_ADDR={{ .Values.certoAgent.natsAuth.vaultUrl | quote }}
+              echo "Fetching the NATS NKey seed (Vault role {{ .Values.certoAgent.natsAuth.vaultRole }})..."
+              until VAULT_TOKEN=$(vault write -field=token auth/kubernetes/login \
+                  role={{ .Values.certoAgent.natsAuth.vaultRole }} \
+                  jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null); do
+                echo "Vault login failed (Vault or its bootstrap not ready yet), retrying in 2 seconds..."
+                sleep 2
+              done
+              export VAULT_TOKEN
+              until vault kv get -field=seed {{ .Values.certoAgent.natsAuth.vaultSecretPath }} > /vault/secrets/nats.nk 2>/dev/null; do
+                echo "Seed not in Vault yet (nats-auth-bootstrap still running?), retrying in 2 seconds..."
+                sleep 2
+              done
+              # 0444 rather than 0400: init and app container may run as different UIDs;
+              # the volume is pod-private tmpfs either way.
+              chmod 0444 /vault/secrets/nats.nk
+              echo "NKey seed written to /vault/secrets/nats.nk"
+          volumeMounts:
+            - name: nats-nkey
+              mountPath: /vault/secrets
+      {{- end }}
+      containers:
+        - name: certo-agent
+          image: "{{ .Values.certoAgent.image.repository }}:{{ .Values.certoAgent.image.tag }}"
+          imagePullPolicy: {{ .Values.certoAgent.image.pullPolicy }}
+          command: [ "/certoagent" ]
+          args:
+            - "--mode=debug"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/appname
+              readOnly: true
+            # RFC 8693 subject token exchanged at jwtlet for certo-mgmt-api-scoped tokens
+            # (config tokenexchange.tokenFilePath points here)
+            - name: jwtlet-subject-token
+              mountPath: /var/run/secrets/jwtlet
+              readOnly: true
+            {{- if .Values.certoAgent.natsAuth.enabled }}
+            - name: nats-nkey
+              mountPath: /vault/secrets
+              readOnly: true
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: telemetry-config
+          resources:
+            {{- toYaml .Values.certoAgent.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: certo-agent-config
+        # Audience must match jwtlet's `client_audience` (the Kubernetes cluster issuer)
+        - name: jwtlet-subject-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ .Values.jwtlet.subjectTokenAudience | quote }}
+                  expirationSeconds: {{ .Values.jwtlet.subjectTokenExpirationSeconds }}
+        {{- if .Values.certoAgent.natsAuth.enabled }}
+        # Pod-private in-memory volume the NKey seed is delivered on (never hits disk)
+        - name: nats-nkey
+          emptyDir:
+            medium: Memory
+        {{- end }}
+{{- end }}
