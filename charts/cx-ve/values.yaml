@@ -17,9 +17,16 @@ global:
 core-platform-distribution:
   edc:
     controlplane:
-      trustedIssuers:
-        - name: cxtck
-          id: "did:web:cx-tck.edc-v.svc.cluster.local:issuer"
+      # ADDITIONAL issuers for the ROOT (config-based) trusted-issuer registry, rendered as
+      # edc.iam.trusted-issuer.<name>.id. The VE's own issuer is ALWAYS rendered by the platform
+      # chart itself under the reserved alias `issuer` (edc.iam.trusted-issuer.issuer.id,
+      # derived from global.host) — do NOT repeat it here, and never reuse the `issuer` alias
+      # (it would render a duplicate config key). Keep this list in sync with
+      # catenax-profile.issuer.trustedIssuers below, e.g.:
+      #   trustedIssuers:
+      #     - name: cxtck
+      #       id: "did:web:cx-tck.edc-v.svc.cluster.local:issuer"
+      trustedIssuers: []
     identityhub:
       scopes:
         - name: membership
@@ -56,11 +63,26 @@ catenax-profile:
     # verification during onboarding. The platform derives it from its gateway hostname as
     # did:web:issuer.<host>:issuer.
     did: "did:web:issuer.cxve.localhost:issuer"
+    # ADDITIONAL issuer DIDs trusted in the cx-neptune dataspace profile — the PER-PROFILE
+    # registry credential verification actually consults; one entry covers all participants.
+    # `issuer.did` above is always the first trusted entry (supportedTypes ["*"], cannot be
+    # dropped), so this list is for extra issuers only. Keep in sync with
+    # core-platform-distribution.edc.controlplane.trustedIssuers above, e.g.:
+    #   trustedIssuers:
+    #     - "did:web:cx-tck.edc-v.svc.cluster.local:issuer"
+    # NOTE requires catenax-profile > 0.0.9: the published 0.0.9 predates profile-level
+    # trustedIssuers entirely (its edc-seed writes none — the cause of "Credential types ...
+    # are not supported for issuer ..."). Publish the current profile-edc-cx working tree and
+    # bump the pin in Chart.yaml.
+    trustedIssuers: []
 
 # ---- Onboarding API --------------------------------------------------------------------------
 # The app chart's own defaults already target this umbrella (cx-ve-* infra names, cxve.localhost
 # hostnames); only deltas belong here.
-onboarding-api: {}
+onboarding-api:
+  image:
+    pullPolicy: Never
+
 
 # ---- Certo (CX-0135 certificate exchange) ----------------------------------------------------
 certo:

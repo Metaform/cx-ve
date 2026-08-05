@@ -74,7 +74,7 @@ public class ManagementApi {
                 }""".formatted(MANAGEMENT_CONTEXT, id, leftOperand, leftOperand, expression.replace("\"", "\\\""));
         var status = post("/celexpressions", body).statusCode();
         if (status == 409) {
-            log("CEL expression '%s' exists from an earlier run — replacing it", id);
+            log("   Management API:  CEL expression '%s' exists from an earlier run — replacing it", id);
             var deleteStatus = given()
                     .baseUri(baseUrl)
                     .header("Authorization", "Bearer " + token)
@@ -88,7 +88,7 @@ public class ManagementApi {
         assertThat(status)
                 .withFailMessage("creating CEL expression '%s' failed with HTTP %d", id, status)
                 .isBetween(200, 299);
-        log("CEL expression '%s' ready (leftOperand %s)", id, leftOperand);
+        log("   Management API:  CEL expression '%s' ready (leftOperand %s)", id, leftOperand);
     }
 
     public void createAsset(String pcid, String assetId, String dataUrl) {
@@ -101,7 +101,7 @@ public class ManagementApi {
                   "dataAddress": {"@type": "DataAddress", "type": "HttpData", "baseUrl": "%s"}
                 }""".formatted(MANAGEMENT_CONTEXT, assetId, dataUrl);
         expect2xx(post("/participants/%s/assets".formatted(pcid), body), "asset " + assetId);
-        log("asset '%s' created in participant context %s", assetId, pcid);
+        log("   Management API:  asset '%s' created in participant context %s", assetId, pcid);
     }
 
     /**
@@ -134,7 +134,7 @@ public class ManagementApi {
                   }
                 }""".formatted(MANAGEMENT_CONTEXT, policyId, and.toString());
         expect2xx(post("/participants/%s/policydefinitions".formatted(pcid), body), "policy " + policyId);
-        log("policy '%s' (%d credential constraints) created", policyId, leftOperands.size());
+        log("   Management API:  policy '%s' (%d credential constraints) created", policyId, leftOperands.size());
     }
 
     public void createContractDefinition(String pcid, String id, String accessPolicyId, String contractPolicyId) {
@@ -148,7 +148,7 @@ public class ManagementApi {
                   "assetsSelector": []
                 }""".formatted(MANAGEMENT_CONTEXT, id, accessPolicyId, contractPolicyId);
         expect2xx(post("/participants/%s/contractdefinitions".formatted(pcid), body), "contract definition " + id);
-        log("contract definition '%s' created (access=%s, contract=%s)", id, accessPolicyId, contractPolicyId);
+        log("   Management API:  contract definition '%s' created (access=%s, contract=%s)", id, accessPolicyId, contractPolicyId);
     }
 
     /** The catalog dataset's offer for {@code assetId} plus the catalog's own JSON-LD context. */
@@ -171,7 +171,7 @@ public class ManagementApi {
                   "counterPartyId": "%s",
                   "protocol": "cx-neptune"
                 }""".formatted(MANAGEMENT_CONTEXT, providerDsp, providerDid);
-        log("requesting provider catalog as consumer %s, waiting for dataset '%s'...", consumerPcid, assetId);
+        log("   Management API:  requesting provider catalog as consumer %s, waiting for dataset '%s'...", consumerPcid, assetId);
         var result = new AtomicReference<CatalogOffer>();
         await().atMost(timeout).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
             var response = post("/participants/%s/catalog/request".formatted(consumerPcid), request);
@@ -185,7 +185,7 @@ public class ManagementApi {
             assertThat(offer).withFailMessage("dataset '%s' carries no offer", assetId).isNotNull();
             result.set(new CatalogOffer(offer, catalog.path("@context")));
         });
-        log("catalog offer found for '%s' (offer id %s)", assetId, result.get().offer().path("@id").asText());
+        log("   Management API:  catalog offer found for '%s' (offer id %s)", assetId, result.get().offer().path("@id").asText());
         return result.get();
     }
 
@@ -213,7 +213,7 @@ public class ManagementApi {
         var response = post("/participants/%s/contractnegotiations".formatted(consumerPcid), body.toString());
         expect2xx(response, "contract negotiation");
         var id = idOf(response);
-        log("contract negotiation started: %s", id);
+        log("   Management API:  contract negotiation started: %s", id);
         return id;
     }
 
@@ -230,7 +230,7 @@ public class ManagementApi {
         var response = post("/participants/%s/transferprocesses".formatted(consumerPcid), body);
         expect2xx(response, "transfer process");
         var id = idOf(response);
-        log("transfer process started: %s", id);
+        log("   Management API:  transfer process started: %s", id);
         return id;
     }
 
@@ -239,7 +239,7 @@ public class ManagementApi {
      * immediately on TERMINATED (a state machine never leaves it).
      */
     public JsonNode awaitState(String path, Duration timeout, Set<String> acceptable) {
-        log("waiting for %s to reach %s...", path, acceptable);
+        log("   Management API:  waiting for %s to reach %s...", path, acceptable);
         var result = new AtomicReference<JsonNode>();
         await().atMost(timeout).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
             var response = get(path);
@@ -253,7 +253,7 @@ public class ManagementApi {
             assertThat(state).isIn(acceptable);
             result.set(node);
         });
-        log("%s reached state %s", path, result.get().path("state").asText());
+        log("   Management API:  %s reached state %s", path, result.get().path("state").asText());
         return result.get();
     }
 

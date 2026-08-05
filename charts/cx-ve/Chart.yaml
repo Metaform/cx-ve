@@ -22,7 +22,7 @@ dependencies:
   # 10/20 hooks in the release's shared hook space.
   - name: catenax-profile
     repository: oci://ghcr.io/metaform/charts
-    version: 0.0.9
+    version: 0.0.10
   # The Onboarding API application chart from this repository
   - name: onboarding-api
     repository: file://../onboarding-api
