@@ -7,7 +7,6 @@ import io.restassured.response.Response;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.concurrent.atomic.AtomicReference;
@@ -30,19 +29,6 @@ public class CertoApi {
 
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(2);
 
-    /**
-     * A minimal but structurally valid single-page PDF; Certo stores document content opaquely,
-     * this just keeps the demo artifact honest.
-     */
-    private static final String SAMPLE_PDF = """
-            %PDF-1.4
-            1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
-            2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
-            3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj
-            trailer<</Root 1 0 R>>
-            %%EOF
-            """;
-
     private final String baseUrl;
     private final String token;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -64,15 +50,18 @@ public class CertoApi {
         log("   Certo API:       participant context %s exists", pcid);
     }
 
-    /** Uploads the sample PDF into the provider tenant; returns the opaque documentId. */
-    public String addDocument(String pcid) {
+    /**
+     * Uploads a certificate document (opaque binary to Certo) into the provider tenant;
+     * returns the opaque documentId the certificate references it by.
+     */
+    public String addDocument(String pcid, String mediaType, byte[] content) {
         var body = """
-                {"mediaType": "application/pdf", "contentBase64": "%s"}"""
-                .formatted(Base64.getEncoder().encodeToString(SAMPLE_PDF.getBytes(StandardCharsets.UTF_8)));
+                {"mediaType": "%s", "contentBase64": "%s"}"""
+                .formatted(mediaType, Base64.getEncoder().encodeToString(content));
         var response = post("/participant-contexts/%s/documents".formatted(pcid), body);
         expect2xx(response, "document");
         var documentId = json(response).path("documentId").asText();
-        log("   Certo API:       document uploaded: %s", documentId);
+        log("   Certo API:       document uploaded: %s (%s, %d bytes)", documentId, mediaType, content.length);
         return documentId;
     }
 

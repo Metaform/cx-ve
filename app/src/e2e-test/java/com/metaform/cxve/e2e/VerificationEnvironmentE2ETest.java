@@ -12,7 +12,10 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -249,16 +252,29 @@ class VerificationEnvironmentE2ETest {
         certo.awaitParticipantContext(consumerPcid, Duration.ofMinutes(2));
 
         // Flow B: backend issues the certificate (state only), then publish opens a FULFILLED
-        // exchange and pushes the lifecycle CREATED event to the consumer
-        var documentId = certo.addDocument(providerPcid);
+        // exchange and pushes the lifecycle CREATED event to the consumer. The document is the
+        // checked-in sample PDF from the suite's resources; the later download is compared
+        // against it byte-for-byte to prove a real content round-trip.
+        var documentContent = certificateDocument();
+        var documentId = certo.addDocument(providerPcid, "application/pdf", documentContent);
         var certificateId = certo.addCertificate(providerPcid, provider.bpn(), documentId);
         var exchangeId = certo.publish(providerPcid, certificateId, consumer.bpn(), consumer.holderId(), flowIdPush);
 
-        // client-driven tail: retrieve (optional pull for inspection), then the verdict
+        // client-driven tail: retrieve pulls the certificate metadata AND the document binary
+        // from the provider over the pull flow — download it and verify it byte-for-byte
+        // against the upload
         var retrieved = certo.retrieve(consumerPcid, exchangeId, flowIdPull);
         assertThat(retrieved.path("certificate").path("certificateId").asText()).isEqualTo(certificateId);
         assertThat(retrieved.path("documents").size()).isEqualTo(1);
-        assertThat(retrieved.path("documents").path(0).path("contentBase64").asText()).isNotEmpty();
+        var document = retrieved.path("documents").path(0);
+        assertThat(document.path("documentId").asText()).isEqualTo(documentId);
+        assertThat(document.path("mediaType").asText()).isEqualTo("application/pdf");
+        var downloaded = Base64.getDecoder().decode(document.path("contentBase64").asText());
+        assertThat(downloaded)
+                .withFailMessage("downloaded document differs from the uploaded one")
+                .isEqualTo(documentContent);
+        var downloadPath = downloadDocument("certificate-document-" + runId + ".pdf", downloaded);
+        log("document downloaded to %s (%d bytes, content verified)", downloadPath, downloaded.length);
 
         // the acceptance report to the provider is best-effort (post-commit), so drive the
         // verdict until the PROVIDER's recorded view shows it: re-driving accept with the same
@@ -336,6 +352,32 @@ class VerificationEnvironmentE2ETest {
                 Duration.ofMinutes(3), Set.of("STARTED"));
         log("CCM flow established: %s -> %s (asset '%s', flowId %s)", consumerPcid, providerPcid, assetId, transferId);
         return transferId;
+    }
+
+    /** The sample certificate document from the suite's resources (a small single-page PDF). */
+    private static byte[] certificateDocument() {
+        try (var stream = VerificationEnvironmentE2ETest.class.getResourceAsStream("/certificate-document.pdf")) {
+            assertThat(stream).withFailMessage("certificate-document.pdf missing from e2e-test resources").isNotNull();
+            return stream.readAllBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Writes a retrieved document binary under {@code build/e2e-downloads} (the suite runs with
+     * the module directory as working directory) and returns the path — the tangible "download"
+     * artifact of the certificate exchange, inspectable after the run.
+     */
+    private static Path downloadDocument(String fileName, byte[] content) {
+        try {
+            var path = Path.of("build", "e2e-downloads", fileName);
+            Files.createDirectories(path.getParent());
+            Files.write(path, content);
+            return path.toAbsolutePath();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /** All registration-status callbacks recorded by WireMock, keyed by externalId. */
