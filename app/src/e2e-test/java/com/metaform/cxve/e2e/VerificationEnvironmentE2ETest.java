@@ -11,14 +11,20 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Duration;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static com.metaform.cxve.e2e.TestLog.log;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -65,7 +71,25 @@ class VerificationEnvironmentE2ETest {
             }))
             .build();
 
-    private final String TOKEN_EXCHANGE_URL = "http://cxve.localhost/api/auth/token";
+    private static final String TOKEN_EXCHANGE_URL = "http://cxve.localhost/api/auth/token";
+    private static final String MANAGEMENT_API_URL = "http://cxve.localhost/api/management/v5beta";
+    // kubectl must target the VE cluster regardless of the current kubectl context
+    private static final String KUBECONFIG = System.getenv().getOrDefault("KUBECONFIG",
+            System.getProperty("user.home") + "/.kube/cxve.config");
+
+    // e2e-owned CEL expressions: policy constraints reference these leftOperand IRIs, decoupled
+    // from the catenax-profile-seeded expressions (different IRIs -> no interference, and no
+    // action binding, so the same constraints work in access and contract policies).
+    // MUST be absolute IRIs: the policy validator matches a constraint's leftOperand AFTER
+    // JSON-LD expansion against the CEL expression's registered string — a bare name like
+    // "MembershipCredential" expands under the default vocab and no longer matches, failing
+    // policy creation with "leftOperand ... is not bound to any scopes/functions". Absolute
+    // IRIs pass through expansion unchanged (same reason the catenax-profile seeds use IRIs).
+    private static final String MEMBERSHIP_OPERAND = "https://w3id.org/cxve/e2e/policy/MembershipCredential";
+    private static final String BPN_OPERAND = "https://w3id.org/cxve/e2e/policy/BpnCredential";
+    private static final String GOV_OPERAND = "https://w3id.org/cxve/e2e/policy/DataExchangeGovernanceCredential";
+
+    private final TokenExchange tokenExchange = new TokenExchange(TOKEN_EXCHANGE_URL, KUBECONFIG);
 
     @BeforeEach
     void stubRegistrationStatus() {
@@ -83,7 +107,7 @@ class VerificationEnvironmentE2ETest {
     }
 
     @Test
-    void onboardParticipant() throws InterruptedException, IOException {
+    void onboardParticipant() throws IOException {
         var runId = UUID.randomUUID().toString();
         var name = "Test Participant " + runId;
         var shortName = "test-participant-" + runId;
@@ -101,14 +125,91 @@ class VerificationEnvironmentE2ETest {
 
     @Test
     void dataExchange() {
-        // create CEL expressions
-        //ctx.agent.claims.vc.withType('DataExchangeGovernanceCredential').hasClaim('contractVersion', '1.0.0')
-        //ctx.agent.claims.vc.withType('MembershipCredential').hasClaim('memberOf', 'Catena-X')
-        //ctx.agent.claims.vc.filter(c, c.type.exists(t, t == 'BpnCredential')).exists(c, c.credentialSubject.exists(cs, cs.bpn != null))
+        var runId = UUID.randomUUID().toString().substring(0, 8);
+        var providerExtId = "provider-" + runId;
+        var consumerExtId = "consumer-" + runId;
 
-        // create asset
-        // create policy
-        // create contract definition
+        // onboard both participants; each completion posts an OnboardingResult callback that
+        // lands in the WireMock request journal
+        onboardParticipant("Provider " + runId, "provider-" + runId, providerExtId);
+        onboardParticipant("Consumer " + runId, "consumer-" + runId, consumerExtId);
+
+        log("waiting for both onboardings to complete (callbacks on /registration/status)...");
+        var results = new AtomicReference<Map<String, OnboardingResult>>();
+        await().atMost(Duration.ofMinutes(10)).pollInterval(Duration.ofSeconds(5)).untilAsserted(() -> {
+            var byExternalId = callbackResults();
+            assertThat(byExternalId.keySet()).contains(providerExtId, consumerExtId);
+            results.set(byExternalId);
+        });
+        var provider = results.get().get(providerExtId);
+        var consumer = results.get().get(consumerExtId);
+        assertThat(provider.failureReason()).isNull();
+        assertThat(consumer.failureReason()).isNull();
+        assertThat(provider.participantContextId()).isNotNull();
+        assertThat(consumer.participantContextId()).isNotNull();
+        log("provider onboarded: pcid=%s did=%s bpn=%s", provider.participantContextId(), provider.holderId(), provider.bpn());
+        log("consumer onboarded: pcid=%s did=%s bpn=%s", consumer.participantContextId(), consumer.holderId(), consumer.bpn());
+
+        // the seed-jobs SA is mapped to resource "issuer" with role scope admin ->
+        // management-api:admin, which authorizes operating on any participant context
+        var mgmt = new ManagementApi(MANAGEMENT_API_URL,
+                tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"));
+        log("management-API token obtained (seed-jobs -> issuer, scope admin)");
+
+        // CEL expressions backing the three credential constraints (runtime-level, idempotent)
+        mgmt.upsertCelExpression("cxve-e2e-membership", MEMBERSHIP_OPERAND,
+                "ctx.agent.claims.vc.withType('MembershipCredential').hasClaim('memberOf', 'Catena-X')");
+        mgmt.upsertCelExpression("cxve-e2e-bpn", BPN_OPERAND,
+                "ctx.agent.claims.vc.filter(c, c.type.exists(t, t == 'BpnCredential')).exists(c, c.credentialSubject.exists(cs, cs.bpn != null))");
+        mgmt.upsertCelExpression("cxve-e2e-gov", GOV_OPERAND,
+                "ctx.agent.claims.vc.withType('DataExchangeGovernanceCredential').hasClaim('contractVersion', '1.0.0')");
+
+        // provider side: asset, access + contract policy (each requiring all three verifiable
+        // credentials), contract definition. Ids are run-scoped to avoid cross-run 409s.
+        var providerPcid = provider.participantContextId();
+        var assetId = "e2e-asset-" + runId;
+        var accessPolicyId = "e2e-access-policy-" + runId;
+        var contractPolicyId = "e2e-contract-policy-" + runId;
+        var allThreeCredentials = Set.of(MEMBERSHIP_OPERAND, BPN_OPERAND, GOV_OPERAND);
+        mgmt.createAsset(providerPcid, assetId, "https://jsonplaceholder.typicode.com/todos/1");
+        mgmt.createPolicy(providerPcid, accessPolicyId, allThreeCredentials);
+        mgmt.createPolicy(providerPcid, contractPolicyId, allThreeCredentials);
+        mgmt.createContractDefinition(providerPcid, "e2e-cd-" + runId, accessPolicyId, contractPolicyId);
+
+        // consumer side: catalog -> negotiation -> transfer, all through the consumer's
+        // management API; the controlplane speaks DSP to the provider's gateway address
+        var consumerPcid = consumer.participantContextId();
+        var providerDsp = "http://cxve.localhost/api/dsp/%s/cx-neptune".formatted(providerPcid);
+        log("provider DSP endpoint: %s", providerDsp);
+        var offer = mgmt.awaitCatalogOffer(consumerPcid, providerDsp, provider.holderId(), assetId,
+                Duration.ofMinutes(2));
+
+        var negotiationId = mgmt.startNegotiation(consumerPcid, providerDsp, provider.holderId(), assetId, offer);
+        var negotiation = mgmt.awaitState(
+                "/participants/%s/contractnegotiations/%s".formatted(consumerPcid, negotiationId),
+                Duration.ofMinutes(3), Set.of("FINALIZED"));
+        var agreementId = negotiation.path("contractAgreementId").asText();
+        assertThat(agreementId).isNotEmpty();
+        log("contract agreement reached: %s", agreementId);
+
+        var transferId = mgmt.startTransfer(consumerPcid, agreementId, providerDsp);
+        mgmt.awaitState("/participants/%s/transferprocesses/%s".formatted(consumerPcid, transferId),
+                Duration.ofMinutes(3), Set.of("STARTED", "COMPLETED"));
+        log("transfer process started: asset '%s' under agreement %s, transfer %s", assetId, agreementId, transferId);
+    }
+
+    /** All registration-status callbacks recorded by WireMock, keyed by externalId. */
+    private Map<String, OnboardingResult> callbackResults() {
+        return wiremock.findAll(postRequestedFor(urlPathEqualTo("/registration/status"))).stream()
+                .map(request -> {
+                    try {
+                        return objectMapper.readValue(request.getBody(), OnboardingResult.class);
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                })
+                .filter(result -> result.externalId() != null)
+                .collect(Collectors.toMap(OnboardingResult::externalId, result -> result, (first, second) -> second));
     }
 
     private static void onboardParticipant(String name, String shortName, String runId) {
@@ -136,5 +237,6 @@ class VerificationEnvironmentE2ETest {
                 .post("/api/v2/administration/registration/Network/partnerRegistration")
                 .then()
                 .statusCode(200);
+        log("onboarding submitted: \"%s\" (shortName=%s, externalId=%s)", name, shortName, runId);
     }
 }

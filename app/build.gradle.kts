@@ -67,6 +67,18 @@ testing {
                     setSrcDirs(listOf("src/e2e-test/resources"))
                 }
             }
+            targets {
+                all {
+                    testTask.configure {
+                        // long-running e2e flows report progress on stdout (TestLog) —
+                        // surface it, Gradle swallows test output by default
+                        testLogging {
+                            showStandardStreams = true
+                            events("passed", "failed", "skipped")
+                        }
+                    }
+                }
+            }
         }
     }
 }

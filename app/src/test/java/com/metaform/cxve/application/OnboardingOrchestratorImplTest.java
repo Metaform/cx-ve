@@ -9,6 +9,7 @@ import com.metaform.cxve.domain.port.CredentialIssuanceService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
 import com.metaform.cxve.domain.port.WalletService;
 import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
+import com.metaform.cxve.adapter.out.callback.InMemoryRegistrationStatusService;
 import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
 import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
 import com.metaform.cxve.adapter.out.validation.RegistrationValidationServiceImpl;
@@ -56,7 +57,7 @@ class OnboardingOrchestratorImplTest {
     };
 
     private OnboardingOrchestratorImpl orchestratorWith(IdentityProofingService proofing) {
-        return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials, repository);
+        return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials, repository, new InMemoryRegistrationStatusService());
     }
 
     private static PartnerRegistrationData registration(String bpn) {
@@ -168,7 +169,7 @@ class OnboardingOrchestratorImplTest {
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                wallet, failingCredentials, repository);
+                wallet, failingCredentials, repository, new InMemoryRegistrationStatusService());
 
         var id = orchestrator.start(registration("BPNL0000000000XY"));
         orchestrator.advanceByHolder("did:web:acme");

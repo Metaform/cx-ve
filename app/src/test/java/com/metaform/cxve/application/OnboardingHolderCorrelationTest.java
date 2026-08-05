@@ -1,17 +1,20 @@
 package com.metaform.cxve.application;
 
+import com.metaform.cxve.adapter.out.callback.InMemoryRegistrationStatusService;
+import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
+import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
+import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
+import com.metaform.cxve.adapter.out.validation.RegistrationValidationServiceImpl;
 import com.metaform.cxve.domain.model.CompanyRoleId;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.ProvisionedParticipant;
 import com.metaform.cxve.domain.port.CredentialIssuanceService;
 import com.metaform.cxve.domain.port.WalletService;
-import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
-import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
-import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
-import com.metaform.cxve.adapter.out.validation.RegistrationValidationServiceImpl;
-import java.util.List;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OnboardingHolderCorrelationTest {
@@ -54,7 +57,8 @@ class OnboardingHolderCorrelationTest {
             new IdentityProofingServiceStub(),
             wallet,
             credentials,
-            repository);
+            repository,
+            new InMemoryRegistrationStatusService());
 
     private static PartnerRegistrationData registration() {
         return new PartnerRegistrationData(
