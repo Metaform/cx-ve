@@ -105,6 +105,16 @@ else
 fi
 
 step "Run the Gradle e2e suite (onboarding, data exchange, certificate exchange)"
+# The suite's registration-status callbacks are POSTed from in-cluster pods to a WireMock
+# server on THIS host. Its default callback hostname, host.docker.internal, only exists on
+# Docker Desktop (macOS/Windows); on plain Linux Docker (e.g. a CI runner) pods cannot resolve
+# it (UnresolvedAddressException). Derive the address the kind node reaches the host under —
+# its default gateway, i.e. the host side of the kind bridge — and hand it to the suite.
+if [[ "$(uname -s)" == "Linux" ]]; then
+  E2E_CALLBACK_HOST=$(docker exec "${CLUSTER_NAME}-control-plane" ip route | awk '/default/ {print $3; exit}')
+  export E2E_CALLBACK_HOST
+  echo "Linux host: in-cluster callbacks will target ${E2E_CALLBACK_HOST} (kind node default gateway)"
+fi
 # --rerun defeats Gradle's up-to-date check: the task's inputs don't change between runs, but
 # the cluster state does. KUBECONFIG pins the suite's kubectl calls to this run's cluster.
 KUBECONFIG="$HOME/.kube/${CLUSTER_NAME}.config" ./gradlew :app:e2eTest --rerun

@@ -41,9 +41,13 @@ import static org.awaitility.Awaitility.await;
 class VerificationEnvironmentE2ETest {
     private static final String ONBOARDING_API_URL = "http://cxve.localhost/onboarding";
     // Hostname under which the in-cluster Onboarding API can reach THIS test process: the
-    // callback receiver (WireMock) runs on the host, and Docker Desktop/kind resolve
-    // host.docker.internal to it from inside pods. Plain localhost would loop back to the pod.
-    private static final String CALLBACK_HOST = "host.docker.internal";
+    // callback receiver (WireMock) runs on the host. Docker Desktop (macOS/Windows) resolves
+    // host.docker.internal to it from inside pods; on plain Linux Docker (e.g. a CI runner)
+    // that name does NOT exist — set E2E_CALLBACK_HOST to an address the kind node routes to
+    // the host (e2e.sh derives the kind bridge gateway). Plain localhost would loop back to
+    // the pod.
+    private static final String CALLBACK_HOST =
+            System.getenv().getOrDefault("E2E_CALLBACK_HOST", "host.docker.internal");
 
     private static final long STATUS_CALLBACK_TIMEOUT_MINUTES = 1;
 
