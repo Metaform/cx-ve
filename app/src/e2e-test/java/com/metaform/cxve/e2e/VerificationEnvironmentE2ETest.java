@@ -73,6 +73,11 @@ class VerificationEnvironmentE2ETest {
 
     private static final String TOKEN_EXCHANGE_URL = "http://cxve.localhost/api/auth/token";
     private static final String MANAGEMENT_API_URL = "http://cxve.localhost/api/management/v5beta";
+    private static final String CERTO_API_URL = "http://cxve.localhost/api/certo/management/v1";
+    // Transfer type of the CCM flows — must be exactly this profile URI; it keys the
+    // participant's siglet transfer-type mapping (installed at provisioning from
+    // participant.ccm.* config), the dataplane registration, and the transfer request.
+    private static final String CCM_TRANSFER_TYPE = "HttpData-PULL";
     // kubectl must target the VE cluster regardless of the current kubectl context
     private static final String KUBECONFIG = System.getenv().getOrDefault("KUBECONFIG",
             System.getProperty("user.home") + "/.kube/cxve.config");
@@ -131,24 +136,9 @@ class VerificationEnvironmentE2ETest {
 
         // onboard both participants; each completion posts an OnboardingResult callback that
         // lands in the WireMock request journal
-        onboardParticipant("Provider " + runId, "provider-" + runId, providerExtId);
-        onboardParticipant("Consumer " + runId, "consumer-" + runId, consumerExtId);
-
-        log("waiting for both onboardings to complete (callbacks on /registration/status)...");
-        var results = new AtomicReference<Map<String, OnboardingResult>>();
-        await().atMost(Duration.ofMinutes(10)).pollInterval(Duration.ofSeconds(5)).untilAsserted(() -> {
-            var byExternalId = callbackResults();
-            assertThat(byExternalId.keySet()).contains(providerExtId, consumerExtId);
-            results.set(byExternalId);
-        });
-        var provider = results.get().get(providerExtId);
-        var consumer = results.get().get(consumerExtId);
-        assertThat(provider.failureReason()).isNull();
-        assertThat(consumer.failureReason()).isNull();
-        assertThat(provider.participantContextId()).isNotNull();
-        assertThat(consumer.participantContextId()).isNotNull();
-        log("provider onboarded: pcid=%s did=%s bpn=%s", provider.participantContextId(), provider.holderId(), provider.bpn());
-        log("consumer onboarded: pcid=%s did=%s bpn=%s", consumer.participantContextId(), consumer.holderId(), consumer.bpn());
+        var results = onboardProviderAndConsumer(runId, providerExtId, consumerExtId);
+        var provider = results.get(providerExtId);
+        var consumer = results.get(consumerExtId);
 
         // the seed-jobs SA is mapped to resource "issuer" with role scope admin ->
         // management-api:admin, which authorizes operating on any participant context
@@ -192,10 +182,160 @@ class VerificationEnvironmentE2ETest {
         assertThat(agreementId).isNotEmpty();
         log("contract agreement reached: %s", agreementId);
 
-        var transferId = mgmt.startTransfer(consumerPcid, agreementId, providerDsp);
+        var transferId = mgmt.startTransfer(consumerPcid, agreementId, providerDsp, "HttpData-PULL");
         mgmt.awaitState("/participants/%s/transferprocesses/%s".formatted(consumerPcid, transferId),
                 Duration.ofMinutes(3), Set.of("STARTED", "COMPLETED"));
         log("transfer process started: asset '%s' under agreement %s, transfer %s", assetId, agreementId, transferId);
+    }
+
+    /**
+     * CX-0135 CCM Flow B (certo docs/FLOWS.md): provider-initiated certificate push, full B1
+     * loop. Certo resolves every outbound CCM call's token + counterparty endpoint from Siglet's
+     * flow cache, populated when a data transfer of the CCM transfer type reaches STARTED — and
+     * only ever on the DSP-consumer side of a flow. So each side that PLACES CCM calls first
+     * becomes the DSP consumer of a flow on the OTHER side's CCM asset:
+     * <ul>
+     *   <li>flow "push": cert-provider consumes the cert-consumer's inbox asset — its transfer
+     *       id is the {@code flowId} of the publish (provider -> consumer notification);</li>
+     *   <li>flow "pull": cert-consumer consumes the cert-provider's api asset — its transfer id
+     *       is the {@code flowId} of retrieve + accept (consumer -> provider calls).</li>
+     * </ul>
+     * Each CCM asset carries the counterparty's BPN as a dataplane-metadata property: Siglet
+     * stamps it into the flow token as the {@code bpn} claim certo's inbound verification
+     * requires (alongside sub = caller DID, aud = receiving tenant DID).
+     */
+    @Test
+    void certificateExchange() {
+        var runId = UUID.randomUUID().toString().substring(0, 8);
+        var providerExtId = "cert-provider-" + runId;
+        var consumerExtId = "cert-consumer-" + runId;
+
+        var results = onboardProviderAndConsumer(runId, providerExtId, consumerExtId);
+        var provider = results.get(providerExtId);
+        var consumer = results.get(consumerExtId);
+        var providerPcid = provider.participantContextId();
+        var consumerPcid = consumer.participantContextId();
+
+        var mgmt = new ManagementApi(MANAGEMENT_API_URL,
+                tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"));
+        log("management-API token obtained (seed-jobs -> issuer, scope admin)");
+
+        mgmt.upsertCelExpression("cxve-e2e-membership", MEMBERSHIP_OPERAND,
+                "ctx.agent.claims.vc.withType('MembershipCredential').hasClaim('memberOf', 'Catena-X')");
+        mgmt.upsertCelExpression("cxve-e2e-bpn", BPN_OPERAND,
+                "ctx.agent.claims.vc.filter(c, c.type.exists(t, t == 'BpnCredential')).exists(c, c.credentialSubject.exists(cs, cs.bpn != null))");
+        mgmt.upsertCelExpression("cxve-e2e-gov", GOV_OPERAND,
+                "ctx.agent.claims.vc.withType('DataExchangeGovernanceCredential').hasClaim('contractVersion', '1.0.0')");
+
+        // both sides offer their CCM asset (certo's protocol API behind the CCM transfer
+        // type), each stamped with the OTHER side's BPN — the asset owner's siglet
+        // context mints the flow token, and its claims must describe the caller
+        var providerAssetId = "ccm-api-" + runId;
+        var consumerAssetId = "ccm-inbox-" + runId;
+        seedCcmOffer(mgmt, providerPcid, providerAssetId, "p-" + runId, consumer.bpn());
+        seedCcmOffer(mgmt, consumerPcid, consumerAssetId, "c-" + runId, provider.bpn());
+
+        // "pull" flow: cert-consumer -> cert-provider (used for retrieve + acceptance report)
+        var flowIdPull = establishCcmFlow(mgmt, consumerPcid, providerPcid, provider.holderId(), providerAssetId);
+        // "push" flow: cert-provider -> cert-consumer (used for the publish notification)
+        var flowIdPush = establishCcmFlow(mgmt, providerPcid, consumerPcid, consumer.holderId(), consumerAssetId);
+
+        // the certo SA is mapped (resource "sudo") to the certo-mgmt-api scopes by the
+        // umbrella's certo-jwtlet-seed; certo validates the token itself (no clearglass)
+        var certo = new CertoApi(CERTO_API_URL,
+                tokenExchange.getParticipantToken("certo", "sudo", "certo-mgmt-api:write"));
+        log("certo-API token obtained (certo -> sudo, scope certo-mgmt-api:write)");
+        certo.awaitParticipantContext(providerPcid, Duration.ofMinutes(2));
+        certo.awaitParticipantContext(consumerPcid, Duration.ofMinutes(2));
+
+        // Flow B: backend issues the certificate (state only), then publish opens a FULFILLED
+        // exchange and pushes the lifecycle CREATED event to the consumer
+        var documentId = certo.addDocument(providerPcid);
+        var certificateId = certo.addCertificate(providerPcid, provider.bpn(), documentId);
+        var exchangeId = certo.publish(providerPcid, certificateId, consumer.bpn(), consumer.holderId(), flowIdPush);
+
+        // client-driven tail: retrieve (optional pull for inspection), then the verdict
+        var retrieved = certo.retrieve(consumerPcid, exchangeId, flowIdPull);
+        assertThat(retrieved.path("certificate").path("certificateId").asText()).isEqualTo(certificateId);
+        assertThat(retrieved.path("documents").size()).isEqualTo(1);
+        assertThat(retrieved.path("documents").path(0).path("contentBase64").asText()).isNotEmpty();
+
+        // the acceptance report to the provider is best-effort (post-commit), so drive the
+        // verdict until the PROVIDER's recorded view shows it: re-driving accept with the same
+        // verdict is certo's documented recovery for a lost report (no state change, re-report)
+        await().atMost(Duration.ofMinutes(2)).pollInterval(Duration.ofSeconds(5)).untilAsserted(() -> {
+            certo.accept(consumerPcid, exchangeId, "ACCEPTED", flowIdPull);
+            var exchange = certo.getExchange(providerPcid, exchangeId);
+            assertThat(exchange.path("fulfillmentStatus").asText()).isEqualTo("FULFILLED");
+            assertThat(exchange.path("acceptanceStatus").asText()).isEqualTo("ACCEPTED");
+        });
+        log("certificate exchange %s closed: FULFILLED / ACCEPTED", exchangeId);
+    }
+
+    /**
+     * Onboards a provider + consumer pair and waits for both completion callbacks; returns the
+     * two {@link OnboardingResult}s keyed by externalId, asserted successful.
+     */
+    private Map<String, OnboardingResult> onboardProviderAndConsumer(String runId, String providerExtId, String consumerExtId) {
+        onboardParticipant("Provider " + runId, "provider-" + runId, providerExtId);
+        onboardParticipant("Consumer " + runId, "consumer-" + runId, consumerExtId);
+
+        log("waiting for both onboardings to complete (callbacks on /registration/status)...");
+        var results = new AtomicReference<Map<String, OnboardingResult>>();
+        await().atMost(Duration.ofMinutes(10)).pollInterval(Duration.ofSeconds(5)).untilAsserted(() -> {
+            var byExternalId = callbackResults();
+            assertThat(byExternalId.keySet()).contains(providerExtId, consumerExtId);
+            results.set(byExternalId);
+        });
+        var provider = results.get().get(providerExtId);
+        var consumer = results.get().get(consumerExtId);
+        assertThat(provider.failureReason()).isNull();
+        assertThat(consumer.failureReason()).isNull();
+        assertThat(provider.participantContextId()).isNotNull();
+        assertThat(consumer.participantContextId()).isNotNull();
+        log("provider onboarded: pcid=%s did=%s bpn=%s", provider.participantContextId(), provider.holderId(), provider.bpn());
+        log("consumer onboarded: pcid=%s did=%s bpn=%s", consumer.participantContextId(), consumer.holderId(), consumer.bpn());
+        return results.get();
+    }
+
+    /**
+     * Seeds one side's CCM offer: the asset fronting certo's protocol API (with the
+     * counterparty's BPN as a dataplane-metadata property, stamped into flow tokens as the
+     * {@code bpn} claim), plus access/contract policies requiring all three credentials and the
+     * contract definition. Ids are run-scoped; policy/definition ids may repeat across the two
+     * participant contexts (resources are context-scoped).
+     */
+    private void seedCcmOffer(ManagementApi mgmt, String pcid, String assetId, String uniqueId, String counterpartyBpn) {
+        var accessPolicyId = "e2e-ccm-access-policy-" + uniqueId;
+        var contractPolicyId = "e2e-ccm-contract-policy-" + uniqueId;
+        var allThreeCredentials = Set.of(MEMBERSHIP_OPERAND, BPN_OPERAND, GOV_OPERAND);
+        mgmt.createAsset(pcid, assetId, "http://cx-ve-certo.edc-v.svc.cluster.local:8080", Map.of("bpn", counterpartyBpn));
+        mgmt.createPolicy(pcid, accessPolicyId, allThreeCredentials);
+        mgmt.createPolicy(pcid, contractPolicyId, allThreeCredentials);
+        mgmt.createContractDefinition(pcid, "e2e-ccm-cd-" + uniqueId, accessPolicyId, contractPolicyId);
+    }
+
+    /**
+     * Catalog -> negotiation -> transfer of the CCM transfer type, as {@code consumerPcid}
+     * against {@code providerPcid}'s asset. Returns the CONSUMER-side transfer process id once
+     * STARTED — the id under which Siglet cached the flow token, i.e. the {@code flowId} certo
+     * management calls placed BY that consumer side must carry.
+     */
+    private String establishCcmFlow(ManagementApi mgmt, String consumerPcid, String providerPcid,
+                                    String providerDid, String assetId) {
+        var providerDsp = "http://cxve.localhost/api/dsp/%s/cx-neptune".formatted(providerPcid);
+        var offer = mgmt.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, assetId, Duration.ofMinutes(2));
+        var negotiationId = mgmt.startNegotiation(consumerPcid, providerDsp, providerDid, assetId, offer);
+        var negotiation = mgmt.awaitState(
+                "/participants/%s/contractnegotiations/%s".formatted(consumerPcid, negotiationId),
+                Duration.ofMinutes(3), Set.of("FINALIZED"));
+        var agreementId = negotiation.path("contractAgreementId").asText();
+        assertThat(agreementId).isNotEmpty();
+        var transferId = mgmt.startTransfer(consumerPcid, agreementId, providerDsp, CCM_TRANSFER_TYPE);
+        mgmt.awaitState("/participants/%s/transferprocesses/%s".formatted(consumerPcid, transferId),
+                Duration.ofMinutes(3), Set.of("STARTED"));
+        log("CCM flow established: %s -> %s (asset '%s', flowId %s)", consumerPcid, providerPcid, assetId, transferId);
+        return transferId;
     }
 
     /** All registration-status callbacks recorded by WireMock, keyed by externalId. */

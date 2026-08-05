@@ -7,7 +7,10 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -92,16 +95,64 @@ public class ManagementApi {
     }
 
     public void createAsset(String pcid, String assetId, String dataUrl) {
+        createAsset(pcid, assetId, dataUrl, Map.of());
+    }
+
+    /**
+     * Asset with dataplane-metadata properties. On every data flow for this asset, Siglet copies
+     * these properties verbatim into the claims of the flow token it mints (the flow's metadata
+     * comes from the PROVIDER-side transfer process, which carries the asset's
+     * dataplaneMetadata) — the way to stamp e.g. the {@code bpn} claim Certo requires into the
+     * counterparty's token. A PLAIN properties object, verified against the deployed
+     * controlplane: it stores the keys raw ("bpn" stays "bpn" in edc_asset.dataplane_metadata,
+     * no vocab expansion), while the {@code "@type": "@json"} literal form silently drops the
+     * properties altogether.
+     */
+    public void createAsset(String pcid, String assetId, String dataUrl, Map<String, String> dataplaneProperties) {
+        var metadata = "";
+        if (!dataplaneProperties.isEmpty()) {
+            var props = mapper.createObjectNode();
+            dataplaneProperties.forEach(props::put);
+            metadata = """
+                    ,
+                      "dataplaneMetadata": {
+                        "@type": "DataplaneMetadata",
+                        "properties": %s
+                      }""".formatted(props.toString());
+        }
         var body = """
                 {
                   "@context": ["%s"],
                   "@type": "Asset",
                   "@id": "%s",
-                  "properties": {"name": "dataExchange e2e asset"},
-                  "dataAddress": {"@type": "DataAddress", "type": "HttpData", "baseUrl": "%s"}
-                }""".formatted(MANAGEMENT_CONTEXT, assetId, dataUrl);
+                  "properties": {"name": "cxve e2e asset"},
+                  "dataAddress": {"@type": "DataAddress", "type": "HttpData", "baseUrl": "%s"}%s
+                }""".formatted(MANAGEMENT_CONTEXT, assetId, dataUrl, metadata);
         expect2xx(post("/participants/%s/assets".formatted(pcid), body), "asset " + assetId);
+        if (!dataplaneProperties.isEmpty()) {
+            verifyDataplaneProperties(pcid, assetId, dataplaneProperties);
+        }
         log("   Management API:  asset '%s' created in participant context %s", assetId, pcid);
+    }
+
+    /**
+     * Reads the asset back and asserts the dataplane-metadata property keys survived JSON-LD
+     * processing unexpanded — if the deployed controlplane handles the {@code @json} literal
+     * differently and the keys come back as IRIs, the flow tokens would carry wrong claim names
+     * and every CCM call would fail with 401 much later; fail fast here instead.
+     */
+    private void verifyDataplaneProperties(String pcid, String assetId, Map<String, String> expected) {
+        var response = get("/participants/%s/assets/%s".formatted(pcid, assetId));
+        assertThat(response.statusCode()).isEqualTo(200);
+        try {
+            var stored = mapper.readTree(response.asString()).path("dataplaneMetadata").path("properties");
+            expected.forEach((key, value) -> assertThat(stored.path(key).asText())
+                    .withFailMessage("asset '%s': dataplaneMetadata property '%s' did not survive JSON-LD "
+                                     + "round-tripping (stored: %s) — flow tokens would carry wrong claim names", assetId, key, stored)
+                    .isEqualTo(value));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /**
@@ -217,7 +268,7 @@ public class ManagementApi {
         return id;
     }
 
-    public String startTransfer(String consumerPcid, String agreementId, String providerDsp) {
+    public String startTransfer(String consumerPcid, String agreementId, String providerDsp, String transferType) {
         var body = """
                 {
                   "@context": ["%s"],
@@ -225,8 +276,8 @@ public class ManagementApi {
                   "contractId": "%s",
                   "counterPartyAddress": "%s",
                   "protocol": "cx-neptune",
-                  "transferType": "HttpData-PULL"
-                }""".formatted(MANAGEMENT_CONTEXT, agreementId, providerDsp);
+                  "transferType": "%s"
+                }""".formatted(MANAGEMENT_CONTEXT, agreementId, providerDsp, transferType);
         var response = post("/participants/%s/transferprocesses".formatted(consumerPcid), body);
         expect2xx(response, "transfer process");
         var id = idOf(response);
