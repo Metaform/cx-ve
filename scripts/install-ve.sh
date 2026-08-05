@@ -98,7 +98,9 @@ HOST_OVERRIDES=(
   --set "onboarding-api.httpRoute.hostnames={${HOST}}"
   --set-string "onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
   --set "certo.gateway.hostnames={${HOST}}"
-  --set "certo.sigletBaseUrl=http://${HOST}/api/siglet"
+  # NOTE certo.sigletBaseUrl is deliberately NOT host-derived: certo calls siglet without a
+  # bearer token, so it must use the in-cluster siglet service (the checked-in default) — the
+  # gateway path sits behind clearglass, which 401s every unauthenticated /tokens/* call.
 )
 
 cleanup() {

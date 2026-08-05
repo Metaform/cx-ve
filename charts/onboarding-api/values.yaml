@@ -151,13 +151,16 @@ config:
   participant:
     did:
       template: "did:web:identity.cxve.localhost:"
-    # Transfer-type mapping installed on the participant's data plane (Siglet) at provisioning.
-    # The mapping key (transfer-type) becomes the catalog distribution format of the
-    # participant's assets; an empty endpoint disables data-plane registration.
-    dataplane:
-      transfer-type: HttpData-PULL
+    # The participant's transfer-type mapping, installed on its data plane (Siglet) at
+    # provisioning; the mapping key (transfer-type) becomes the catalog distribution format of
+    # the participant's assets. It serves the CCM certificate exchanges (CX-0135): the endpoint
+    # is Certo's protocol API, which lives at the server root of the in-cluster service
+    # (release-derived name, <release>-certo) — NOT the gateway path, since the flow
+    # counterparty calls it with a Siglet flow token, not a jwtlet management token.
+    # (The app's generic `participant.dataplane` mapping stays disabled — its app default has an
+    # empty endpoint — so this is the only mapping.)
+    ccm:
+      transfer-type:  "HttpData-PULL"
       endpoint-type: HTTP
-      # Demo data source served for HttpData-PULL transfers: a public sample-JSON API, so the
-      # demo payload is unambiguous sample data rather than platform infrastructure
-      endpoint: https://jsonplaceholder.typicode.com/todos/1
+      endpoint: http://cx-ve-certo.edc-v.svc.cluster.local:8080
       token-source: provider

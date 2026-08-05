@@ -95,7 +95,12 @@ certo:
     hostnames:
       - cxve.localhost
     pathPrefix: /api/certo
-  sigletBaseUrl: "http://cxve.localhost/api/siglet"
+  # Certo's siglet backend: token verification (POST /tokens/verify) and the outbound
+  # token/endpoint cache (GET /tokens/{pcid}/{flowId}). MUST be the in-cluster siglet API —
+  # certo sends these calls without a bearer token, and the gateway route (/api/siglet) sits
+  # behind clearglass, which requires siglet-api scopes on /tokens/** (and doesn't map
+  # POST /tokens/verify at all -> default deny).
+  sigletBaseUrl: "http://siglet.edc-v.svc.cluster.local:8080"
   # Management-API tokens are validated against the platform's jwtlet; the explicit JWKS URI
   # activates certo's EdDSA-capable decoder.
   extraEnv:

@@ -65,3 +65,13 @@ participant:
     endpoint-type: HTTP                                         # PARTICIPANT_DATAPLANE_ENDPOINTTYPE
     endpoint: ""                                                # PARTICIPANT_DATAPLANE_ENDPOINT
     token-source: provider                                      # PARTICIPANT_DATAPLANE_TOKENSOURCE
+  # Second transfer-type mapping, pointing at Certo's CCM protocol API (CX-0135 certificate
+  # exchange). Certo resolves its outbound tokens + counterparty endpoints from Siglet's flow
+  # cache, so a CCM exchange needs a data flow of this transfer type between the two
+  # participants; the mapping's endpoint is what the flow's counterparty then calls. Same
+  # semantics as `dataplane` above: an empty endpoint leaves the mapping out.
+  ccm:
+    transfer-type:  "HttpData-PULL"  # PARTICIPANT_CCM_TRANSFERTYPE
+    endpoint-type: HTTP                                         # PARTICIPANT_CCM_ENDPOINTTYPE
+    endpoint: ""                                                # PARTICIPANT_CCM_ENDPOINT
+    token-source: provider                                      # PARTICIPANT_CCM_TOKENSOURCE
