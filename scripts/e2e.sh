@@ -10,6 +10,9 @@
 #                             (plain HTTP from this host through the gateway), proving the VE's
 #                             identity surface is reachable the way an external dataspace
 #                             solution will reach it
+#   4. gradle e2e suite     — the black-box tests in app/src/e2e-test against the running VE:
+#                             onboarding callback, credential-gated data exchange, and the
+#                             CX-0135 Flow B certificate exchange
 #
 # On success the cluster is left running for inspection; remove it with
 #   kind delete cluster -n cxve
@@ -100,6 +103,11 @@ else
   printf '%s\n' "$BODY" >&2
   exit 1
 fi
+
+step "Run the Gradle e2e suite (onboarding, data exchange, certificate exchange)"
+# --rerun defeats Gradle's up-to-date check: the task's inputs don't change between runs, but
+# the cluster state does. KUBECONFIG pins the suite's kubectl calls to this run's cluster.
+KUBECONFIG="$HOME/.kube/${CLUSTER_NAME}.config" ./gradlew :app:e2eTest --rerun
 
 step "RESULT"
 echo "E2E PASSED in $(( ($(date +%s) - START) / 60 ))m $(( ($(date +%s) - START) % 60 ))s"
