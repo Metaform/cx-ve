@@ -152,6 +152,10 @@ kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-s
 # onboarding-api chart is vendored from ../onboarding-api)
 helm dependency update "$UMBRELLA_CHART"
 
+# build and load latest version of Onboarding API
+docker buildx build -f Dockerfile -t ghcr.io/metaform/cx-ve/onboardingapi:latest .
+kind load docker-image ghcr.io/metaform/cx-ve/onboardingapi:latest -n $CLUSTER_NAME
+
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
 # space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> onboarding-api jwtlet
 # mapping (200) -> certo jwtlet mappings (210) -> certo activity/orchestration (220).

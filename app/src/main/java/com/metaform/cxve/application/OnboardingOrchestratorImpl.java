@@ -146,7 +146,7 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
             case COMPLETED -> {
                 log.info("Onboarding {} completed (bpn={}, wallet={})",
                         after.id(), after.bpn(), after.participantProfileId());
-                 registrationStatusService.invokeCallback();
+                 registrationStatusService.invokeCallback(after);
             }
             case REJECTED -> log.warn("Onboarding {} rejected: {}", after.id(), after.failureReason());
             case FAILED -> log.error("Onboarding {} failed: {}", after.id(), after.failureReason());

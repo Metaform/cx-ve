@@ -1,5 +1,6 @@
 package com.metaform.cxve.adapter.out.callback;
 
+import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.OnboardingServiceProviderCallbackRequestData;
 
 public interface RegistrationStatusService {
@@ -14,5 +15,5 @@ public interface RegistrationStatusService {
      */
     void setCallbackAddress(OnboardingServiceProviderCallbackRequestData callbackData);
 
-    void invokeCallback();
+    void invokeCallback(OnboardingProcess after);
 }

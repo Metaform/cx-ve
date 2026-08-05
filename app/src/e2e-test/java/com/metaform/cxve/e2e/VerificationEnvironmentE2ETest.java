@@ -1,5 +1,6 @@
 package com.metaform.cxve.e2e;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.extension.Parameters;
 import com.github.tomakehurst.wiremock.extension.ServeEventListener;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
@@ -9,9 +10,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import java.io.IOException;
+import java.time.Duration;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
@@ -19,7 +20,8 @@ import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static io.restassured.RestAssured.given;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * End-to-end tests against a running VE (stood up by scripts/install-ve.sh) through its
@@ -34,21 +36,21 @@ class VerificationEnvironmentE2ETest {
     // host.docker.internal to it from inside pods. Plain localhost would loop back to the pod.
     private static final String CALLBACK_HOST = "host.docker.internal";
 
-    // Status callbacks to await before the test may finish. Raise when the Onboarding API
-    // reports more state transitions per onboarding.
-    private static final int EXPECTED_STATUS_CALLBACKS = 1;
     private static final long STATUS_CALLBACK_TIMEOUT_MINUTES = 1;
 
     // Fresh latch per test (see resetLatch); the listener below always counts down the current
     // one. Held in an AtomicReference because the listener is registered once, statically.
-    private static final AtomicReference<CountDownLatch> statusCallbackLatch = new AtomicReference<>();
+    private static final AtomicReference<byte[]> lastRequestPayload = new AtomicReference<>();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     // The external registration-status consumer: WireMock listens on a dynamic port and serves
     // POST /registration/status, receiving the Onboarding API's status callbacks. The
     // ServeEventListener counts the latch down on every served /registration/status request.
+    // h2c is disabled because the app's JDK HttpClient upgrades plain-http connections to
+    // HTTP/2, and that path fails against Jetty with "Received RST_STREAM: Stream cancelled".
     @RegisterExtension
     static WireMockExtension wiremock = WireMockExtension.newInstance()
-            .options(wireMockConfig().dynamicPort().extensions(new ServeEventListener() {
+            .options(wireMockConfig().dynamicPort().http2PlainDisabled(true).extensions(new ServeEventListener() {
                 @Override
                 public String getName() {
                     return "registration-status-latch";
@@ -57,7 +59,7 @@ class VerificationEnvironmentE2ETest {
                 @Override
                 public void afterComplete(ServeEvent serveEvent, Parameters parameters) {
                     if (serveEvent.getRequest().getUrl().startsWith("/registration/status")) {
-                        statusCallbackLatch.get().countDown();
+                        lastRequestPayload.set(serveEvent.getRequest().getBody());
                     }
                 }
             }))
@@ -67,7 +69,6 @@ class VerificationEnvironmentE2ETest {
 
     @BeforeEach
     void stubRegistrationStatus() {
-        statusCallbackLatch.set(new CountDownLatch(EXPECTED_STATUS_CALLBACKS));
         wiremock.stubFor(post(urlPathEqualTo("/registration/status"))
                 .willReturn(okJson("{}")));
 
@@ -82,23 +83,32 @@ class VerificationEnvironmentE2ETest {
     }
 
     @Test
-    void onboardParticipant() throws InterruptedException {
+    void onboardParticipant() throws InterruptedException, IOException {
         var runId = UUID.randomUUID().toString();
         var name = "Test Participant " + runId;
         var shortName = "test-participant-" + runId;
         // kick off the onboarding
         onboardParticipant(name, shortName, runId);
 
-        // onboarding proceeds asynchronously — block until the VE has delivered the expected
-        // status callback(s) to the WireMock receiver, or fail after the timeout
-        assertTrue(statusCallbackLatch.get().await(STATUS_CALLBACK_TIMEOUT_MINUTES, TimeUnit.MINUTES),
-                "expected %d status callback(s) on /registration/status within %d minutes"
-                        .formatted(EXPECTED_STATUS_CALLBACKS, STATUS_CALLBACK_TIMEOUT_MINUTES));
+        await().atMost(Duration.ofMinutes(1))
+                .untilAsserted(() -> assertThat(lastRequestPayload.get()).isNotNull());
+
+        var res = objectMapper.readValue(lastRequestPayload.get(), OnboardingResult.class);
+        assertThat(res.participantContextId()).isNotNull();
+        assertThat(res.failureReason()).isNull();
+        assertThat(res.holderId()).contains("did:web:identity.cxve.localhost:" + shortName);
     }
 
     @Test
-    void dataExchange(){
+    void dataExchange() {
+        // create CEL expressions
+        //ctx.agent.claims.vc.withType('DataExchangeGovernanceCredential').hasClaim('contractVersion', '1.0.0')
+        //ctx.agent.claims.vc.withType('MembershipCredential').hasClaim('memberOf', 'Catena-X')
+        //ctx.agent.claims.vc.filter(c, c.type.exists(t, t == 'BpnCredential')).exists(c, c.credentialSubject.exists(cs, cs.bpn != null))
 
+        // create asset
+        // create policy
+        // create contract definition
     }
 
     private static void onboardParticipant(String name, String shortName, String runId) {
@@ -120,7 +130,7 @@ class VerificationEnvironmentE2ETest {
 
         // kick off the onboarding, then wait for the async callback
         given()
-                .baseUri(ONBOARDING_API_URL)
+                .baseUri(VerificationEnvironmentE2ETest.ONBOARDING_API_URL)
                 .contentType("application/json")
                 .body(newParticipant)
                 .post("/api/v2/administration/registration/Network/partnerRegistration")

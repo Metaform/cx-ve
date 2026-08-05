@@ -17,7 +17,6 @@ package com.metaform.cxve.e2e;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -114,6 +113,7 @@ public class TokenExchange {
                 .formParam("subject_token_type", "urn:ietf:params:oauth:token-type:jwt")
                 .formParam("resource", resource)
                 .formParam("scope", scopes)
+                .formParam("audience", "edcv")
                 .post()
                 .then()
                 .statusCode(200)
