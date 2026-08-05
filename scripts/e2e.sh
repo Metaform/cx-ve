@@ -111,7 +111,15 @@ step "Run the Gradle e2e suite (onboarding, data exchange, certificate exchange)
 # it (UnresolvedAddressException). Derive the address the kind node reaches the host under —
 # its default gateway, i.e. the host side of the kind bridge — and hand it to the suite.
 if [[ "$(uname -s)" == "Linux" ]]; then
-  E2E_CALLBACK_HOST=$(docker exec "${CLUSTER_NAME}-control-plane" ip route | awk '/default/ {print $3; exit}')
+  # NOTE the awk consumes ALL input on purpose (first match remembered, printed at END): an
+  # early `exit` would close the pipe while docker exec is still writing -> SIGPIPE -> the
+  # whole pipeline fails with 141 under pipefail.
+  E2E_CALLBACK_HOST=$(docker exec "${CLUSTER_NAME}-control-plane" ip route \
+    | awk '$1 == "default" && !gw {gw = $3} END {print gw}')
+  if [[ -z "$E2E_CALLBACK_HOST" ]]; then
+    echo "ERROR: could not derive the host address from ${CLUSTER_NAME}-control-plane's default route" >&2
+    exit 1
+  fi
   export E2E_CALLBACK_HOST
   echo "Linux host: in-cluster callbacks will target ${E2E_CALLBACK_HOST} (kind node default gateway)"
 fi
