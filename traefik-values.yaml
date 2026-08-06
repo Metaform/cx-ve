@@ -31,7 +31,12 @@ ports:
   websecure:
     port: 443
     exposedPort: 443
-    hostPort: 443
+
+# this is necessary for VPS deployments to have traefik bind to port 80
+podSecurityContext:
+  sysctls:
+    - name: net.ipv4.ip_unprivileged_port_start
+      value: "0"
 
 # we enable gateway-api features
 providers:
@@ -48,3 +53,7 @@ gatewayClass:
 # we disable gateway-api defaults because we want to provide our own
 gateway:
   enabled: false
+
+service:
+  annotations:
+    metallb.io/loadBalancerIPs: "194.163.180.88"

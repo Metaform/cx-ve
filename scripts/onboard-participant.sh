@@ -19,7 +19,7 @@
 #   -N, --namespace   namespace of the obapi deployment, for log watching (default: edc-v,
 #                     or the NAMESPACE env var)
 #   -u, --api-url     base URL of the Onboarding API (default: http://cxve.localhost/onboarding,
-#                     or the API_URL env var), e.g. http://ve2.localhost:8081/onboarding
+#                     or the API_URL env var)
 #
 # Environment:
 #   API_URL    base URL of the Onboarding API (default: http://cxve.localhost/onboarding, the
@@ -37,7 +37,7 @@ set -euo pipefail
 API_URL="${API_URL:-http://cxve.localhost/onboarding}"
 NAMESPACE="${NAMESPACE:-edc-v}"
 BPN="${BPN:-}"
-DEPLOYMENT=obapi-cx-ve
+DEPLOYMENT=cx-ve-onboarding-api
 
 NAME="ACME Corporation"
 SHORT_NAME=""

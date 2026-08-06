@@ -5,12 +5,15 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "cx-ve.fullname" . }}-jwtlet-seed
+  name: {{ include "onboarding-api.fullname" . }}-jwtlet-seed
   labels:
-    {{- include "cx-ve.labels" . | nindent 4 }}
+    {{- include "onboarding-api.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "10"
+    # Weight 200: in the umbrella release all subcharts share one hook space — the platform's
+    # seeds run at 10/20 and the catenax-profile ones at 110-130; this job only needs jwtlet up
+    # but a deterministic late slot keeps the ordering obvious.
+    "helm.sh/hook-weight": "200"
     "helm.sh/hook-delete-policy": {{ .Values.jwtlet.seed.hookDeletePolicy | quote }}
 spec:
   backoffLimit: 5
@@ -18,7 +21,7 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ include "cx-ve.fullname" . }}-jwtlet-seed
+        app: {{ include "onboarding-api.fullname" . }}-jwtlet-seed
     spec:
       # must act under the "seed-jobs" SA, so that JWTlet's management API can be accessed
       serviceAccountName: seed-jobs
@@ -59,26 +62,37 @@ spec:
                 exit 1
               fi
 
-              echo "Creating JWTlet mapping entry for the '{{ .Values.serviceAccount.name }}' SA"
-              RESP=$(curl -s -w "\n%{http_code}" -X POST "${JWTLET_MGMT_URL}/mappings" \
-                -H "Authorization: Bearer ${TOKEN}" \
-                -H "Content-Type: application/json" \
-                -d '{
+              # POSTs a JSON body to the jwtlet management API and handles the response:
+              # 409 = already exists (fine, seeding is idempotent), >= 400 = fail the job.
+              create() {
+                desc="$1"; url="$2"; body="$3"
+                echo "Creating ${desc}"
+                resp=$(curl -s -w "\n%{http_code}" -X POST "${url}" \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d "${body}")
+                status=$(printf '%s\n' "$resp" | tail -1)
+                if [ "$status" -eq 409 ]; then
+                  echo "${desc} already exists"
+                elif [ "$status" -ge 400 ]; then
+                  echo "ERROR: Failed to create ${desc} (HTTP $status): $(printf '%s\n' "$resp" | sed '$d')"
+                  exit 1
+                else
+                  echo "${desc} created"
+                fi
+              }
+
+              # The certo/cfm-agents mappings and the certo-mgmt-api scopes are seeded by the
+              # cx-ve umbrella chart — this job only registers the app's own ServiceAccount.
+              create "mapping entry for the '{{ .Values.serviceAccount.name }}' SA" \
+                "${JWTLET_MGMT_URL}/mappings" \
+                '{
                     "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.serviceAccount.name }}",
                     "participantContext": {{ .Values.jwtlet.seed.participantContext | quote }},
                     "scopes": {{ .Values.jwtlet.seed.scopes | toJson }},
                     "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
-                }')
-              RESP_STATUS=$(printf '%s\n' "$RESP" | tail -1)
-              RESP_BODY=$(printf '%s\n' "$RESP" | sed '$d')
-              if [ "$RESP_STATUS" -eq 409 ]; then
-                echo "mapping entry already exists"
-              elif [ "$RESP_STATUS" -ge 400 ]; then
-                echo "ERROR: Failed to create mapping entry (HTTP $RESP_STATUS): $RESP_BODY"
-                exit 1
-              else
-                echo "mapping entry created"
-              fi
+                }'
+
       volumes:
         # RFC 8693 subject_token used to authenticate against the jwtlet management API.
         # Audience must match jwtlet's `client_audience`.

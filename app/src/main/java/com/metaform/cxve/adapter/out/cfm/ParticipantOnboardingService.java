@@ -12,6 +12,7 @@ import com.metaform.cxve.adapter.out.cfm.model.ParticipantProfile;
 import com.metaform.cxve.adapter.out.cfm.model.TenantCreationRequest;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -38,19 +39,31 @@ public class ParticipantOnboardingService implements WalletService {
     private final String dataplaneEndpointType;
     private final String dataplaneEndpoint;
     private final String dataplaneTokenSource;
+    private final String ccmTransferType;
+    private final String ccmEndpointType;
+    private final String ccmEndpoint;
+    private final String ccmTokenSource;
 
     public ParticipantOnboardingService(@Autowired TenantManagerClient tenantManagerClient,
                                         @Value("${participant.did.template:did:web:identity.cxve.localhost:}") String didTemplate,
                                         @Value("${participant.dataplane.transfer-type:HttpData-PULL}") String dataplaneTransferType,
                                         @Value("${participant.dataplane.endpoint-type:HTTP}") String dataplaneEndpointType,
                                         @Value("${participant.dataplane.endpoint:}") String dataplaneEndpoint,
-                                        @Value("${participant.dataplane.token-source:provider}") String dataplaneTokenSource) {
+                                        @Value("${participant.dataplane.token-source:provider}") String dataplaneTokenSource,
+                                        @Value("${participant.ccm.transfer-type:https://w3id.org/dspace-sig/profile/http-pull}") String ccmTransferType,
+                                        @Value("${participant.ccm.endpoint-type:HTTP}") String ccmEndpointType,
+                                        @Value("${participant.ccm.endpoint:}") String ccmEndpoint,
+                                        @Value("${participant.ccm.token-source:provider}") String ccmTokenSource) {
         this.tenantManagerClient = tenantManagerClient;
         this.didTemplate = didTemplate;
         this.dataplaneTransferType = dataplaneTransferType;
         this.dataplaneEndpointType = dataplaneEndpointType;
         this.dataplaneEndpoint = dataplaneEndpoint;
         this.dataplaneTokenSource = dataplaneTokenSource;
+        this.ccmTransferType = ccmTransferType;
+        this.ccmEndpointType = ccmEndpointType;
+        this.ccmEndpoint = ccmEndpoint;
+        this.ccmTokenSource = ccmTokenSource;
     }
 
     @Override
@@ -98,19 +111,32 @@ public class ParticipantOnboardingService implements WalletService {
                 .identifier(did)
 //                .participantRole(dataspaceId, List.of("member"))
                 .vpaProperty("cfm.issuer", holderProperties(did, bpn, registrationData.agreements()));
-        // With a configured endpoint, the CFM siglet agent configures this transfer-type mapping in
+        // For each configured endpoint, the CFM siglet agent configures a transfer-type mapping in
         // Siglet and registers the participant's data-plane instance with the control plane — the
-        // prerequisite for the participant's assets to carry catalog distributions. Without it,
-        // provisioning still succeeds but no transfers are possible.
+        // prerequisite for the participant's assets to carry catalog distributions. Without any,
+        // provisioning still succeeds but no transfers are possible. The ccm mapping points at
+        // Certo's protocol API, so CCM certificate exchanges (CX-0135) can ride on data flows.
+        var transferTypeMappings = new HashMap<String, Object>();
         if (!dataplaneEndpoint.isBlank()) {
-            builder.vpaProperty("cfm.dataplane", Map.of(
-                    "transferTypeMappings", Map.of(dataplaneTransferType, Map.of(
-                            "transferType", dataplaneTransferType,
-                            "endpointType", dataplaneEndpointType,
-                            "endpoint", dataplaneEndpoint,
-                            "tokenSource", dataplaneTokenSource))));
+            transferTypeMappings.put(dataplaneTransferType,
+                    transferTypeMapping(dataplaneTransferType, dataplaneEndpointType, dataplaneEndpoint, dataplaneTokenSource));
+        }
+        if (!ccmEndpoint.isBlank()) {
+            transferTypeMappings.put(ccmTransferType,
+                    transferTypeMapping(ccmTransferType, ccmEndpointType, ccmEndpoint, ccmTokenSource));
+        }
+        if (!transferTypeMappings.isEmpty()) {
+            builder.vpaProperty("cfm.dataplane", Map.of("transferTypeMappings", transferTypeMappings));
         }
         return builder.build();
+    }
+
+    private Map<String, Object> transferTypeMapping(String transferType, String endpointType, String endpoint, String tokenSource) {
+        return Map.of(
+                "transferType", transferType,
+                "endpointType", endpointType,
+                "endpoint", endpoint,
+                "tokenSource", tokenSource);
     }
 
     private Map<String, Object> holderProperties(String holderId, String bpn, List<AgreementConsentData> agreements) {

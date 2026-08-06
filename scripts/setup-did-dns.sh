@@ -1,62 +1,59 @@
 #!/bin/bash
 
-# Makes the platform's gateway hostnames resolvable from INSIDE a cluster, then verifies it.
+# Makes the VE's gateway hostnames resolvable from INSIDE the cluster, then verifies it.
 #
 # Why this is needed: the URLs core-platform-distribution advertises about itself — the DSP
 # callback address, the DCP credential-service and issuance endpoints, and the did:web
 # identifiers — all point at the gateway hostname
-# (ve1.localhost, issuer.ve1.localhost, identity.ve1.localhost) instead of in-cluster Service
-# FQDNs. Those URLs are dereferenced by the runtimes themselves: the control plane resolves the
-# issuer DID to verify credential signatures and calls the CredentialService on every DSP
-# message. A `*.localhost` name resolves to the pod's own loopback, so without CoreDNS help
-# every one of those lookups fails.
+# (cxve.localhost, issuer.cxve.localhost, identity.cxve.localhost) instead of in-cluster
+# Service FQDNs. Those URLs are dereferenced by the runtimes themselves: the control plane
+# resolves the issuer DID to verify credential signatures and calls the CredentialService on
+# every DSP message. A `*.localhost` name resolves to the pod's own loopback, so without
+# CoreDNS help every one of those lookups fails.
 #
-# Two modes, each owning its own marker-delimited block in the Corefile (idempotent — the block
-# is replaced wholesale on every run):
+# It adds `rewrite` rules to the cluster's CoreDNS pointing each HTTPRoute hostname at the
+# cluster's own Traefik Service, so the same name resolves to the gateway from inside the
+# cluster and to 127.0.0.1 (via the KinD host port mapping) from the host. The rules live in a
+# marker-delimited block in the Corefile, replaced wholesale on every run (idempotent).
 #
-#   OWN mode (default): adds `rewrite` rules to the cluster's CoreDNS pointing each HTTPRoute
-#   hostname at the cluster's own Traefik Service, so the same name resolves to the gateway from
-#   inside the cluster and to 127.0.0.1 (via the KinD host port mapping) from the host.
+# Everything except the cluster name is discovered from the cluster itself — DNS domain,
+# Traefik Service and the hostname list — so the rules cannot drift from what is deployed.
+# The DNS domain matters most: a rewrite target of `…svc.cluster.local` on a cluster with a
+# custom kubeadm dnsDomain silently NXDOMAINs, because CoreDNS's kubernetes plugin is not
+# authoritative for it.
 #
-#   PEER mode (--peer <cluster>): makes the PEER VE's gateway hostnames resolvable, for the
-#   dual-VE setup — each side dereferences the other's advertised URLs and DIDs. A `rewrite`
-#   cannot do this: it runs inside the `.:53` server block, and the rewritten name
-#   (traefik.traefik.svc.<peer-domain>) does NOT re-enter server-block selection, so it bypasses
-#   the `<peer-domain>:53` zone-forwarding block connect-ves.sh installs and falls through to
-#   `forward . /etc/resolv.conf` -> NXDOMAIN (and `.:53` cannot take a second forward). Instead a
-#   dedicated multi-zone server block forwards the peer's hostnames THEMSELVES to the peer's
-#   kube-dns — whose own rewrite rules (installed by this script in OWN mode during the peer's
-#   install-ve.sh) answer with the peer's Traefik ClusterIP, automatically tracking it.
-#   Reachability of that ClusterIP comes from the static routes connect-ves.sh installs, so run
-#   peer mode after connect-ves.sh's routing steps (connect-ves.sh does this itself).
-#   Peer hostnames that the local cluster serves too (the telemetry hosts — grafana.localhost
-#   etc. are identical in every VE) are excluded: a dedicated server block wins zone selection
-#   over `.:53`, so forwarding them would hijack the LOCAL name.
+# NOTE the Corefile changes are lost when the KinD cluster is recreated — re-run after
+# install-ve.sh (which does it itself).
 #
-# Everything except the cluster names is discovered from the clusters themselves — DNS domains,
-# Traefik Services, kube-dns and the hostname lists — so the rules cannot drift from what is
-# deployed. This matters most for the DNS domain: install-ve.sh gives each VE its own (ve1.local,
-# ve2.local), and a rewrite target of `…svc.cluster.local` on a VE whose domain is `ve1.local`
-# silently NXDOMAINs, because CoreDNS's kubernetes plugin is not authoritative for it.
-#
-# NOTE the Corefile changes are lost when a KinD cluster is recreated — re-run after
-# install-ve.sh (own mode; install-ve.sh does it) and connect-ves.sh (peer mode; ditto).
+# Two-phase use with the cx-ve umbrella release: the profile/certo seed hooks of the single
+# release already need in-cluster DNS while the install is still running, so there is no
+# "between the releases" moment to patch CoreDNS in. Instead:
+#   1. BEFORE the umbrella install:  setup-did-dns.sh --pre -H <host>
+#      writes the rewrite block from the DERIVED hostname list (<host>, issuer.<host>,
+#      identity.<host>) — no HTTPRoutes exist yet — and verifies plain DNS resolution.
+#   2. AFTER the install: a normal run re-derives the list from the deployed HTTPRoutes
+#      (replacing the marker block wholesale, so the rules cannot drift from what is actually
+#      routed) and additionally verifies the issuer DID document.
 #
 # Usage:
-#   ./scripts/setup-did-dns.sh [-c|--cluster <name>] [--peer <name>] [--verify-only] [-h|--help]
+#   ./scripts/setup-did-dns.sh [-c|--cluster <name>] [--pre] [-H|--host <host>]
+#                              [--verify-only] [-h|--help]
 #
-#   -c, --cluster <name>   KinD cluster whose CoreDNS is configured (default: ve1). The
+#   -c, --cluster <name>   KinD cluster whose CoreDNS is configured (default: cxve). The
 #                          kubeconfig is read from ~/.kube/<name>.config, matching install-ve.sh
-#       --peer <name>      peer mode: make THIS cluster resolve <name>'s gateway hostnames
-#                          (peer kubeconfig from ~/.kube/<name>.config)
+#       --pre              pre-install mode: derive the hostnames from --host instead of the
+#                          (not yet existing) HTTPRoutes, and skip the DID document check
+#   -H, --host <host>      the VE's hostname the derived list is built from (default:
+#                          cxve.localhost; only used with --pre)
 #       --verify-only      run the checks without touching CoreDNS
 #   -h, --help             show usage and exit
 
 set -euo pipefail
 
-CLUSTER_NAME=ve1
-PEER_NAME=""
+CLUSTER_NAME=cxve
 VERIFY_ONLY=false
+PRE=false
+HOST=cxve.localhost
 
 # Fixed, as in install-ve.sh: the CFM agents hardcode system:serviceaccount:edc-v:… client ids
 NAMESPACE=edc-v
@@ -73,13 +70,15 @@ PROBE_IMAGE=debian:stable-slim
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-c|--cluster <name>] [--peer <name>] [--verify-only] [-h|--help]
+Usage: $(basename "$0") [-c|--cluster <name>] [--pre] [-H|--host <host>] [--verify-only] [-h|--help]
 
 Options:
-  -c, --cluster <name>  KinD cluster whose CoreDNS is configured (default: ve1). Kubeconfig is
+  -c, --cluster <name>  KinD cluster whose CoreDNS is configured (default: cxve). Kubeconfig is
                         read from ~/.kube/<name>.config
-      --peer <name>     peer mode: make THIS cluster resolve <name>'s gateway hostnames instead
-                        of its own (run after connect-ves.sh's routing/zone-forwarding steps)
+      --pre             pre-install mode: derive hostnames from --host instead of the (not yet
+                        existing) HTTPRoutes; skips the DID document check
+  -H, --host <host>     the VE hostname the derived list is built from (default: cxve.localhost;
+                        only used with --pre)
       --verify-only     run the checks without modifying CoreDNS
   -h, --help            show this help
 EOF
@@ -87,18 +86,24 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -c|--cluster|--peer)
+    -c|--cluster|-H|--host)
       [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
       case "$1" in
         -c|--cluster) CLUSTER_NAME="$2" ;;
-        --peer) PEER_NAME="$2" ;;
+        -H|--host) HOST="$2" ;;
       esac
       shift 2 ;;
+    --pre) PRE=true; shift ;;
     --verify-only) VERIFY_ONLY=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Error: unknown argument '$1'" >&2; usage >&2; exit 1 ;;
   esac
 done
+
+if [[ "$PRE" == "true" && "$VERIFY_ONLY" == "true" ]]; then
+  echo "Error: --pre and --verify-only are mutually exclusive (--pre exists to patch before install)" >&2
+  exit 1
+fi
 
 kubeconfig_of() { # <cluster> -> kubeconfig path, verified readable
   local f="$HOME/.kube/$1.config"
@@ -110,14 +115,13 @@ kubeconfig_of() { # <cluster> -> kubeconfig path, verified readable
 }
 
 KUBECONFIG_FILE=$(kubeconfig_of "$CLUSTER_NAME")
-# Exported for the probe pods (kubectl run); discovery calls pass --kubeconfig explicitly so
-# they can target either cluster.
+# Exported for the probe pods (kubectl run); discovery calls pass --kubeconfig explicitly.
 export KUBECONFIG="$KUBECONFIG_FILE"
 
 GEN_DIR=$(mktemp -d)
 trap 'rm -rf "$GEN_DIR"' EXIT
 
-# ---- discovery (all parameterized by kubeconfig, so peer mode can query both clusters) ------
+# ---- discovery -------------------------------------------------------------------------------
 
 corefile() { # <kubeconfig>
   kubectl --kubeconfig "$1" -n kube-system get cm coredns -o jsonpath='{.data.Corefile}'
@@ -156,9 +160,9 @@ read_hostnames_into() { # <array-name> <kubeconfig>  (plain loop: macOS bash 3.2
 }
 
 # ---- Corefile block management --------------------------------------------------------------
-# Each mode owns one block between exact-match marker lines, replaced wholesale per run. Markers
-# are compared as whole (whitespace-trimmed) lines, so the own block and per-peer blocks can
-# never swallow each other, including peers whose names are prefixes of one another.
+# The script owns one block between exact-match marker lines, replaced wholesale per run.
+# Markers are compared as whole (whitespace-trimmed) lines so unrelated Corefile content can
+# never be swallowed.
 
 strip_block() { # <begin-marker> <end-marker>  — stdin -> stdout without the block
   awk -v b="$1" -v e="$2" '
@@ -269,7 +273,7 @@ verify_did_document() { # <did-host>
       fi'
 }
 
-# ---- OWN mode: rewrite this cluster's hostnames to its own Traefik --------------------------
+# ---- rewrite the cluster's hostnames to its own Traefik -------------------------------------
 
 run_own_mode() {
   local begin_marker="# BEGIN cx-ve did-dns:own (managed by setup-did-dns.sh)"
@@ -284,8 +288,15 @@ run_own_mode() {
   traefik_ip=$(kubectl --kubeconfig "$KUBECONFIG_FILE" -n "$traefik_ns" get svc "$traefik_name" -o jsonpath='{.spec.clusterIP}')
 
   local hostnames=()
-  read_hostnames_into hostnames "$KUBECONFIG_FILE"
-  [[ ${#hostnames[@]} -gt 0 ]] || { echo "Error: no HTTPRoutes found in namespace $NAMESPACE" >&2; exit 1; }
+  if [[ "$PRE" == "true" ]]; then
+    # Pre-install: no HTTPRoutes to discover from yet — derive the platform's gateway hostnames
+    # from the VE host. The post-install run replaces this block wholesale from the actual
+    # routes, so any drift is corrected then.
+    hostnames=("$HOST" "issuer.$HOST" "identity.$HOST")
+  else
+    read_hostnames_into hostnames "$KUBECONFIG_FILE"
+    [[ ${#hostnames[@]} -gt 0 ]] || { echo "Error: no HTTPRoutes found in namespace $NAMESPACE" >&2; exit 1; }
+  fi
 
   echo "Cluster:      $CLUSTER_NAME (kubeconfig $KUBECONFIG_FILE)"
   echo "DNS domain:   $dns_domain"
@@ -317,6 +328,13 @@ run_own_mode() {
   verify_dns "$traefik_ip" "${hostnames[@]}"
   echo
 
+  if [[ "$PRE" == "true" ]]; then
+    echo ">> skipping DID document check (pre-install mode: nothing serves it yet)"
+    echo
+    echo "Pre-install DID DNS setup done for cluster '$CLUSTER_NAME' — re-run without --pre after the install."
+    return
+  fi
+
   local did_host
   did_host=$(detect_issuer_did_host "$KUBECONFIG_FILE")
   if [[ -n "$did_host" ]]; then
@@ -329,90 +347,6 @@ run_own_mode() {
   echo "DID DNS setup verified for cluster '$CLUSTER_NAME'."
 }
 
-# ---- PEER mode: forward the peer's hostnames to the peer's kube-dns -------------------------
-
-run_peer_mode() {
-  local peer_kubeconfig
-  peer_kubeconfig=$(kubeconfig_of "$PEER_NAME")
-
-  local begin_marker="# BEGIN cx-ve did-dns:peer:${PEER_NAME} (managed by setup-did-dns.sh)"
-  local end_marker="# END cx-ve did-dns:peer:${PEER_NAME}"
-
-  # Peer-side facts: its hostnames, its kube-dns (the forward target) and its Traefik ClusterIP
-  # (what those names must resolve to once forwarded).
-  local peer_dns_ip peer_traefik_name peer_traefik_ns peer_traefik_ip
-  peer_dns_ip=$(kubectl --kubeconfig "$peer_kubeconfig" -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')
-  [[ -n "$peer_dns_ip" ]] || { echo "Error: could not read kube-dns ClusterIP of peer '$PEER_NAME'" >&2; exit 1; }
-  read -r peer_traefik_name peer_traefik_ns <<< "$(detect_traefik "$peer_kubeconfig")"
-  [[ -n "${peer_traefik_name:-}" ]] || { echo "Error: no Traefik Service found in peer '$PEER_NAME'" >&2; exit 1; }
-  peer_traefik_ip=$(kubectl --kubeconfig "$peer_kubeconfig" -n "$peer_traefik_ns" get svc "$peer_traefik_name" -o jsonpath='{.spec.clusterIP}')
-
-  local own_hostnames=() peer_hostnames=()
-  read_hostnames_into own_hostnames "$KUBECONFIG_FILE"
-  read_hostnames_into peer_hostnames "$peer_kubeconfig"
-  # Both must be non-empty — also keeps bash 3.2 (macOS) happy, where expanding an empty array
-  # under `set -u` is an unbound-variable error.
-  [[ ${#own_hostnames[@]} -gt 0 ]] || { echo "Error: no HTTPRoutes found in namespace $NAMESPACE of '$CLUSTER_NAME' — is the platform installed?" >&2; exit 1; }
-  [[ ${#peer_hostnames[@]} -gt 0 ]] || { echo "Error: no HTTPRoutes found in peer '$PEER_NAME'" >&2; exit 1; }
-
-  # Collision filter: never forward a name this cluster serves itself (telemetry hosts are
-  # identical in every VE) — a dedicated server block wins zone selection over `.:53` and would
-  # hijack the local name.
-  local forwarded=() h o skip
-  for h in "${peer_hostnames[@]}"; do
-    skip=false
-    for o in "${own_hostnames[@]}"; do
-      [[ "$h" == "$o" ]] && { skip=true; break; }
-    done
-    [[ "$skip" == "false" ]] && forwarded+=("$h")
-  done
-  [[ ${#forwarded[@]} -gt 0 ]] || { echo "Error: every peer hostname collides with a local one — nothing to forward" >&2; exit 1; }
-
-  echo "Cluster:      $CLUSTER_NAME (kubeconfig $KUBECONFIG_FILE)"
-  echo "Peer:         $PEER_NAME (kube-dns $peer_dns_ip, gateway $peer_traefik_ip)"
-  echo "Forwarded:    ${forwarded[*]}"
-  echo "Skipped:      $(comm -12 <(printf '%s\n' "${peer_hostnames[@]}") <(printf '%s\n' "${own_hostnames[@]}") | tr '\n' ' ')(served locally)"
-  echo
-
-  if [[ "$VERIFY_ONLY" == "false" ]]; then
-    # One multi-zone server block, appended at file end (server blocks are top-level; zone
-    # selection picks the longest matching zone regardless of order).
-    local zones=""
-    for h in "${forwarded[@]}"; do zones+="${h}:53 "; done
-    {
-      printf '%s\n' "$begin_marker"
-      printf '%s{\n' "$zones"
-      printf '    errors\n    cache 30\n    forward . %s\n' "$peer_dns_ip"
-      printf '}\n'
-      printf '%s\n' "$end_marker"
-    } > "$GEN_DIR/block"
-
-    corefile "$KUBECONFIG_FILE" | strip_block "$begin_marker" "$end_marker" > "$GEN_DIR/Corefile"
-    cat "$GEN_DIR/block" >> "$GEN_DIR/Corefile"
-    apply_corefile "$GEN_DIR/Corefile" "forwarding for peer '${PEER_NAME}' hostnames"
-    echo
-  fi
-
-  # Both checks need connect-ves.sh's static routes: the DNS query goes to the peer's kube-dns
-  # ClusterIP, the document fetch to the peer's Traefik ClusterIP.
-  verify_dns "$peer_traefik_ip" "${forwarded[@]}"
-  echo
-
-  local peer_did_host
-  peer_did_host=$(detect_issuer_did_host "$peer_kubeconfig")
-  if [[ -n "$peer_did_host" ]]; then
-    verify_did_document "$peer_did_host"
-  else
-    echo ">> skipping DID document check: peer has no issuerservice-did HTTPRoute"
-  fi
-  echo
-  echo "Peer DID DNS verified: '$CLUSTER_NAME' resolves '$PEER_NAME'."
-}
-
 # ---- main -----------------------------------------------------------------------------------
 
-if [[ -n "$PEER_NAME" ]]; then
-  run_peer_mode
-else
-  run_own_mode
-fi
+run_own_mode

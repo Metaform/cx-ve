@@ -37,3 +37,5 @@ out/
 .vscode/
 nats.nk
 token
+# vendored umbrella subcharts (helm dependency update)
+charts/cx-ve/charts/

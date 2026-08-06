@@ -1,6 +1,34 @@
 apiVersion: v2
 name: cx-ve
-description: Onboarding API (CX-0006 partner onboarding) with Service, HTTPRoute and full config override
+description: >-
+  Umbrella chart for the CX Verification Environment: Core Platform Distribution, Catena-X
+  profile seeding, Onboarding API, Certo (CX-0135) and the Certo CFM agent, installed as a
+  single release.
 type: application
 version: 0.1.0
 appVersion: "latest"
+
+# NOTE the release name is load-bearing: the platform chart derives its infra resource names
+# from it (<release>-nats, <release>-vault, <release>-postgresql, <release>-nats-auth) and the
+# values here reference those names. Install this chart as release "cx-ve".
+dependencies:
+  # Connector, IdentityHub, IssuerService, Siglet, CFM, jwtlet/clearglass, gateway routes,
+  # infra (NATS/Vault/Postgres/telemetry) + generic platform seeding
+  - name: core-platform-distribution
+    repository: oci://ghcr.io/eclipse-cfm/charts
+    version: 0.0.17
+  # Catena-X dataspace seeding (issuer credentials, dataspace profile, EDC seed), layered on
+  # the platform. 0.0.9+ carries hook weights 110-130 so its seeds run after the platform's
+  # 10/20 hooks in the release's shared hook space.
+  - name: catenax-profile
+    repository: oci://ghcr.io/metaform/charts
+    version: 0.0.10
+  # The Onboarding API application chart from this repository
+  - name: onboarding-api
+    repository: file://../onboarding-api
+    version: ">=0.0.0-0"
+  # Certo (CX-0135 certificate exchange service)
+  - name: certo
+    repository: oci://ghcr.io/metaform/charts
+    version: 0.0.2
+    condition: certo.enabled

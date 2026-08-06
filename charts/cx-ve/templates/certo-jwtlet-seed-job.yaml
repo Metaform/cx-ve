@@ -1,0 +1,134 @@
+## Registers the certo-related identities in JWTlet: the certo service's own SA, the CFM agents'
+## SA (which the certo agent runs under), and the certo-mgmt-api scope mappings. Split off from
+## the onboarding-api chart's jwtlet seed because these are VE-composition concerns, not app
+## concerns. Creating mappings is idempotent (409 = already exists).
+{{- if and .Values.jwtlet.seed.enabled (or .Values.certo.enabled .Values.certoAgent.enabled) }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cx-ve.fullname" . }}-certo-jwtlet-seed
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # Weight 210: after the platform's seeds (10/20), the catenax-profile ones (110-130) and the
+    # onboarding-api mapping (200). Only jwtlet must be up (the init container waits), but a
+    # deterministic late slot keeps the shared hook space obvious.
+    "helm.sh/hook-weight": "210"
+    "helm.sh/hook-delete-policy": {{ .Values.jwtlet.seed.hookDeletePolicy | quote }}
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: {{ .Values.jwtlet.seed.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "cx-ve.fullname" . }}-certo-jwtlet-seed
+    spec:
+      # must act under the "seed-jobs" SA, so that JWTlet's management API can be accessed
+      serviceAccountName: seed-jobs
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-jwtlet
+          image: {{ .Values.jwtlet.seed.image }}
+          command:
+            - sh
+            - -c
+            - |
+              until curl -sf {{ .Values.jwtlet.healthUrl | quote }}; do
+                echo "Waiting for jwtlet to be ready..."
+                sleep 5
+              done
+              echo ""
+              echo "JWTlet is ready!"
+      containers:
+        - name: seed-certo-jwtlet
+          image: {{ .Values.jwtlet.seed.image }}
+          env:
+            - name: JWTLET_MGMT_URL
+              value: {{ .Values.jwtlet.mgmtUrl | quote }}
+          volumeMounts:
+            - name: jwtlet-subject-token
+              mountPath: /var/run/secrets/jwtlet
+              readOnly: true
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+
+              # Projected service account token used to authenticate against the jwtlet management API.
+              TOKEN=$(cat /var/run/secrets/jwtlet/token)
+              if [ -z "$TOKEN" ]; then
+                echo "ERROR: subject token at /var/run/secrets/jwtlet/token is empty"
+                exit 1
+              fi
+
+              # POSTs a JSON body to the jwtlet management API and handles the response:
+              # 409 = already exists (fine, seeding is idempotent), >= 400 = fail the job.
+              create() {
+                desc="$1"; url="$2"; body="$3"
+                echo "Creating ${desc}"
+                resp=$(curl -s -w "\n%{http_code}" -X POST "${url}" \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d "${body}")
+                status=$(printf '%s\n' "$resp" | tail -1)
+                if [ "$status" -eq 409 ]; then
+                  echo "${desc} already exists"
+                elif [ "$status" -ge 400 ]; then
+                  echo "ERROR: Failed to create ${desc} (HTTP $status): $(printf '%s\n' "$resp" | sed '$d')"
+                  exit 1
+                else
+                  echo "${desc} created"
+                fi
+              }
+{{- if .Values.certo.enabled }}
+
+              create "mapping entry for the 'certo' SA" \
+                "${JWTLET_MGMT_URL}/mappings" \
+                '{
+                    "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:certo",
+                    "participantContext": "sudo",
+                    "scopes": ["certo-mgmt-api:read", "certo-mgmt-api:write"],
+                    "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
+                }'
+{{- end }}
+{{- if .Values.certoAgent.enabled }}
+
+              # authorizes the certo agent (running under the platform's cfm-agents SA) to
+              # exchange its token for a certo-mgmt-api-scoped one (resource = sudo)
+              create "certo mapping entry for the 'cfm-agents' SA" \
+                "${JWTLET_MGMT_URL}/mappings" \
+                '{
+                    "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:cfm-agents",
+                    "participantContext": "sudo",
+                    "scopes": ["certo-mgmt-api:read", "certo-mgmt-api:write"],
+                    "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
+                }'
+{{- end }}
+
+              create "scope mapping 'certo-mgmt-api:read'" \
+                "${JWTLET_MGMT_URL}/scopes" \
+                '{
+                    "scope": "certo-mgmt-api:read",
+                    "claims": {"scope": "certo-mgmt-api:read"}
+                }'
+
+              create "scope mapping 'certo-mgmt-api:write'" \
+                "${JWTLET_MGMT_URL}/scopes" \
+                '{
+                    "scope": "certo-mgmt-api:write",
+                    "claims": {"scope": "certo-mgmt-api:write"}
+                }'
+
+      volumes:
+        # RFC 8693 subject_token used to authenticate against the jwtlet management API.
+        # Audience must match jwtlet's `client_audience`.
+        - name: jwtlet-subject-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ .Values.jwtlet.subjectTokenAudience | quote }}
+                  expirationSeconds: {{ .Values.jwtlet.subjectTokenExpirationSeconds }}
+{{- end }}

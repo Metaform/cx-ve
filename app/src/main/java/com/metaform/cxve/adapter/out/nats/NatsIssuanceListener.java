@@ -42,7 +42,6 @@ public class NatsIssuanceListener {
     private final OnboardingOrchestrator orchestrator;
     private final NatsProperties properties;
 
-    private Dispatcher dispatcher;
     private JetStreamSubscription subscription;
 
     public NatsIssuanceListener(Connection connection,
@@ -70,7 +69,7 @@ public class NatsIssuanceListener {
                 .durable(properties.durableName())
                 .deliverGroup(group)
                 .build();
-        dispatcher = connection.createDispatcher();
+        var dispatcher = connection.createDispatcher();
         try {
             // autoAck=false: we ack explicitly only after the event has been processed.
             subscription = jetStream.subscribe(properties.subjectFilter(), group, dispatcher, this::onMessage, false, options);

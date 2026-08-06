@@ -1,8 +1,10 @@
 # Verifying a third-party solution against the reference VE
 
-The long-term purpose of the dual-VE setup: ve2 is a stand-in for a **system under test**
-(SUT, also "candidate" or "contestant") — any third-party dataspace implementation. The
-reference VE (ve1: Core Platform + Catena-X profile) verifies the SUT purely over the wire.
+This is the target model of the Verification Environment: a **system under test** (SUT, also
+"candidate" or "contestant") — any third-party dataspace implementation — connects to the VE
+from outside, and the VE (Core Platform + Catena-X profile) verifies the SUT purely over the
+wire. In the retired dual-VE demo of the first iteration, "ve2" played the SUT's role and
+"ve1" the VE's; the text below keeps that vocabulary.
 
 Two principles follow:
 

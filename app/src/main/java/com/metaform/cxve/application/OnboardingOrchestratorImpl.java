@@ -1,21 +1,23 @@
 package com.metaform.cxve.application;
 
+import com.metaform.cxve.adapter.out.callback.RegistrationStatusService;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
+import com.metaform.cxve.domain.model.ProvisionedParticipant;
 import com.metaform.cxve.domain.port.BusinessPartnerNumberService;
 import com.metaform.cxve.domain.port.CredentialIssuanceService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
 import com.metaform.cxve.domain.port.OnboardingRepository;
 import com.metaform.cxve.domain.port.RegistrationValidationService;
 import com.metaform.cxve.domain.port.WalletService;
-import com.metaform.cxve.domain.model.ProvisionedParticipant;
-import java.util.NoSuchElementException;
-import java.util.Optional;
-import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Sequences the CX-0006 onboarding steps. Holds no state of its own — all persistence goes through
@@ -43,19 +45,22 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     private final WalletService walletService;
     private final CredentialIssuanceService credentialIssuanceService;
     private final OnboardingRepository repository;
+    private final RegistrationStatusService registrationStatusService;
 
     public OnboardingOrchestratorImpl(RegistrationValidationService validationService,
                                       BusinessPartnerNumberService bpnService,
                                       IdentityProofingService identityProofingService,
                                       WalletService walletService,
                                       CredentialIssuanceService credentialIssuanceService,
-                                      OnboardingRepository repository) {
+                                      OnboardingRepository repository,
+                                      RegistrationStatusService registrationStatusService) {
         this.validationService = validationService;
         this.bpnService = bpnService;
         this.identityProofingService = identityProofingService;
         this.walletService = walletService;
         this.credentialIssuanceService = credentialIssuanceService;
         this.repository = repository;
+        this.registrationStatusService = registrationStatusService;
     }
 
     @Override
@@ -85,7 +90,7 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
             case COMPLETED, REJECTED, FAILED -> process;
         };
         repository.save(next);
-        logOutcome(process, next);
+        processOutcome(process, next);
         return next;
     }
 
@@ -133,13 +138,16 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
      * Logs the result of a single {@link #advance} call: state transitions at debug, terminal
      * outcomes at info (or warn for rejection).
      */
-    private void logOutcome(OnboardingProcess before, OnboardingProcess after) {
+    private void processOutcome(OnboardingProcess before, OnboardingProcess after) {
         if (before.state() == after.state()) {
             return;
         }
         switch (after.state()) {
-            case COMPLETED -> log.info("Onboarding {} completed (bpn={}, wallet={})",
-                    after.id(), after.bpn(), after.participantProfileId());
+            case COMPLETED -> {
+                log.info("Onboarding {} completed (bpn={}, wallet={})",
+                        after.id(), after.bpn(), after.participantProfileId());
+                 registrationStatusService.invokeCallback(after);
+            }
             case REJECTED -> log.warn("Onboarding {} rejected: {}", after.id(), after.failureReason());
             case FAILED -> log.error("Onboarding {} failed: {}", after.id(), after.failureReason());
             default -> log.debug("Onboarding {} transitioned {} -> {}",

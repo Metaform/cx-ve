@@ -1,0 +1,166 @@
+# State is in-memory: keep a single replica until a durable OnboardingRepository exists.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/metaform/cx-ve/onboardingapi
+  # Defaults to the chart's appVersion
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+
+# Remote JVM debugging (JDWP). When enabled the container starts the debug agent (via
+# JAVA_TOOL_OPTIONS, honored by any JVM launcher) and exposes the port on the pod only —
+# deliberately not on the Service. Attach with
+#   kubectl port-forward deploy/<fullname> 5005:5005
+# and an IDE "Remote JVM Debug" run configuration pointed at localhost:5005.
+debug:
+  enabled: true
+  port: 5005
+  # Suspend the JVM until a debugger attaches (to step through startup code). While suspended the
+  # app cannot answer health probes, so enabling this also disables liveness/readiness probes.
+  suspend: false
+
+# The app's workload identity: the jwtlet seed job registers
+# "system:serviceaccount:<namespace>:onboarding-api", and Vault's kubernetes auth method binds
+# the NKey role to this SA.
+serviceAccount:
+  create: true
+  name: onboarding-api
+
+# The platform's JWTlet (RFC 8693 token exchange)
+jwtlet:
+  healthUrl: http://jwtlet.edc-v.svc.cluster.local:8080/health
+  mgmtUrl: http://jwtlet.edc-v.svc.cluster.local:8081/api/v1
+  # Audience of the projected SA token; must match jwtlet's `client_audience`
+  # (the Kubernetes cluster issuer)
+  subjectTokenAudience: https://kubernetes.default.svc.cluster.local
+  subjectTokenExpirationSeconds: 3600
+  # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet
+  seed:
+    enabled: true
+    participantContext: issuer
+    # Must cover the scopes the app exchanges for: cfm-read/cfm-write (Tenant Manager)
+    # and admin (IdentityHub)
+    scopes:
+      - identity-api:read
+      - identity-api:write
+      - identity-api:admin
+      - issuer-admin-api:read
+      - issuer-admin-api:write
+      - tenant-manager-api:read
+      - tenant-manager-api:write
+    # jwtlet participant-token audience (client_audience / bound_audiences)
+    audiences:
+      - edcv
+    image: curlimages/curl:latest
+    hookDeletePolicy: before-hook-creation,hook-succeeded
+    ttlSecondsAfterFinished: 600
+
+# Init container that fetches the NATS NKey seed from Vault onto a pod-private in-memory volume
+# at /vault/secrets/nats.nk (where config nats.nkey-seed-path points). Only rendered when
+# config.nats.enabled is also true. Requires the platform's vault-bootstrap to have created the
+# role and the nats-auth-bootstrap job to have stored the seed.
+#
+# NOTE the platform names its infra resources <release-name>-*: the defaults below assume the
+# canonical cx-ve umbrella release (release name "cx-ve" → cx-ve-vault / cx-ve-nats /
+# cx-ve-nats-auth). Installing this chart against a differently-named platform release means
+# overriding them.
+natsAuth:
+  enabled: true
+  vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200
+  vaultRole: nats-onboarding-api
+  vaultSecretPath: secret/nats/onboarding-api
+  image: hashicorp/vault:latest
+  # Seed job replicating what the platform's bootstrap does for its own components (the platform
+  # chart does not know about the onboarding API): creates the Vault policy/role above,
+  # generates + stores the NKey seed, merges the public key into the platform's NATS users.conf
+  # Secret and rolls the NATS server.
+  # CAVEAT: a platform upgrade regenerates users.conf and drops this entry — re-run
+  # `helm upgrade` on the release to re-merge it (the job re-runs on every revision).
+  seed:
+    enabled: true
+    # Vault admin token (the platform's dev-mode Vault; matches its vault.connection.rootToken)
+    vaultToken: root
+    # Namespace and names of the platform's NATS auth Secret and Deployment
+    # (<release>-nats-auth / <release>-nats)
+    platformNamespace: edc-v
+    usersConfSecret: cx-ve-nats-auth
+    natsDeployment: cx-ve-nats
+    image: natsio/nats-box:latest
+
+# Gateway API exposure (there is deliberately no Ingress template)
+httpRoute:
+  enabled: true
+  # The Gateway this route attaches to — adjust to the target cluster
+  parentRefs:
+    - name: edcv-gateway
+      # namespace: gateway-system
+  hostnames:
+    - cxve.localhost
+  pathPrefix: /onboarding
+
+resources: {}
+
+# Complete application configuration. Rendered 1:1 into the ConfigMap as application.yaml and
+# mounted over the image's packaged defaults (SPRING_CONFIG_ADDITIONALLOCATION), so every key
+# below overrides the corresponding baked-in value — property names are exactly Spring's.
+config:
+  spring:
+    application:
+      name: cx-ve
+  # Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and
+  # springdoc URLs are generated with the external /onboarding prefix
+  server:
+    forward-headers-strategy: framework
+  springdoc:
+    swagger-ui:
+      path: /swagger
+  logging:
+    level:
+      com.metaform.cxve: INFO
+  # NATS/JetStream issuance-event subscriber (drives onboarding completion)
+  nats:
+    enabled: true
+    url: nats://cx-ve-nats.edc-v.svc.cluster.local:4222
+    stream: edc-events
+    durable-name: onboarding-api
+    subject-filter: "events.issuance.>"
+    # Blank -> connect unauthenticated (e.g. local dev NATS)
+    nkey-seed-path: /vault/secrets/nats.nk
+  # Token exchange (RFC 8693): workload token file + exchange endpoint
+  token:
+    file:
+      path: /var/run/secrets/jwtlet/token
+    exchange:
+      url: http://jwtlet.edc-v.svc.cluster.local:8080
+      audience: edcv
+      resource: issuer
+  # Downstream services
+  tenant-manager:
+    url: http://tenant-manager.edc-v.svc.cluster.local:8080/api/v1alpha1
+  identityhub:
+    url: http://identityhub.edc-v.svc.cluster.local:7081/api/identity/v1beta
+  # Prefix for participant DIDs when the registration doesn't supply one; the participant's
+  # short name is appended. Must match the platform's IdentityHub did:web hostname
+  # (identity.<host>): IdentityHub reconstructs the DID from the request URL and looks it up by
+  # exact match, so a DID minted under any other authority will not resolve through the gateway.
+  # A non-default gateway port belongs in the authority percent-encoded, e.g.
+  # "did:web:identity.example.com%3A8080:".
+  participant:
+    did:
+      template: "did:web:identity.cxve.localhost:"
+    # The participant's transfer-type mapping, installed on its data plane (Siglet) at
+    # provisioning; the mapping key (transfer-type) becomes the catalog distribution format of
+    # the participant's assets. It serves the CCM certificate exchanges (CX-0135): the endpoint
+    # is Certo's protocol API, which lives at the server root of the in-cluster service
+    # (release-derived name, <release>-certo) — NOT the gateway path, since the flow
+    # counterparty calls it with a Siglet flow token, not a jwtlet management token.
+    # (The app's generic `participant.dataplane` mapping stays disabled — its app default has an
+    # empty endpoint — so this is the only mapping.)
+    ccm:
+      transfer-type:  "HttpData-PULL"
+      endpoint-type: HTTP
+      endpoint: http://cx-ve-certo.edc-v.svc.cluster.local:8080
+      token-source: provider
