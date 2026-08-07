@@ -25,4 +25,5 @@ jobs:
           cache: gradle
 
       - name: Build and test
+        working-directory: onboarding-api
         run: ./gradlew build
