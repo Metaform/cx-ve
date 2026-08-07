@@ -39,3 +39,6 @@ nats.nk
 token
 # vendored umbrella subcharts (helm dependency update)
 charts/cx-ve/charts/
+
+### Go ###
+compliance-tracker/bin/
