@@ -4,17 +4,22 @@ Monorepo containing:
 
 | Path | Contents |
 |---|---|
-| `app/` | Spring Boot application (Java 17, Gradle) |
+| `onboarding-api/` | Spring Boot application (Java 17, Gradle) — self-contained build |
 | `charts/onboarding-api/` | Helm chart for the Onboarding API application |
 | `charts/cx-ve/` | Umbrella chart: the whole VE (platform, Catena-X profile, Onboarding API, Certo + agent) as one release |
 | `scripts/` | Utility and automation scripts |
 
 ## Building
 
+The Gradle build lives in `onboarding-api/` (its own build root — the repository root is not a
+Gradle project):
+
 ```shell
-./gradlew build          # compile and run tests
-./gradlew :app:bootRun   # run the application locally (port 8080)
-./gradlew :app:bootBuildImage   # build an OCI container image via buildpacks
+cd onboarding-api
+./gradlew build            # compile and run tests
+./gradlew bootRun          # run the application locally (port 8080)
+./gradlew bootBuildImage   # build an OCI container image via buildpacks
+docker build -t cx-ve .    # alternative image build (layered jar Dockerfile)
 ```
 
 ## Deploying

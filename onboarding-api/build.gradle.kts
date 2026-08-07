@@ -38,7 +38,7 @@ testing {
         // they exercise the deployed API through the gateway, not the code in this module.
         // Wire payloads are mirrored locally (see NewParticipantData) to keep it that way.
         // Not wired into `check`/`build` (needs a live cluster); run on demand:
-        //   ./gradlew :app:e2eTest
+        //   ./gradlew e2eTest
         register<JvmTestSuite>("e2eTest") {
             useJUnitJupiter()
             dependencies {

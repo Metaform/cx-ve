@@ -36,7 +36,7 @@ import static org.awaitility.Awaitility.await;
  * End-to-end tests against a running VE (stood up by scripts/install-ve.sh) through its
  * gateway — black box, no dependency on the app module's classes; wire payloads are mirrored
  * locally (see {@link NewParticipantData}). The suite is not part of {@code check}/{@code build};
- * run it with {@code ./gradlew :app:e2eTest}.
+ * run it with {@code ./gradlew e2eTest}.
  */
 class VerificationEnvironmentE2ETest {
     private static final String ONBOARDING_API_URL = "http://cxve.localhost/onboarding";
