@@ -10,8 +10,9 @@
 # it (did:web:identity.<host>:<participant>, did:web:issuer.<host>:issuer).
 #
 # All configuration is checked in statically in charts/cx-ve/values.yaml (defaults target
-# cxve.localhost); all images are published — nothing is built or kind-loaded here. A
-# non-default host is applied through the --set overrides assembled below.
+# cxve.localhost); every image but the Onboarding API is pulled from a registry — that one is
+# built from source below and loaded into the cluster, so the VE always runs this checkout's
+# code. A non-default host is applied through the --set overrides assembled below.
 #
 # NOTE the release name cx-ve is load-bearing: the platform chart names its infra resources
 # <release>-nats / <release>-vault / <release>-postgresql, and the umbrella values reference
@@ -154,8 +155,11 @@ kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-s
 # onboarding-api chart is vendored from ../onboarding-api)
 helm dependency update "$UMBRELLA_CHART"
 
-# build and load latest version of Onboarding API
-docker buildx build -f Dockerfile -t ghcr.io/metaform/cx-ve/onboardingapi:latest .
+# Build and load the latest version of the Onboarding API. The build context is onboarding-api/
+# (where the Gradle build now lives), not the repository root: the Dockerfile COPYs gradlew,
+# settings.gradle.kts, build.gradle.kts, gradle/ and src/ from the context root. Same context as
+# .github/workflows/publish.yml uses to build the published image.
+docker buildx build -t ghcr.io/metaform/cx-ve/onboardingapi:latest onboarding-api
 kind load docker-image ghcr.io/metaform/cx-ve/onboardingapi:latest -n $CLUSTER_NAME
 
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
