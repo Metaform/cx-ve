@@ -1,20 +1,439 @@
 package handler
 
-// ComplianceEventData is the payload carried in the CloudEvent's `data` field.
+import "encoding/json"
+
+// Go representations of every concrete subclass of the EDC `Event` base class
+// (org.eclipse.edc.spi.event.Event), as delivered to this agent.
 //
-// These are the identity fields common to CFM lifecycle events; extend the struct as the
-// compliance rules take shape. Fields that are not modelled here are NOT lost: the framework
-// hands the undecoded message body to the processor as EventContext.Raw, so a handler can always
-// re-parse the original JSON for subject-specific fields (see the keypair handler for an example).
+// Wire format: the EDC `events-nats` bridge publishes CloudEvents v1.0 in structured mode. The
+// CloudEvent `type` is the payload's fully-qualified Java class name (e.g.
+// "org.eclipse.edc.identityhub.spi.keypair.events.KeyPairAdded") and `data` holds the event
+// payload — NOT the EventEnvelope, so the envelope's id/at do not appear here. The NATS subject is
+// "events." + the event's Event.name() value, which is what the Subject* constants below spell out.
 //
-// Note that a payload which fails to unmarshal into this type causes the message to be dropped
-// (common/natsclient/processor.go acks undecodable messages), so keep every field optional.
-type ComplianceEventData struct {
-	// ParticipantContextID identifies the participant context the event pertains to. Used by
-	// IdentityHub-sourced events (issuance, keypair).
+// The Java hierarchy is two levels deep: an abstract per-family base (KeyPairEvent, IssuanceEvent,
+// ...) carrying the shared fields, and a concrete leaf per occurrence. That is mirrored here by
+// embedding the family struct, which encoding/json flattens into the same JSON object.
+//
+// Naming: <JavaClassName>Event, so KeyPairAdded -> KeyPairAddedEvent.
+
+// ---------------------------------------------------------------------------------------------
+// Subjects — "events." + Event.name(). Use these in the Process dispatch switch.
+// ---------------------------------------------------------------------------------------------
+
+const (
+	// Asset — org.eclipse.edc.connector.controlplane.asset.spi.event
+	SubjectAssetCreated = "events.asset.created"
+	SubjectAssetUpdated = "events.asset.updated"
+	SubjectAssetDeleted = "events.asset.deleted"
+
+	// ContractDefinition — org.eclipse.edc.connector.controlplane.contract.spi.event.contractdefinition
+	SubjectContractDefinitionCreated = "events.contract.definition.created"
+	SubjectContractDefinitionUpdated = "events.contract.definition.updated"
+	SubjectContractDefinitionDeleted = "events.contract.definition.deleted"
+
+	// ContractNegotiation — org.eclipse.edc.connector.controlplane.contract.spi.event.contractnegotiation
+	SubjectContractNegotiationInitiated  = "events.contract.negotiation.initiated"
+	SubjectContractNegotiationRequested  = "events.contract.negotiation.requested"
+	SubjectContractNegotiationOffered    = "events.contract.negotiation.offered"
+	SubjectContractNegotiationAccepted   = "events.contract.negotiation.accepted"
+	SubjectContractNegotiationAgreed     = "events.contract.negotiation.agreed"
+	SubjectContractNegotiationVerified   = "events.contract.negotiation.verified"
+	SubjectContractNegotiationFinalized  = "events.contract.negotiation.finalized"
+	SubjectContractNegotiationTerminated = "events.contract.negotiation.terminated"
+
+	// PolicyDefinition — org.eclipse.edc.connector.controlplane.policy.spi.event
+	SubjectPolicyDefinitionCreated = "events.policy.definition.created"
+	SubjectPolicyDefinitionUpdated = "events.policy.definition.updated"
+	SubjectPolicyDefinitionDeleted = "events.policy.definition.deleted"
+
+	// TransferProcess — org.eclipse.edc.connector.controlplane.transfer.spi.event
+	SubjectTransferProcessInitiated               = "events.transfer.process.initiated"
+	SubjectTransferProcessProvisioned             = "events.transfer.process.provisioned"
+	SubjectTransferProcessRequested               = "events.transfer.process.requested"
+	SubjectTransferProcessStarted                 = "events.transfer.process.started"
+	SubjectTransferProcessCompleted               = "events.transfer.process.completed"
+	SubjectTransferProcessTerminated              = "events.transfer.process.terminated"
+	SubjectTransferProcessSuspended               = "events.transfer.process.suspended"
+	SubjectTransferProcessDeprovisioned           = "events.transfer.process.deprovisioned"
+	SubjectTransferProcessPrepared                = "events.transfer.process.prepared"
+	SubjectTransferProcessPreparationRequested    = "events.transfer.process.preparationRequested"
+	SubjectTransferProcessDeprovisioningRequested = "events.transfer.process.deprovisioningRequested"
+	// NOTE "resuming", not "resumed" — that is what TransferProcessResumed.name() returns in EDC.
+	SubjectTransferProcessResumed = "events.transfer.process.resuming"
+
+	// Secret — org.eclipse.edc.connector.secret.spi.event
+	SubjectSecretCreated = "events.secret.created"
+	SubjectSecretUpdated = "events.secret.updated"
+	SubjectSecretDeleted = "events.secret.deleted"
+
+	// DidDocument — org.eclipse.edc.identityhub.spi.did.events
+	SubjectDidDocumentPublished   = "events.diddocument.published"
+	SubjectDidDocumentUnpublished = "events.diddocument.unpublished"
+
+	// KeyPair — org.eclipse.edc.identityhub.spi.keypair.events
+	SubjectKeyPairAdded     = "events.keypair.added"
+	SubjectKeyPairActivated = "events.keypair.activated"
+	SubjectKeyPairRotated   = "events.keypair.rotated"
+	SubjectKeyPairRevoked   = "events.keypair.revoked"
+
+	// ParticipantContext — org.eclipse.edc.identityhub.spi.participantcontext.events
+	SubjectParticipantContextCreated  = "events.participantcontext.created"
+	SubjectParticipantContextUpdated  = "events.participantcontext.updated"
+	SubjectParticipantContextDeleting = "events.participantcontext.deleting"
+	SubjectParticipantContextDeleted  = "events.participantcontext.deleted"
+
+	// CredentialOffer — org.eclipse.edc.identityhub.spi.verifiablecredentials.events
+	SubjectCredentialOfferReceived = "events.credentialoffer.received"
+
+	// Issuance — org.eclipse.edc.issuerservice.spi.issuance.events
+	SubjectIssuanceReceived            = "events.issuance.received"
+	SubjectIssuanceRequested           = "events.issuance.requested"
+	SubjectIssuanceApproved            = "events.issuance.approved"
+	SubjectIssuanceRejected            = "events.issuance.rejected"
+	SubjectIssuanceErrored             = "events.issuance.errored"
+	SubjectIssuanceCredentialGenerated = "events.issuance.credential.generated"
+	SubjectIssuanceCredentialDelivered = "events.issuance.credential.delivered"
+)
+
+// ---------------------------------------------------------------------------------------------
+// Asset
+// ---------------------------------------------------------------------------------------------
+
+// AssetEvent carries the fields shared by all asset events.
+type AssetEvent struct {
+	AssetID              string `json:"assetId,omitempty"`
 	ParticipantContextID string `json:"participantContextId,omitempty"`
-	// ParticipantID is the CFM participant identifier, as set on provisioning activity payloads.
-	ParticipantID string `json:"cfm.participant.id,omitempty"`
-	// ID is the identifier of the domain object the event is about (a credential, a key, ...).
-	ID string `json:"id,omitempty"`
+}
+
+type AssetCreatedEvent struct{ AssetEvent }
+type AssetUpdatedEvent struct{ AssetEvent }
+type AssetDeletedEvent struct{ AssetEvent }
+
+// ---------------------------------------------------------------------------------------------
+// ContractDefinition
+// ---------------------------------------------------------------------------------------------
+
+// ContractDefinitionEvent carries the fields shared by all contract definition events.
+type ContractDefinitionEvent struct {
+	ContractDefinitionID string `json:"contractDefinitionId,omitempty"`
+	ParticipantContextID string `json:"participantContextId,omitempty"`
+}
+
+type ContractDefinitionCreatedEvent struct{ ContractDefinitionEvent }
+type ContractDefinitionUpdatedEvent struct{ ContractDefinitionEvent }
+type ContractDefinitionDeletedEvent struct{ ContractDefinitionEvent }
+
+// ---------------------------------------------------------------------------------------------
+// ContractNegotiation
+// ---------------------------------------------------------------------------------------------
+
+// ContractNegotiationEvent carries the fields shared by all contract negotiation events.
+type ContractNegotiationEvent struct {
+	ContractNegotiationID string `json:"contractNegotiationId,omitempty"`
+	CounterPartyAddress   string `json:"counterPartyAddress,omitempty"`
+	CounterPartyID        string `json:"counterPartyId,omitempty"`
+	ParticipantContextID  string `json:"participantContextId,omitempty"`
+	Protocol              string `json:"protocol,omitempty"`
+}
+
+type ContractNegotiationInitiatedEvent struct{ ContractNegotiationEvent }
+type ContractNegotiationRequestedEvent struct{ ContractNegotiationEvent }
+type ContractNegotiationOfferedEvent struct{ ContractNegotiationEvent }
+type ContractNegotiationAcceptedEvent struct{ ContractNegotiationEvent }
+type ContractNegotiationAgreedEvent struct{ ContractNegotiationEvent }
+type ContractNegotiationVerifiedEvent struct{ ContractNegotiationEvent }
+
+// ContractNegotiationFinalizedEvent carries the concluded agreement. Kept raw: a ContractAgreement
+// embeds an ODRL policy, a JSON-LD graph nothing here needs to walk.
+type ContractNegotiationFinalizedEvent struct {
+	ContractNegotiationEvent
+	ContractAgreement json.RawMessage `json:"contractAgreement,omitempty"`
+}
+
+type ContractNegotiationTerminatedEvent struct {
+	ContractNegotiationEvent
+	Reason string `json:"reason,omitempty"`
+}
+
+// ---------------------------------------------------------------------------------------------
+// PolicyDefinition
+// ---------------------------------------------------------------------------------------------
+
+// PolicyDefinitionEvent carries the fields shared by all policy definition events.
+type PolicyDefinitionEvent struct {
+	PolicyDefinitionID   string `json:"policyDefinitionId,omitempty"`
+	ParticipantContextID string `json:"participantContextId,omitempty"`
+}
+
+type PolicyDefinitionCreatedEvent struct{ PolicyDefinitionEvent }
+type PolicyDefinitionUpdatedEvent struct{ PolicyDefinitionEvent }
+type PolicyDefinitionDeletedEvent struct{ PolicyDefinitionEvent }
+
+// ---------------------------------------------------------------------------------------------
+// TransferProcess
+// ---------------------------------------------------------------------------------------------
+
+// TransferProcessEvent carries the fields shared by all transfer process events. Type here is the
+// transfer type (e.g. "HttpData-PULL"), not the CloudEvent type.
+type TransferProcessEvent struct {
+	TransferProcessID    string `json:"transferProcessId,omitempty"`
+	AssetID              string `json:"assetId,omitempty"`
+	Type                 string `json:"type,omitempty"`
+	ContractID           string `json:"contractId,omitempty"`
+	ParticipantContextID string `json:"participantContextId,omitempty"`
+	Protocol             string `json:"protocol,omitempty"`
+}
+
+type TransferProcessInitiatedEvent struct{ TransferProcessEvent }
+type TransferProcessProvisionedEvent struct{ TransferProcessEvent }
+type TransferProcessRequestedEvent struct{ TransferProcessEvent }
+type TransferProcessCompletedEvent struct{ TransferProcessEvent }
+type TransferProcessDeprovisionedEvent struct{ TransferProcessEvent }
+type TransferProcessPreparedEvent struct{ TransferProcessEvent }
+type TransferProcessPreparationRequestedEvent struct{ TransferProcessEvent }
+type TransferProcessDeprovisioningRequestedEvent struct{ TransferProcessEvent }
+
+type TransferProcessStartedEvent struct {
+	TransferProcessEvent
+	DataAddress *DataAddress `json:"dataAddress,omitempty"`
+}
+
+type TransferProcessTerminatedEvent struct {
+	TransferProcessEvent
+	Reason string `json:"reason,omitempty"`
+}
+
+type TransferProcessSuspendedEvent struct {
+	TransferProcessEvent
+	Reason string `json:"reason,omitempty"`
+}
+
+type TransferProcessResumedEvent struct {
+	TransferProcessEvent
+	Reason string `json:"reason,omitempty"`
+}
+
+// ---------------------------------------------------------------------------------------------
+// Secret
+// ---------------------------------------------------------------------------------------------
+
+// SecretEvent carries the fields shared by all secret events. Unlike the other control-plane
+// families it has no participantContextId.
+type SecretEvent struct {
+	SecretID string `json:"secretId,omitempty"`
+}
+
+type SecretCreatedEvent struct{ SecretEvent }
+type SecretUpdatedEvent struct{ SecretEvent }
+type SecretDeletedEvent struct{ SecretEvent }
+
+// ---------------------------------------------------------------------------------------------
+// DidDocument
+// ---------------------------------------------------------------------------------------------
+
+// DidDocumentEvent carries the fields shared by all DID document events.
+type DidDocumentEvent struct {
+	Did                  string `json:"did,omitempty"`
+	ParticipantContextID string `json:"participantContextId,omitempty"`
+}
+
+type DidDocumentPublishedEvent struct{ DidDocumentEvent }
+type DidDocumentUnpublishedEvent struct{ DidDocumentEvent }
+
+// ---------------------------------------------------------------------------------------------
+// KeyPair
+// ---------------------------------------------------------------------------------------------
+
+// KeyPairEvent carries the fields shared by all key pair events.
+type KeyPairEvent struct {
+	ParticipantContextID string           `json:"participantContextId,omitempty"`
+	KeyPairResource      *KeyPairResource `json:"keyPairResource,omitempty"`
+	KeyID                string           `json:"keyId,omitempty"`
+}
+
+type KeyPairAddedEvent struct {
+	KeyPairEvent
+	PublicKeySerialized string `json:"publicKeySerialized,omitempty"`
+	Type                string `json:"type,omitempty"`
+}
+
+type KeyPairActivatedEvent struct {
+	KeyPairEvent
+	PublicKeySerialized string `json:"publicKeySerialized,omitempty"`
+	Type                string `json:"type,omitempty"`
+}
+
+// KeyPairRotatedEvent describes the key being retired. NewKeyDescriptor is @Nullable in EDC — it is
+// absent when the key is rotated without a successor.
+type KeyPairRotatedEvent struct {
+	KeyPairEvent
+	NewKeyDescriptor *KeyDescriptor `json:"newKeyDescriptor,omitempty"`
+}
+
+// KeyPairRevokedEvent mirrors KeyPairRotatedEvent; NewKeyDescriptor is likewise nullable.
+type KeyPairRevokedEvent struct {
+	KeyPairEvent
+	NewKeyDescriptor *KeyDescriptor `json:"newKeyDescriptor,omitempty"`
+}
+
+// ---------------------------------------------------------------------------------------------
+// ParticipantContext
+// ---------------------------------------------------------------------------------------------
+
+// ParticipantContextEvent carries the fields shared by all participant context events.
+type ParticipantContextEvent struct {
+	ParticipantContextID string            `json:"participantContextId,omitempty"`
+	TraceContext         map[string]string `json:"traceContext,omitempty"`
+}
+
+type ParticipantContextCreatedEvent struct {
+	ParticipantContextEvent
+	Manifest *ParticipantManifest `json:"manifest,omitempty"`
+}
+
+type ParticipantContextUpdatedEvent struct {
+	ParticipantContextEvent
+	NewState ParticipantContextState `json:"newState,omitempty"`
+}
+
+// ParticipantContextDeletingEvent carries the context as it was immediately before deletion. Kept
+// raw: IdentityHubParticipantContext is a large aggregate and nothing here needs to walk it.
+type ParticipantContextDeletingEvent struct {
+	ParticipantContextEvent
+	ParticipantContext json.RawMessage `json:"participantContext,omitempty"`
+}
+
+type ParticipantContextDeletedEvent struct{ ParticipantContextEvent }
+
+// ---------------------------------------------------------------------------------------------
+// CredentialOffer
+// ---------------------------------------------------------------------------------------------
+
+// CredentialOfferEvent carries the fields shared by all credential offer events.
+type CredentialOfferEvent struct {
+	ParticipantContextID string `json:"participantContextId,omitempty"`
+	Issuer               string `json:"issuer,omitempty"`
+	ID                   string `json:"id,omitempty"`
+}
+
+type CredentialOfferReceivedEvent struct{ CredentialOfferEvent }
+
+// ---------------------------------------------------------------------------------------------
+// Issuance
+// ---------------------------------------------------------------------------------------------
+
+// IssuanceEvent carries the fields shared by all issuance events. This family has NO
+// participantContextId: the issuer side is IssuerParticipantContextID and the holder is HolderID.
+type IssuanceEvent struct {
+	HolderID                   string `json:"holderId,omitempty"`
+	IssuerParticipantContextID string `json:"issuerParticipantContextId,omitempty"`
+	HolderProcessID            string `json:"holderProcessId,omitempty"`
+	IssuanceProcessID          string `json:"issuanceProcessId,omitempty"`
+}
+
+type IssuanceApprovedEvent struct{ IssuanceEvent }
+
+type IssuanceReceivedEvent struct {
+	IssuanceEvent
+	RequestedFormats map[string]CredentialFormat `json:"requestedFormats,omitempty"`
+}
+
+type IssuanceRequestedEvent struct {
+	IssuanceEvent
+	CredentialDefinitionIDs []string                    `json:"credentialDefinitionIds,omitempty"`
+	CredentialFormats       map[string]CredentialFormat `json:"credentialFormats,omitempty"`
+}
+
+type IssuanceRejectedEvent struct {
+	IssuanceEvent
+	Reason string `json:"reason,omitempty"`
+}
+
+// IssuanceProcessErroredEvent is published on SubjectIssuanceErrored ("events.issuance.errored") —
+// the subject does not follow the class name here.
+type IssuanceProcessErroredEvent struct {
+	IssuanceEvent
+	ErrorMessage string `json:"errorMessage,omitempty"`
+}
+
+// CredentialGeneratedEvent carries the freshly minted credentials. They stay raw: a
+// VerifiableCredential is a JSON-LD graph whose shape depends on the credential type.
+type CredentialGeneratedEvent struct {
+	IssuanceEvent
+	Credentials []json.RawMessage `json:"credentials,omitempty"`
+}
+
+// CredentialDeliveredEvent signals credentials reached the holder — the event the Onboarding API
+// treats as onboarding completion.
+type CredentialDeliveredEvent struct {
+	IssuanceEvent
+	Credentials []json.RawMessage `json:"credentials,omitempty"`
+}
+
+// ---------------------------------------------------------------------------------------------
+// Supporting value types
+// ---------------------------------------------------------------------------------------------
+
+// ParticipantContextState is serialized by Jackson as the enum constant name — there is no
+// @JsonValue on its int code — so it is a string on the wire.
+type ParticipantContextState string
+
+const (
+	ParticipantContextStateCreated     ParticipantContextState = "CREATED"
+	ParticipantContextStateActivated   ParticipantContextState = "ACTIVATED"
+	ParticipantContextStateDeactivated ParticipantContextState = "DEACTIVATED"
+)
+
+// CredentialFormat is likewise serialized as the enum constant name.
+type CredentialFormat string
+
+const (
+	CredentialFormatVC10LD    CredentialFormat = "VC1_0_LD"
+	CredentialFormatVC10JWT   CredentialFormat = "VC1_0_JWT"
+	CredentialFormatVC20JOSE  CredentialFormat = "VC2_0_JOSE"
+	CredentialFormatVC20SDJWT CredentialFormat = "VC2_0_SD_JWT"
+	CredentialFormatVC20COSE  CredentialFormat = "VC2_0_COSE"
+)
+
+// KeyPairResource is the IdentityHub key pair record embedded in every KeyPairEvent.
+type KeyPairResource struct {
+	KeyID                string `json:"keyId,omitempty"`
+	SerializedPublicKey  string `json:"serializedPublicKey,omitempty"`
+	PrivateKeyAlias      string `json:"privateKeyAlias,omitempty"`
+	ParticipantContextID string `json:"participantContextId,omitempty"`
+	GroupName            string `json:"groupName,omitempty"`
+	KeyContext           string `json:"keyContext,omitempty"`
+	DefaultPair          bool   `json:"defaultPair,omitempty"`
+	UseDuration          int64  `json:"useDuration,omitempty"`
+	RotationDuration     int64  `json:"rotationDuration,omitempty"`
+	Timestamp            int64  `json:"timestamp,omitempty"`
+	// State is the numeric participant-resource state code, not a string.
+	State int `json:"state,omitempty"`
+}
+
+// KeyDescriptor describes a key being introduced — e.g. the successor on rotation or revocation.
+type KeyDescriptor struct {
+	KeyID              string         `json:"keyId,omitempty"`
+	Type               string         `json:"type,omitempty"`
+	PrivateKeyAlias    string         `json:"privateKeyAlias,omitempty"`
+	PublicKeyJwk       map[string]any `json:"publicKeyJwk,omitempty"`
+	PublicKeyPem       string         `json:"publicKeyPem,omitempty"`
+	KeyGeneratorParams map[string]any `json:"keyGeneratorParams,omitempty"`
+}
+
+// ParticipantManifest is the creation-time descriptor on ParticipantContextCreatedEvent.
+type ParticipantManifest struct {
+	ParticipantID    string          `json:"participantId,omitempty"`
+	Did              string          `json:"did,omitempty"`
+	Active           bool            `json:"active,omitempty"`
+	Key              *KeyDescriptor  `json:"key,omitempty"`
+	Roles            []string        `json:"roles,omitempty"`
+	ServiceEndpoints json.RawMessage `json:"serviceEndpoints,omitempty"`
+}
+
+// DataAddress is the destination on TransferProcessStartedEvent. Its schema is open — the concrete
+// keys depend on the transfer type — so the properties bag stays generic.
+type DataAddress struct {
+	Properties map[string]any `json:"properties,omitempty"`
 }

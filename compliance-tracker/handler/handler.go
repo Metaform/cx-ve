@@ -3,47 +3,11 @@ package handler
 
 import (
 	"context"
-	"strings"
+	"encoding/json"
 
 	"github.com/eclipse-cfm/cfm/common/lifecycleagent"
 	"github.com/eclipse-cfm/cfm/common/system"
 )
-
-// Subject prefixes the tracker dispatches on. Matching is by prefix rather than by exact subject
-// so that a new leaf subject in a family (e.g. "events.issuance.rejected") reaches its handler
-// instead of silently falling through to the default branch.
-const (
-	IssuanceSubjectPrefix = "events.issuance."
-	KeyPairSubjectPrefix  = "events.keypair."
-)
-
-// Route identifies the compliance rule responsible for a subject.
-type Route int
-
-const (
-	// RouteIgnore marks a subject the tracker has no rule for.
-	RouteIgnore Route = iota
-	// RouteIssuance marks credential issuance events.
-	RouteIssuance
-	// RouteKeyPair marks key lifecycle events.
-	RouteKeyPair
-)
-
-// RouteFor classifies a NATS subject into the compliance rule that handles it. Kept separate from
-// Process so the routing table can be exercised without a running agent.
-func RouteFor(subject string) Route {
-	switch {
-	case strings.HasPrefix(subject, IssuanceSubjectPrefix):
-		return RouteIssuance
-	case strings.HasPrefix(subject, KeyPairSubjectPrefix):
-		return RouteKeyPair
-	default:
-		return RouteIgnore
-	}
-}
-
-// ComplianceEvent is the CloudEvents v1.0 envelope the tracker consumes.
-type ComplianceEvent = lifecycleagent.CloudEvent[ComplianceEventData]
 
 // Config holds the dependencies required by the Processor. Downstream clients (an HTTP client, a
 // token provider, a store) get added here as the compliance rules start calling out; see
@@ -70,50 +34,63 @@ func NewProcessor(config *Config) *Processor {
 // error (types.NewRecoverableError / types.NewRecoverableWrappedError) negatively acknowledges it
 // so it is redelivered, and any other error is treated as fatal — the message is acknowledged and
 // dropped. Delivery is at-least-once, so handlers must be idempotent.
-func (p *Processor) Process(ctx context.Context, evt lifecycleagent.EventContext[ComplianceEvent]) error {
-	p.monitor.Infof("Received event on %s (type=%s, id=%s)", evt.Subject, evt.Payload.Type, evt.Payload.ID)
+func (p *Processor) Process(ctx context.Context, evt lifecycleagent.EventContext[lifecycleagent.CloudEvent[any]]) error {
 
-	switch RouteFor(evt.Subject) {
-	case RouteIssuance:
-		return p.handleIssuance(ctx, evt)
-	case RouteKeyPair:
-		return p.handleKeyPair(ctx, evt)
-	default:
-		// The agent may be subscribed more broadly than it has rules for; ignoring an unmodelled
-		// subject acknowledges the message rather than letting it be redelivered forever.
-		p.monitor.Debugf("No compliance rule for subject %s, ignoring", evt.Subject)
-		return nil
+	p.monitor.Infof("Event received: [%s] sends [%s]", evt.Payload.Source, evt.Subject)
+
+	jsonRaw, err := json.Marshal(evt.Payload.Data)
+	if err != nil {
+		return err
 	}
-}
 
-// handleIssuance processes credential issuance events (events.issuance.*) emitted by IdentityHub.
-func (p *Processor) handleIssuance(_ context.Context, evt lifecycleagent.EventContext[ComplianceEvent]) error {
-	data := evt.Payload.Data
-	p.monitor.Debugf("Issuance event %s for participant context '%s'", evt.Subject, data.ParticipantContextID)
-
-	// TODO: record the credential's compliance state for this participant.
-	//
-	// When this calls a downstream service, classify its failures: a transient one must be
-	// returned as a recoverable error so the message is redelivered, e.g.
-	//
-	//   if err := p.someClient.Record(ctx, data.ParticipantContextID); err != nil {
-	//       return types.NewRecoverableWrappedError(err, "recording issuance for '%s'", data.ParticipantContextID)
-	//   }
-	//
-	// while a permanently malformed payload should return a plain error (or nil) so the message
-	// is dropped instead of poisoning the consumer.
-	return nil
-}
-
-// handleKeyPair processes key lifecycle events (events.keypair.*) emitted by IdentityHub.
-func (p *Processor) handleKeyPair(_ context.Context, evt lifecycleagent.EventContext[ComplianceEvent]) error {
-	data := evt.Payload.Data
-	p.monitor.Debugf("Key pair event %s for participant context '%s'", evt.Subject, data.ParticipantContextID)
-
-	// TODO: track key hygiene (rotation age, revocation) for this participant.
-	//
-	// Subject-specific fields that ComplianceEventData does not model — the key descriptor on
-	// rotated/revoked events, for instance — are still available in evt.Raw and can be unmarshalled
-	// into a purpose-built struct here.
+	subject := evt.Subject
+	switch subject {
+	case "events.keypair.added":
+		edcEvt := KeyPairAddedEvent{}
+		err = json.Unmarshal(jsonRaw, &edcEvt)
+		_ = edcEvt
+	case "events.keypair.activated":
+		edcEvt := KeyPairActivatedEvent{}
+		err = json.Unmarshal(jsonRaw, &edcEvt)
+		_ = edcEvt
+	case "events.diddocument.published":
+		edcEvt := DidDocumentPublishedEvent{}
+		err = json.Unmarshal(jsonRaw, &edcEvt)
+		did := edcEvt.Did
+		pcId := edcEvt.ParticipantContextID
+		// linking those two
+		p.monitor.Infof("Linking <%s> and <%s>", pcId, did)
+	case "events.participantcontext.updated":
+		edcEvt := ParticipantContextUpdatedEvent{}
+		err = json.Unmarshal(jsonRaw, &edcEvt)
+		_ = edcEvt
+	case "events.participantcontext.created":
+		edcEvt := ParticipantContextCreatedEvent{}
+		err = json.Unmarshal(jsonRaw, &edcEvt)
+		_ = edcEvt
+	case "events.issuance.received":
+		edcEvt := IssuanceReceivedEvent{}
+		err = json.Unmarshal(jsonRaw, &edcEvt)
+		_ = edcEvt
+	case "events.issuance.requested":
+		edcEvt := IssuanceRequestedEvent{}
+		err = json.Unmarshal(jsonRaw, &edcEvt)
+		_ = edcEvt
+	case "events.issuance.approved":
+		edcEvt := IssuanceApprovedEvent{}
+		err = json.Unmarshal(jsonRaw, &edcEvt)
+		_ = edcEvt
+	case "events.issuance.credential.generated":
+		edcEvt := CredentialGeneratedEvent{}
+		err = json.Unmarshal(jsonRaw, &edcEvt)
+		_ = edcEvt
+	case "events.issuance.credential.delivered":
+		edcEvt := CredentialDeliveredEvent{}
+		err = json.Unmarshal(jsonRaw, &edcEvt)
+		_ = edcEvt
+	}
+	if err != nil {
+		return err
+	}
 	return nil
 }

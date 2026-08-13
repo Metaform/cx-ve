@@ -43,11 +43,11 @@ const (
 // overlaps one of these (a catch-all, or a leaf like "events.issuance.delivered") fails at
 // startup with "consumer subject filters cannot overlap". To subscribe to something narrower,
 // change this slice.
-var DefaultSubjects = []string{"events.issuance.>", "events.keypair.>"}
+var DefaultSubjects = []string{"events.>"}
 
 // LaunchAndWaitSignal starts the agent and blocks until the shutdown channel is closed.
 func LaunchAndWaitSignal(shutdown <-chan struct{}) {
-	config := lifecycleagent.LauncherConfig[handler.ComplianceEvent]{
+	config := lifecycleagent.LauncherConfig[lifecycleagent.CloudEvent[any]]{
 		AgentName:    AgentName,
 		ServiceName:  ServiceName,
 		ConfigPrefix: ConfigPrefix,
@@ -56,7 +56,7 @@ func LaunchAndWaitSignal(shutdown <-chan struct{}) {
 		// call one, register &httpclient.HttpClientServiceAssembly{} here, resolve it from
 		// ctx.Registry with serviceapi.HttpClientKey, and build a token provider with
 		// tokenexchange.NewTokenExchangeProvider — see the CFM keymanagementagent launcher.
-		NewProcessor: func(ctx *lifecycleagent.AgentContext) lifecycleagent.EventProcessor[handler.ComplianceEvent] {
+		NewProcessor: func(ctx *lifecycleagent.AgentContext) lifecycleagent.EventProcessor[lifecycleagent.CloudEvent[any]] {
 			return handler.NewProcessor(&handler.Config{
 				LogMonitor: ctx.Monitor,
 			})

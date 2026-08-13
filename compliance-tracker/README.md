@@ -89,7 +89,17 @@ end to end and is the quickest way to see the whole path exercised.
 
 ## Deployment
 
-Not deployed yet — there is no Helm template for it. When you add one,
-`charts/cx-ve/templates/certo-agent.yaml` is the model: a ConfigMap keyed `compliancetracker.env`
-mounted at `/etc/appname`, a Vault init container delivering the NATS NKey seed for
-`nats.auth.nkeySeedFile`, and `envFrom: telemetry-config`.
+Deployed by the umbrella chart: `charts/cx-ve/templates/compliance-tracker.yaml`, configured under
+`complianceTracker` in `charts/cx-ve/values.yaml`. A ConfigMap keyed `compliancetracker.env` is
+mounted at `/etc/appname`, a Vault init container delivers the NATS NKey seed for
+`nats.auth.nkeySeedFile`, and telemetry comes from `envFrom: telemetry-config`.
+
+It runs under the platform's `cfm-agents` ServiceAccount rather than an identity of its own — that
+component is already provisioned by the platform (Vault role `nats-cfm-agents`, seed at
+`secret/nats/cfm-agents`) and its NATS user is permitted to `subscribe: ["events.>"]`, granted so
+CFM's kmagent can consume the same `edc-events` stream. Nothing to seed from this release. That
+permission set is also why the KV bucket must be `cfm-bucket`: it is the only `$KV.*` subject the
+`cfm-agents` user may touch, and the framework opens the bucket on connect.
+
+Disabling NATS auth is all-or-nothing across the release — `complianceTracker.natsAuth.enabled` is
+switch 5 of 5, documented in the NATS authentication block at the top of `charts/cx-ve/values.yaml`.

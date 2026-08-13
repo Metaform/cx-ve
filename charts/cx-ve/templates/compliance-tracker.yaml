@@ -1,0 +1,130 @@
+## CFM lifecycle agent (built from this repo, see compliance-tracker/): a durable JetStream
+## consumer on the platform's edc-events stream that receives EDC lifecycle CloudEvents
+## (events.issuance.*, events.keypair.*) and tracks participant compliance from them.
+##
+## Unlike certo-agent this is a LIFECYCLE agent (common/lifecycleagent), not an orchestration
+## agent: it is driven by domain events on NATS subjects rather than by provision-manager activity
+## messages, so it needs no activity/orchestration seeding. It also calls no downstream API yet,
+## hence no jwtlet token exchange and no projected subject token — add both (plus a jwtlet mapping
+## in certo-jwtlet-seed-job.yaml or a sibling) when a compliance rule starts calling out.
+##
+## It runs under the platform's "cfm-agents" ServiceAccount, which is the identity the platform
+## already provisions for CFM agents: Vault role nats-cfm-agents + seed at secret/nats/cfm-agents,
+## and a NATS user permitted to `subscribe: ["events.>"]` (granted for kmagent, which consumes the
+## same edc-events stream). That permission set is also why the KV bucket must be cfm-bucket — it
+## is the only $KV.* subject the cfm-agents user may touch.
+{{- if .Values.complianceTracker.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-tracker-config
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+data:
+  # The file name must be the agent's config prefix ("compliancetracker"), and the extension one of
+  # "json", "toml", "yaml", "yml", "properties", "props", "prop", "hcl", "tfvars", "dotenv", "env", "ini"
+  compliancetracker.env: |
+    uri: {{ .Values.complianceTracker.config.natsUrl }}
+    bucket: {{ .Values.complianceTracker.config.bucket }}
+    stream: {{ .Values.complianceTracker.config.stream }}
+    {{- with .Values.complianceTracker.config.subjects }}
+    # SPACE-separated, not comma: viper's GetStringSlice on a scalar splits with strings.Fields.
+    subjects: {{ . | join " " }}
+    {{- end }}
+    {{- if .Values.complianceTracker.natsAuth.enabled }}
+    nats.auth.method: nkey
+    nats.auth.nkeySeedFile: /vault/secrets/nats.nk
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compliance-tracker
+  labels:
+    app: compliance-tracker
+    {{- include "cx-ve.labels" . | nindent 4 }}
+spec:
+  # Single replica on purpose: a second pod would join the same durable consumer and split the
+  # event stream between them, so any per-participant state the rules accumulate would be partial.
+  replicas: {{ .Values.complianceTracker.replicas }}
+  selector:
+    matchLabels:
+      app: compliance-tracker
+  template:
+    metadata:
+      labels:
+        app: compliance-tracker
+      annotations:
+        # Roll the pods whenever the agent config changes
+        checksum/config: {{ .Values.complianceTracker.config | toJson | sha256sum }}
+    spec:
+      serviceAccountName: cfm-agents
+      {{- if .Values.complianceTracker.natsAuth.enabled }}
+      initContainers:
+        # Logs into Vault with the pod's SA token and drops the cfm-agents NKey seed on the
+        # pod-private in-memory volume. The platform's own bootstrap provisions both the Vault
+        # role and the seed (cfm-agents is a platform component); this only fetches them,
+        # retrying until the bootstrap jobs have run.
+        #
+        # NOTE this retries forever by design, so if the platform's NATS auth is disabled while
+        # this stays enabled the pod sits in Init:0/1 rather than failing — see the NATS
+        # authentication block in values.yaml, this is switch 5 of 5.
+        - name: fetch-nats-nkey
+          image: {{ .Values.complianceTracker.natsAuth.image }}
+          command: [ "sh", "-ec" ]
+          args:
+            - |
+              export VAULT_ADDR={{ .Values.complianceTracker.natsAuth.vaultUrl | quote }}
+              echo "Fetching the NATS NKey seed (Vault role {{ .Values.complianceTracker.natsAuth.vaultRole }})..."
+              until VAULT_TOKEN=$(vault write -field=token auth/kubernetes/login \
+                  role={{ .Values.complianceTracker.natsAuth.vaultRole }} \
+                  jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null); do
+                echo "Vault login failed (Vault or its bootstrap not ready yet), retrying in 2 seconds..."
+                sleep 2
+              done
+              export VAULT_TOKEN
+              until vault kv get -field=seed {{ .Values.complianceTracker.natsAuth.vaultSecretPath }} > /vault/secrets/nats.nk 2>/dev/null; do
+                echo "Seed not in Vault yet (nats-auth-bootstrap still running?), retrying in 2 seconds..."
+                sleep 2
+              done
+              # 0444 rather than 0400: init and app container may run as different UIDs;
+              # the volume is pod-private tmpfs either way.
+              chmod 0444 /vault/secrets/nats.nk
+              echo "NKey seed written to /vault/secrets/nats.nk"
+          volumeMounts:
+            - name: nats-nkey
+              mountPath: /vault/secrets
+      {{- end }}
+      containers:
+        - name: compliance-tracker
+          image: "{{ .Values.complianceTracker.image.repository }}:{{ .Values.complianceTracker.image.tag }}"
+          imagePullPolicy: {{ .Values.complianceTracker.image.pullPolicy }}
+          # Binary path inside the distroless image (see compliance-tracker/Dockerfile)
+          command: [ "/compliance-tracker" ]
+          args:
+            - "--mode={{ .Values.complianceTracker.mode }}"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/appname
+              readOnly: true
+            {{- if .Values.complianceTracker.natsAuth.enabled }}
+            - name: nats-nkey
+              mountPath: /vault/secrets
+              readOnly: true
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: telemetry-config
+          resources:
+            {{- toYaml .Values.complianceTracker.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: compliance-tracker-config
+        {{- if .Values.complianceTracker.natsAuth.enabled }}
+        # Pod-private in-memory volume the NKey seed is delivered on (never hits disk)
+        - name: nats-nkey
+          emptyDir:
+            medium: Memory
+        {{- end }}
+{{- end }}

@@ -11,10 +11,74 @@ global:
   # jwtlet mappings during participant provisioning; any other namespace breaks provisioning.
   namespace: edc-v
 
+# ==== NATS authentication (NKey) ===============================================================
+# ON everywhere. Components authenticate to NATS with per-component NKeys: the platform's
+# nats-auth-bootstrap job generates the seeds into Vault and renders users.conf into the
+# <release>-nats-auth Secret, vault-bootstrap creates a `nats-<component>` policy + k8s-auth role
+# per service account, and each pod gets a fetch-nats-nkey init container that pulls its own seed.
+#
+# TURNING IT OFF IS ALL-OR-NOTHING — there are SIX switches across four charts and no single
+# global flag (a parent chart cannot drive a subchart value from a template, so they cannot be
+# collapsed). Flip ALL of them together, or leave them all alone:
+#
+#   1. core-platform-distribution.nats.auth.enabled  -> false   (below)
+#   2. certoAgent.natsAuth.enabled                   -> false   (see certoAgent, further down)
+#   3. onboarding-api.natsAuth.enabled               -> false   (see onboarding-api, below)
+#   4. onboarding-api.config.nats.nkey-seed-path     -> ""      (see onboarding-api, below)
+#   5. complianceTracker.natsAuth.enabled            -> false   (see complianceTracker, at the end)
+#   6. certo.natsAuth.enabled                        -> false   (see certo, below)
+#
+# Flipping only #1 is the dangerous half-measure: it removes the PROVISIONING (no
+# nats-auth-bootstrap job -> no <release>-nats-auth Secret; vault-bootstrap skips the nats-*
+# policies and roles) while #2/#3/#5/#6 still CONSUME it. Their init containers and seed jobs retry
+# forever by design, so the pods sit in Init:0/1 indefinitely instead of failing — certo-agent and
+# compliance-tracker loop on `invalid role name "nats-cfm-agents"` (hidden by a 2>/dev/null in the
+# templates) and the onboarding-api nats-auth-seed loops waiting for the users.conf Secret.
+#
+# #4 is easy to miss: it is NOT gated by #3. It is a plain value rendered through
+# `toYaml .Values.config` into the app's application.yaml, so leaving it set makes the app attempt
+# NKey auth against a seed file no init container writes any more. "" is the documented
+# connect-unauthenticated value (NatsProperties.hasNkeyAuth() is false for blank).
+#
+# With auth off the platform renders nats.conf without an `authorization` block at all, so NATS
+# accepts unauthenticated connections and nothing else needs changing.
+#
+# #6 additionally has to be off REGARDLESS of the others, until the platform provisions a certo NATS
+# identity: nats-auth-bootstrap mints users from a fixed list (controlplane, identityhub,
+# issuerservice, cfm-agents, nats-admin) with no certo entry, so even with #1 left ON there is no
+# `nats-certo` role or seed for certo's init container to fetch. Note that switching #6 off does not
+# stop certo publishing — certo.events.nats stays on and connects unauthenticated, which is exactly
+# what scripts/install-ve.sh sets up.
+# ===============================================================================================
+
 # ---- Core Platform Distribution --------------------------------------------------------------
-# NATS auth is deliberately left at the platform default (enabled): the onboarding-api subchart
-# (natsAuth) and the certo agent (certoAgent.natsAuth) are configured for NKey auth to match.
 core-platform-distribution:
+  # NATS auth switch 1 of 4 — see the NATS authentication block above. Uncomment together with
+  # switches 2-4. Covers EVERY platform component at once: the init containers, volumes and
+  # nats.auth.method / edc.nats.auth.nkey.seed.path config keys for controlplane, identityhub,
+  # issuerservice, tenant-manager, provision-manager, cfm-agents, cfm-lifecycle-agents and
+  # kmagent, plus the authorization include in nats.conf, the nats-auth-bootstrap job, the nats-*
+  # policies/roles in vault-bootstrap and the --nkey flag on nats-bootstrap.
+  # nats:
+  #   auth:
+  #     enabled: false
+  nats:
+    auth:
+      # Adds this release's own workloads to the platform's shared `edc-events` NATS identity, so
+      # certo and the onboarding API authenticate as it instead of each minting a user the platform
+      # would drop on its next upgrade.
+      #
+      # The three platform SAs MUST be restated: Helm replaces lists rather than merging them, so
+      # omitting one here would revoke the control plane's, identity hub's or issuer service's
+      # access to their own seed.
+      users:
+        edc-events:
+          serviceAccounts:
+            - controlplane
+            - identityhub
+            - issuerservice
+            - certo
+            - onboarding-api
   edc:
     controlplane:
       # ADDITIONAL issuers for the ROOT (config-based) trusted-issuer registry, rendered as
@@ -82,6 +146,16 @@ catenax-profile:
 onboarding-api:
   image:
     pullPolicy: Never
+  # NATS auth switches 3 and 4 of 4 — see the NATS authentication block at the top of this file.
+  # Uncomment BOTH together with switches 1-2. #3 gates the pod's fetch-nats-nkey init container,
+  # its volume/mount and the whole nats-auth-seed job (Vault policy + role, NKey generation,
+  # users.conf merge). #4 is separate on purpose: it is not gated by #3, and leaving it set makes
+  # the app keep trying NKey auth against a seed file that is no longer delivered.
+  # natsAuth:
+  #   enabled: false
+  # config:
+  #   nats:
+  #     nkey-seed-path: ""
 
 
 # ---- Certo (CX-0135 certificate exchange) ----------------------------------------------------
@@ -101,6 +175,44 @@ certo:
   # behind clearglass, which requires siglet-api scopes on /tokens/** (and doesn't map
   # POST /tokens/verify at all -> default deny).
   sigletBaseUrl: "http://siglet.edc-v.svc.cluster.local:8080"
+  # Certificate-exchange status changes (CX-0135 §2.1.3) published as CloudEvents onto the platform's
+  # edc-events stream, on subjects events.certificate.exchange.* — the same stream and envelope shape
+  # the EDC runtimes use, so the compliance tracker and any other events.> consumer sees them
+  # alongside the connector's.
+  #
+  # ON by default. natsAuth below is NATS auth switch 6 of 6 (see the block at the top of this file);
+  # publishing itself stays on when auth is switched off, over an unauthenticated connection.
+  #
+  # CAVEAT: the platform's nats-auth-bootstrap mints users from a fixed list (controlplane,
+  # identityhub, issuerservice, cfm-agents, nats-admin) with NO certo entry, so until certo has an
+  # identity there, natsAuth.enabled=true against an auth-ON platform leaves the pod in Init:0/1
+  # with nothing to fetch. scripts/install-ve.sh disables it (along with the other five switches)
+  # for exactly this reason.
+  #
+  # NOTE these keys need a certo chart NEWER than the pinned 0.0.2, which has no NATS templates at
+  # all. Helm ignores unknown subchart values silently, so until the dependency in Chart.yaml is
+  # bumped this block renders nothing — no error, no env vars, no events.
+  events:
+    nats:
+      enabled: true
+      url: nats://cx-ve-nats.edc-v.svc.cluster.local:4222
+      # Created by the platform's nats-bootstrap job with subjects "events.>"; certo binds to no
+      # stream itself, it publishes to a subject the server routes here.
+      stream: edc-events
+      # Never in-cluster: the stream is the platform's, and certo's user may not manage streams.
+      createStream: false
+  natsAuth:
+    # NATS auth switch 6 of 6 — see the NATS authentication block at the top of this file. Set to
+    # false only together with switches 1-5.
+    enabled: true
+    vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200
+    # Certo REUSES the platform's shared `edc-events` identity — it publishes on events.>, which is
+    # that identity's profile — rather than needing a user of its own. What makes this work is the
+    # `certo` ServiceAccount being listed under
+    # core-platform-distribution.nats.auth.users.edc-events.serviceAccounts below.
+    vaultRole: nats-edc-events
+    vaultSecretPath: secret/nats/edc-events
+    image: hashicorp/vault:latest
   # Management-API tokens are validated against the platform's jwtlet; the explicit JWKS URI
   # activates certo's EdDSA-capable decoder.
   extraEnv:
@@ -160,6 +272,11 @@ certoAgent:
   # secret/nats/cfm-agents and registers its public key in users.conf — nothing to seed from
   # this release, the init container only fetches the ready-made seed.
   natsAuth:
+    # NATS auth switch 2 of 4 — see the NATS authentication block at the top of this file. Set to
+    # false only together with switches 1, 3 and 4. Because this consumes what switch 1 provisions,
+    # leaving it true while 1 is false parks the pod in Init:0/1 forever: the init container loops
+    # on `invalid role name "nats-cfm-agents"`, and the template's 2>/dev/null hides that error
+    # behind a generic "Vault or its bootstrap not ready yet" message.
     enabled: true
     vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200
     vaultRole: nats-cfm-agents
@@ -191,3 +308,52 @@ certoAgent:
     tokenExchangeUrl: http://jwtlet.edc-v.svc.cluster.local:8080
     # jwtlet participant-token audience (client_audience / bound_audiences)
     tokenExchangeAudience: edcv
+
+# ---- Compliance Tracker (CFM lifecycle agent, built from this repo) ---------------------------
+# Durable JetStream consumer on the platform's edc-events stream: receives EDC lifecycle
+# CloudEvents and tracks participant compliance from them. Source lives in compliance-tracker/;
+# the image is published by .github/workflows/publish.yml.
+#
+# Runs under the platform's "cfm-agents" ServiceAccount — the identity the platform already
+# provisions for CFM agents (Vault role nats-cfm-agents, seed at secret/nats/cfm-agents, and a
+# NATS user permitted to subscribe to "events.>"). Nothing to seed from this release.
+complianceTracker:
+  enabled: true
+  # Keep at 1: additional replicas would join the same durable consumer and split the event
+  # stream between them, so any per-participant state the compliance rules build would be partial.
+  replicas: 1
+  image:
+    repository: ghcr.io/metaform/cx-ve/compliance-tracker
+    tag: latest
+    pullPolicy: IfNotPresent
+  # Runtime mode passed as --mode: development | production | debug
+  mode: debug
+  resources: {}
+  # NKey auth for the agent's NATS connection. Identical to certoAgent.natsAuth — both reuse the
+  # platform-provisioned cfm-agents component, so the init container only fetches a ready-made
+  # seed and there is nothing to seed from this release.
+  natsAuth:
+    # NATS auth switch 5 of 5 — see the NATS authentication block at the top of this file. Set to
+    # false only together with switches 1-4; leaving it true while switch 1 is false parks the pod
+    # in Init:0/1 forever.
+    enabled: true
+    vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200
+    vaultRole: nats-cfm-agents
+    vaultSecretPath: secret/nats/cfm-agents
+    image: hashicorp/vault:latest
+  # Rendered 1:1 into the agent's config file (compliancetracker.env).
+  config:
+    natsUrl: nats://cx-ve-nats.edc-v.svc.cluster.local:4222
+    # cfm-bucket is NOT interchangeable: the cfm-agents NATS user may only touch
+    # $KV.cfm-bucket.>, and the lifecycle-agent framework opens the KV bucket on connect.
+    bucket: cfm-bucket
+    # The platform's EDC event stream (subjects "events.>"), created by its nats-bootstrap job.
+    # NOT cfm-stream — that carries the provision-manager activity messages the certo agent
+    # consumes. The agent binds to the existing stream and fails fast if it is absent.
+    stream: edc-events
+    # Optional. Empty => the agent's compiled-in launcher.DefaultSubjects
+    # ("events.issuance.>", "events.keypair.>"). Anything set here is MERGED with those, not
+    # substituted, and NATS rejects a consumer whose filter subjects overlap — so an entry like
+    # "events.>" or a leaf of an existing default fails at startup. Narrow the subscription in
+    # launcher.DefaultSubjects instead.
+    subjects: []
