@@ -16,7 +16,7 @@ dependencies:
   # infra (NATS/Vault/Postgres/telemetry) + generic platform seeding
   - name: core-platform-distribution
     repository: oci://ghcr.io/eclipse-cfm/charts
-    version: 0.0.17
+    version: 0.0.18
   # Catena-X dataspace seeding (issuer credentials, dataspace profile, EDC seed), layered on
   # the platform. 0.0.9+ carries hook weights 110-130 so its seeds run after the platform's
   # 10/20 hooks in the release's shared hook space.
@@ -30,5 +30,5 @@ dependencies:
   # Certo (CX-0135 certificate exchange service)
   - name: certo
     repository: oci://ghcr.io/metaform/charts
-    version: 0.0.2
+    version: 0.0.4
     condition: certo.enabled

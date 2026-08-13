@@ -70,17 +70,27 @@ jwtlet:
 natsAuth:
   enabled: true
   vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200
-  vaultRole: nats-onboarding-api
-  vaultSecretPath: secret/nats/onboarding-api
+  # REUSES the platform's shared `edc-events` identity rather than minting one of its own. The
+  # onboarding API consumes events.issuance.> from the edc-events stream, which is exactly that
+  # identity's profile. Requires this chart's ServiceAccount to appear in the platform's
+  # nats.auth.users.edc-events.serviceAccounts list (the umbrella sets it).
+  vaultRole: nats-edc-events
+  vaultSecretPath: secret/nats/edc-events
   image: hashicorp/vault:latest
-  # Seed job replicating what the platform's bootstrap does for its own components (the platform
-  # chart does not know about the onboarding API): creates the Vault policy/role above,
-  # generates + stores the NKey seed, merges the public key into the platform's NATS users.conf
-  # Secret and rolls the NATS server.
-  # CAVEAT: a platform upgrade regenerates users.conf and drops this entry — re-run
-  # `helm upgrade` on the release to re-merge it (the job re-runs on every revision).
+  # Seed job replicating what the platform's bootstrap does for its own components: creates the
+  # Vault policy/role above, generates + stores an NKey seed, merges the public key into the
+  # platform's NATS users.conf Secret and rolls the NATS server.
+  #
+  # OFF by default now that the platform provisions a shared identity this chart can reuse. It was
+  # only ever needed because the platform did not know about the onboarding API, and it came with a
+  # standing hazard: a platform upgrade regenerates users.conf from its own list and drops the
+  # merged entry, so auth broke until this release was upgraded again. Reusing edc-events removes
+  # that failure mode entirely.
+  #
+  # Turn it back on only against a platform too old to have nats.auth.users (pre-shared-identity),
+  # and set vaultRole/vaultSecretPath back to nats-onboarding-api / secret/nats/onboarding-api.
   seed:
-    enabled: true
+    enabled: false
     # Vault admin token (the platform's dev-mode Vault; matches its vault.connection.rootToken)
     vaultToken: root
     # Namespace and names of the platform's NATS auth Secret and Deployment

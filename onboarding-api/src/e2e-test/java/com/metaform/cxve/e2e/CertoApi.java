@@ -9,10 +9,12 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.metaform.cxve.e2e.TestLog.log;
 import static io.restassured.RestAssured.given;
+import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -159,6 +161,92 @@ public class CertoApi {
         var response = post("/participant-contexts/%s/consumer/exchanges/%s/accept".formatted(pcid, exchangeId), body);
         expectSuccessOrRetry(response, "acceptance verdict for exchange " + exchangeId);
         log("   Certo API:       verdict %s recorded and reported for exchange %s", status, exchangeId);
+    }
+
+    /**
+     * Opens a consumer-INITIATED request on the consumer tenant: asks the provider for a certificate
+     * of {@code certificateType} covering {@code locations}. Unlike {@link #publish}, which opens an
+     * exchange already {@code FULFILLED}, this enters the CX-0135 §2.1.3 state machine at its start —
+     * the provider has nothing to deliver yet.
+     *
+     * <p>Retried on 5xx for the same reason as {@link #publish}: the outbound request-open resolves a
+     * flow token from siglet, which can fail transiently just after provisioning. certo resolves a
+     * repeat as find-or-create over a still-live exchange, so the retry reuses it rather than opening
+     * a duplicate.
+     *
+     * @return the opened exchange id
+     */
+    public String initiateRequest(String pcid, String providerBpn, String providerDid,
+                                  String certificateType, List<String> locations, String flowId) {
+        var quotedLocations = locations.stream().map("\"%s\""::formatted).collect(joining(", "));
+        var body = """
+                {"providerBpn": "%s", "providerDid": "%s", "certificateType": "%s", \
+                "certifiedLocations": [%s], "flowId": "%s"}"""
+                .formatted(providerBpn, providerDid, certificateType, quotedLocations, flowId);
+        var result = new AtomicReference<JsonNode>();
+        await().atMost(Duration.ofMinutes(2)).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
+            var response = post("/participant-contexts/%s/consumer/certificate-requests".formatted(pcid), body);
+            expectSuccessOrRetry(response, "certificate request to " + providerBpn);
+            result.set(json(response));
+        });
+        var request = result.get();
+        var exchangeId = request.path("exchangeId").asText();
+        log("   Certo API:       certificate request opened (exchange %s, status %s)",
+                exchangeId, request.path("fulfillmentStatus").asText());
+        return exchangeId;
+    }
+
+    /** The consumer's tracked view of a request it opened. */
+    public JsonNode getRequest(String pcid, String exchangeId) {
+        var response = get("/participant-contexts/%s/consumer/certificate-requests/%s".formatted(pcid, exchangeId));
+        expectSuccessOrRetry(response, "consumer request view of " + exchangeId);
+        return json(response);
+    }
+
+    /**
+     * Polls the provider for the current fulfillment status and mirrors it onto the consumer's record.
+     * Idempotent by design — certo only records a change when the status actually moved, so repeated
+     * polling neither transitions anything nor re-emits events.
+     */
+    public JsonNode pollRequest(String pcid, String exchangeId, String flowId) {
+        var result = new AtomicReference<JsonNode>();
+        await().atMost(Duration.ofMinutes(2)).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
+            var response = given()
+                    .baseUri(baseUrl)
+                    .header("Authorization", "Bearer " + token)
+                    .queryParam("flowId", flowId)
+                    .post("/participant-contexts/%s/consumer/certificate-requests/%s/poll".formatted(pcid, exchangeId));
+            expectSuccessOrRetry(response, "poll of request " + exchangeId);
+            result.set(json(response));
+        });
+        return result.get();
+    }
+
+    /**
+     * Fulfills a waiting request on the provider tenant with a certificate it now holds, pushing
+     * {@code FULFILLED} to the consumer over its live {@code flowId}. This is the transition that
+     * binds the certificate identity to the exchange — until now it had none.
+     */
+    public JsonNode fulfillRequest(String pcid, String exchangeId, String flowId) {
+        var result = new AtomicReference<JsonNode>();
+        await().atMost(Duration.ofMinutes(2)).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
+            var response = given()
+                    .baseUri(baseUrl)
+                    .header("Authorization", "Bearer " + token)
+                    .queryParam("flowId", flowId)
+                    .post("/participant-contexts/%s/certificate-requests/%s/fulfill".formatted(pcid, exchangeId));
+            expectSuccessOrRetry(response, "fulfillment of request " + exchangeId);
+            result.set(json(response));
+        });
+        log("   Certo API:       request %s fulfilled", exchangeId);
+        return result.get();
+    }
+
+    /** The requests a provider-held certificate could satisfy — the provider's backlog view. */
+    public JsonNode fulfillableRequests(String pcid, String certificateId) {
+        var response = get("/participant-contexts/%s/certificates/%s/fulfillable-requests".formatted(pcid, certificateId));
+        expectSuccessOrRetry(response, "fulfillable requests for certificate " + certificateId);
+        return json(response);
     }
 
     /** The provider's recorded view of both exchange phases (management/inspection endpoint). */

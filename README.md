@@ -5,6 +5,7 @@ Monorepo containing:
 | Path | Contents |
 |---|---|
 | `onboarding-api/` | Spring Boot application (Java 17, Gradle) — self-contained build |
+| `compliance-tracker/` | CFM lifecycle agent (Go) consuming lifecycle CloudEvents off NATS — self-contained module |
 | `charts/onboarding-api/` | Helm chart for the Onboarding API application |
 | `charts/cx-ve/` | Umbrella chart: the whole VE (platform, Catena-X profile, Onboarding API, Certo + agent) as one release |
 | `scripts/` | Utility and automation scripts |
@@ -20,6 +21,17 @@ cd onboarding-api
 ./gradlew bootRun          # run the application locally (port 8080)
 ./gradlew bootBuildImage   # build an OCI container image via buildpacks
 docker build -t cx-ve .    # alternative image build (layered jar Dockerfile)
+```
+
+The Go agent in `compliance-tracker/` is a separate, self-contained module — see
+[compliance-tracker/README.md](compliance-tracker/README.md):
+
+```shell
+cd compliance-tracker
+go build ./...
+make test-unit             # handler tests; no Docker needed
+make test                  # all tests; the launcher suite starts a NATS testcontainer
+docker build -t compliance-tracker .
 ```
 
 ## Deploying
