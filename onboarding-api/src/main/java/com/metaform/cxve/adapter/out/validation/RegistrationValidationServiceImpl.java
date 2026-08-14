@@ -4,17 +4,18 @@ import com.metaform.cxve.domain.model.PartnerRegistration;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.port.OnboardingRepository;
 import com.metaform.cxve.domain.port.RegistrationValidationService;
+
 import java.util.ArrayList;
 import java.util.List;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Placeholder validation. Enforces the minimal shape needed to proceed and the CX-0006 duplicate
- * checks: a registration whose BPN, DID or any unique id matches an already onboarded partner or a
- * registration still in flight is rejected. A real implementation would additionally check that
- * the certificates of conformity are valid for the requested roles.
+ * Performs logic validation of the onboarding request, such as duplicate checks or in-flight checks.
+ * This does <em>not</em> perform any shape validation - this is done by annotations on the {@link PartnerRegistrationData}
+ * class and left to the ingress validation of Spring.
  */
 @Service
 public class RegistrationValidationServiceImpl implements RegistrationValidationService {
@@ -29,14 +30,7 @@ public class RegistrationValidationServiceImpl implements RegistrationValidation
 
     @Override
     public ValidationResult validate(PartnerRegistrationData registrationData) {
-        var violations = new ArrayList<String>();
-        if (registrationData.name() == null || registrationData.name().isBlank()) {
-            violations.add("company name is required");
-        }
-        if (registrationData.companyRoles() == null || registrationData.companyRoles().isEmpty()) {
-            violations.add("at least one company role is required");
-        }
-        checkForDuplicate(registrationData, violations);
+        var violations = checkForDuplicate(registrationData);
         if (violations.isEmpty()) {
             log.debug("Validation passed for externalId={}", registrationData.externalId());
             return ValidationResult.ok();
@@ -45,7 +39,8 @@ public class RegistrationValidationServiceImpl implements RegistrationValidation
         return ValidationResult.rejected(List.copyOf(violations));
     }
 
-    private void checkForDuplicate(PartnerRegistrationData registrationData, List<String> violations) {
+    private List<String> checkForDuplicate(PartnerRegistrationData registrationData) {
+        var violations = new ArrayList<String>();
         if (registrationData.bpn() != null && !registrationData.bpn().isBlank()) {
             onboardingRepository.findActiveByBpn(registrationData.bpn()).ifPresent(match ->
                     violations.add(duplicate(match, "BPN '%s'".formatted(registrationData.bpn()))));
@@ -60,6 +55,7 @@ public class RegistrationValidationServiceImpl implements RegistrationValidation
                             violations.add(duplicate(match, "unique id %s '%s'"
                                     .formatted(uniqueId.type(), uniqueId.value())))));
         }
+        return violations;
     }
 
     private static String duplicate(PartnerRegistration match, String property) {

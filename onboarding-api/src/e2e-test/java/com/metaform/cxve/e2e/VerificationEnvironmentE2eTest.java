@@ -436,9 +436,13 @@ class VerificationEnvironmentE2eTest {
     }
 
     private static void onboardParticipant(String name, String shortName, String runId) {
+        // bpn is a required field of the registration payload; derive it from the externalId the
+        // same way the app's BPN stub used to, so BPNs stay deterministic and run-unique
+        var bpn = ("BPNL" + String.format("%08X", Math.abs(runId.hashCode())) + "000000").substring(0, 16);
         var newParticipant = NewParticipantData.builder()
                 .name(name)
                 .shortName(shortName)
+                .bpn(bpn)
                 .externalId(runId)
                 .city("Munich")
                 .streetName("Otto-Hahn-Ring")
