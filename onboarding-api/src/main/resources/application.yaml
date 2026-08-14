@@ -20,7 +20,7 @@ logging:
 # NATS/JetStream issuance-event subscriber (drives onboarding completion).
 # Disable when running without a broker (local docker run, tests).
 nats:
-  enabled: false                                                 # NATS_ENABLED
+  enabled: true                                                 # NATS_ENABLED
   url: nats://core-platform-nats.edc-v.svc.cluster.local:4222   # NATS_URL
   stream: edc-events                                            # NATS_STREAM
   durable-name: onboarding-api                                  # NATS_DURABLENAME
