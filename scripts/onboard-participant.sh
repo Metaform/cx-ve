@@ -6,13 +6,15 @@
 #
 # Usage:
 #   ./scripts/onboard-participant.sh [-n|--name <company-name>] [-s|--short-name <name>]
-#                                    [-c|--cluster <cluster-name>] [-N|--namespace <ns>]
-#                                    [-u|--api-url <url>] [-h|--help]
+#                                    [-b|--bpn <bpn>] [-c|--cluster <cluster-name>]
+#                                    [-N|--namespace <ns>] [-u|--api-url <url>] [-h|--help]
 #
 #   -n, --name        display name of the partner company (default: "ACME Corporation")
 #   -s, --short-name  short name appended to the platform's did:web template to form the
 #                     participant DID (default: derived from the company name plus a random
 #                     suffix, so repeated runs don't collide in the Tenant Manager)
+#   -b, --bpn         pre-assigned BPNL of the partner; bpn is a REQUIRED field of the
+#                     registration payload (default: derived from the run id, unique per run)
 #   -c, --cluster     name of the kind cluster created by install-ve.sh, used to locate the
 #                     kubeconfig at ~/.kube/<cluster-name>.config for log watching
 #                     (default: cxve); an explicitly set KUBECONFIG takes precedence
@@ -24,7 +26,7 @@
 # Environment:
 #   API_URL    base URL of the Onboarding API (default: http://cxve.localhost/onboarding, the
 #              gateway route created by install-ve.sh)
-#   BPN        pre-assigned BPNL; leave unset to have one resolved/created during onboarding
+#   BPN        pre-assigned BPNL; --bpn takes precedence (default: derived from the run id)
 #   NAMESPACE  namespace of the obapi deployment, for log watching (default: edc-v)
 #   FOLLOW     "true" forces following the logs even without a terminal (default: tty only);
 #              following stops when the onboarding reaches a terminal state
@@ -45,12 +47,14 @@ CLUSTER_NAME=cxve
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-n|--name <company-name>] [-s|--short-name <name>] [-c|--cluster <cluster-name>] [-h|--help]
+Usage: $(basename "$0") [-n|--name <company-name>] [-s|--short-name <name>] [-b|--bpn <bpn>] [-c|--cluster <cluster-name>] [-h|--help]
 
 Options:
   -n, --name <company-name>   display name of the partner company (default: "ACME Corporation")
   -s, --short-name <name>     short name forming the participant DID (default: derived from
                               the company name plus a random suffix)
+  -b, --bpn <bpn>             pre-assigned BPNL; a required registration field (default:
+                              derived from the run id, unique per run)
   -c, --cluster <name>        kind cluster whose kubeconfig (~/.kube/<name>.config) is used
                               for log watching (default: cxve)
   -N, --namespace <ns>        namespace of the obapi deployment (default: edc-v)
@@ -62,11 +66,12 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -n|--name|-s|--short-name|-c|--cluster|-N|--namespace|-u|--api-url)
+    -n|--name|-s|--short-name|-b|--bpn|-c|--cluster|-N|--namespace|-u|--api-url)
       [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
       case "$1" in
         -n|--name) NAME="$2" ;;
         -s|--short-name) SHORT_NAME="$2" ;;
+        -b|--bpn) BPN="$2" ;;
         -c|--cluster) CLUSTER_NAME="$2" ;;
         -N|--namespace) NAMESPACE="$2" ;;
         -u|--api-url) API_URL="$2" ;;
@@ -88,6 +93,9 @@ done
 RUN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 DEFAULT_SHORT="$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | cut -c1-20)-${RUN_ID:0:6}"
 SHORT_NAME="${SHORT_NAME:-$DEFAULT_SHORT}"
+# bpn is a required field of the registration payload (rejected with 400 without it); default
+# to a BPNL derived from the run id so it is unique per run, like externalId and the VAT id
+BPN="${BPN:-BPNL$(printf '%s' "${RUN_ID//-/}" | cut -c1-12 | tr '[:lower:]' '[:upper:]')}"
 
 # Default to the kind cluster's kubeconfig (as written by install-ve.sh) unless the caller set one
 if [[ -z "${KUBECONFIG:-}" && -f "$HOME/.kube/$CLUSTER_NAME.config" ]]; then
@@ -115,7 +123,7 @@ payload=$(jq -n \
     zipCode: "81739",
     region: "BY",
     countryAlpha2Code: "DE",
-    bpn: (if $bpn == "" then null else $bpn end),
+    bpn: $bpn,
     uniqueIds: [ { type: "VAT_ID", value: $vatId } ],
     userDetails: [ {
       identityProviderId: "idp-1",
@@ -130,7 +138,7 @@ payload=$(jq -n \
     autoSubmit: true
   }')
 
-echo "Registering partner \"$NAME\" (shortName=$SHORT_NAME, externalId=$RUN_ID)"
+echo "Registering partner \"$NAME\" (shortName=$SHORT_NAME, bpn=$BPN, externalId=$RUN_ID)"
 
 curl -fsS -X POST \
   -H "Content-Type: application/json" \

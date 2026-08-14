@@ -20,7 +20,8 @@ public class NetworkController {
 
     /**
      * Registers a partner company (Authorization required - Roles: configure_partner_registration).
-     * Payloads missing a required field (see {@link PartnerRegistrationData}) are rejected with 400.
+     * Payloads missing a required field (see {@link PartnerRegistrationData}) are rejected with 400;
+     * such rejections are logged and the exact error message is returned (see {@link InvalidRequestShapeHandler}).
      */
     @PostMapping("/partnerRegistration")
     public void registerPartner(@Valid @RequestBody PartnerRegistrationData registrationData) {

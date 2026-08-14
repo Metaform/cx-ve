@@ -8,11 +8,15 @@ import com.metaform.cxve.domain.model.ConsentStatusId;
 import com.metaform.cxve.domain.model.DocumentTypeId;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.UniqueIdentifierId;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -21,10 +25,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(NetworkController.class)
+@ExtendWith(OutputCaptureExtension.class)
 class NetworkControllerTest {
+
+    /** Required fields that are lists (@NotEmpty); the rest are strings (@NotBlank). */
+    private static final Set<String> LIST_FIELDS = Set.of("uniqueIds", "companyRoles", "agreements");
 
     /** A complete payload carrying every required field: name, bpn, shortName, uniqueIds, externalId, companyRoles, agreements. */
     private static final String VALID_BODY = """
@@ -104,62 +113,77 @@ class NetworkControllerTest {
     }
 
     @Test
-    void registerPartner_withMalformedJson_returns400() throws Exception {
+    void registerPartner_withMalformedJson_returns400WithMessageAndLogs(CapturedOutput output) throws Exception {
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ not json"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
+
+        assertThat(output).contains("Rejected request with 400 due to invalid shape:");
     }
 
     @Test
-    void registerPartner_withUnknownEnumValue_returns400() throws Exception {
+    void registerPartner_withUnknownEnumValue_returns400WithMessageAndLogs(CapturedOutput output) throws Exception {
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 { "companyRoles": [ "NOT_A_ROLE" ] }
                                 """))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
+
+        assertThat(output).contains("Rejected request with 400 due to invalid shape:");
     }
 
     @ParameterizedTest
     @ValueSource(strings = { "name", "bpn", "shortName", "uniqueIds", "externalId", "companyRoles", "agreements" })
-    void registerPartner_withMissingRequiredField_returns400(String field) throws Exception {
+    void registerPartner_withMissingRequiredField_returns400WithMessageAndLogs(String field, CapturedOutput output) throws Exception {
         var payload = validPayload();
         payload.remove(field);
+        var expectedMessage = field + ": " + (LIST_FIELDS.contains(field) ? "must not be empty" : "must not be blank");
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(expectedMessage));
 
+        assertThat(output).contains("Rejected request with 400 due to invalid shape: " + expectedMessage);
         verifyNoInteractions(networkService);
     }
 
     @ParameterizedTest
     @ValueSource(strings = { "name", "bpn", "shortName", "externalId" })
-    void registerPartner_withBlankRequiredField_returns400(String field) throws Exception {
+    void registerPartner_withBlankRequiredField_returns400WithMessageAndLogs(String field, CapturedOutput output) throws Exception {
         var payload = validPayload();
         payload.put(field, "   ");
+        var expectedMessage = field + ": must not be blank";
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(expectedMessage));
 
+        assertThat(output).contains("Rejected request with 400 due to invalid shape: " + expectedMessage);
         verifyNoInteractions(networkService);
     }
 
     @ParameterizedTest
     @ValueSource(strings = { "uniqueIds", "companyRoles", "agreements" })
-    void registerPartner_withEmptyRequiredList_returns400(String field) throws Exception {
+    void registerPartner_withEmptyRequiredList_returns400WithMessageAndLogs(String field, CapturedOutput output) throws Exception {
         var payload = validPayload();
         payload.putArray(field);
+        var expectedMessage = field + ": must not be empty";
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(expectedMessage));
 
+        assertThat(output).contains("Rejected request with 400 due to invalid shape: " + expectedMessage);
         verifyNoInteractions(networkService);
     }
 

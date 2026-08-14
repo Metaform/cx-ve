@@ -191,7 +191,10 @@ class OnboardingOrchestratorImplTest {
     }
 
     @Test
-    void invalidRegistration_isRejected() {
+    void shapeViolation_isNotTheOrchestratorsConcern() {
+        // Shape validation (required fields such as companyRoles) happens at the web boundary —
+        // via the annotations on PartnerRegistrationData and InvalidRequestShapeHandler — so the
+        // orchestrator trusts the shape and only performs logical validation (duplicates/in-flight).
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
         var missingRoles = new PartnerRegistrationData(
                 "Acme Corp", null, null, null, null, null, null,
@@ -200,8 +203,8 @@ class OnboardingOrchestratorImplTest {
         var id = orchestrator.start(missingRoles);
 
         var process = orchestrator.get(id);
-        assertThat(process.state()).isEqualTo(OnboardingState.REJECTED);
-        assertThat(process.failureReason()).contains("company role");
+        assertThat(process.state()).isEqualTo(OnboardingState.IDENTITY_VERIFIED);
+        assertThat(process.failureReason()).isNull();
     }
 
     @Test
