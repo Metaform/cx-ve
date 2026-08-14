@@ -1,6 +1,7 @@
 package com.metaform.cxve.application;
 
 import com.metaform.cxve.adapter.out.callback.RegistrationStatusService;
+import com.metaform.cxve.domain.model.OnboardingCompleted;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.OnboardingStarted;
 import com.metaform.cxve.domain.model.OnboardingState;
@@ -156,14 +157,23 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         if (before.state() == after.state()) {
             return;
         }
+        var evt = new OnboardingCompleted(after.id(), after.externalId(),
+                after.bpn(), after.holderId(), after.participantContextId(), after.state(), after.failureReason());
         switch (after.state()) {
             case COMPLETED -> {
                 log.info("Onboarding {} completed (bpn={}, participant context ID={})",
                         after.id(), after.bpn(), after.participantContextId());
-                 registrationStatusService.invokeCallback(after);
+                registrationStatusService.invokeCallback(after);
+                eventPublisher.onboardingCompleted(evt);
             }
-            case REJECTED -> log.warn("Onboarding {} rejected: {}", after.id(), after.failureReason());
-            case FAILED -> log.error("Onboarding {} failed: {}", after.id(), after.failureReason());
+            case REJECTED -> {
+                log.warn("Onboarding {} rejected: {}", after.id(), after.failureReason());
+                eventPublisher.onboardingCompleted(evt);
+            }
+            case FAILED -> {
+                log.error("Onboarding {} failed: {}", after.id(), after.failureReason());
+                eventPublisher.onboardingCompleted(evt);
+            }
             default -> log.debug("Onboarding {} transitioned {} -> {}",
                     after.id(), before.state(), after.state());
         }
