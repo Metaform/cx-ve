@@ -56,8 +56,11 @@ class OnboardingOrchestratorImplTest {
         }
     };
 
+    private final RecordingOnboardingEventPublisher events = new RecordingOnboardingEventPublisher();
+
     private OnboardingOrchestratorImpl orchestratorWith(IdentityProofingService proofing) {
-        return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials, repository, new InMemoryRegistrationStatusService());
+        return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials, repository,
+                new InMemoryRegistrationStatusService(), events, RecordingOnboardingEventPublisher.didResolver());
     }
 
     private static PartnerRegistrationData registration(String bpn) {
@@ -87,6 +90,31 @@ class OnboardingOrchestratorImplTest {
         assertThat(process.bpn()).isNotBlank();
         assertThat(process.participantProfileId()).isEqualTo("wallet-" + id);
         assertThat(process.isTerminal()).isTrue();
+    }
+
+    @Test
+    void start_announcesTheOnboardingWithBothIdentities() {
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+
+        var id = orchestrator.start(registration("BPNL0000000000XY"));
+
+        assertThat(events.started()).hasSize(1);
+        var event = events.started().get(0);
+        assertThat(event.processId()).isEqualTo(id);
+        assertThat(event.externalId()).isEqualTo("ext-123");
+        assertThat(event.bpn()).isEqualTo("BPNL0000000000XY");
+        // No DID supplied, so it follows the template — the same value provisioning will use.
+        assertThat(event.did()).isEqualTo(RecordingOnboardingEventPublisher.DID_TEMPLATE + "Acme");
+    }
+
+    @Test
+    void start_announcesTheCallerSuppliedDidWhenGiven() {
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+        var supplied = registration("BPNL0000000000XY").withDid("did:web:acme.example.com");
+
+        orchestrator.start(supplied);
+
+        assertThat(events.started().get(0).did()).isEqualTo("did:web:acme.example.com");
     }
 
     @Test
@@ -169,7 +197,8 @@ class OnboardingOrchestratorImplTest {
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                wallet, failingCredentials, repository, new InMemoryRegistrationStatusService());
+                wallet, failingCredentials, repository, new InMemoryRegistrationStatusService(),
+                new RecordingOnboardingEventPublisher(), RecordingOnboardingEventPublisher.didResolver());
 
         var id = orchestrator.start(registration("BPNL0000000000XY"));
         orchestrator.advanceByHolder("did:web:acme");

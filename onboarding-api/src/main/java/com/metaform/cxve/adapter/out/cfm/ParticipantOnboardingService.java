@@ -1,5 +1,6 @@
 package com.metaform.cxve.adapter.out.cfm;
 
+import com.metaform.cxve.application.ParticipantDidResolver;
 import com.metaform.cxve.domain.model.AgreementConsentData;
 import com.metaform.cxve.domain.model.ConsentStatusId;
 import com.metaform.cxve.domain.model.OnboardingProcess;
@@ -23,8 +24,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import static java.util.Optional.ofNullable;
-
 /**
  * Placeholder wallet provisioning. A real implementation would provision an operator-hosted wallet
  * or register a participant-owned one per CX-0149, based on the applicant's preference.
@@ -34,7 +33,7 @@ public class ParticipantOnboardingService implements WalletService {
 
     private static final Logger log = LoggerFactory.getLogger(ParticipantOnboardingService.class);
     private final TenantManagerClient tenantManagerClient;
-    private final String didTemplate;
+    private final ParticipantDidResolver didResolver;
     private final String dataplaneTransferType;
     private final String dataplaneEndpointType;
     private final String dataplaneEndpoint;
@@ -45,7 +44,7 @@ public class ParticipantOnboardingService implements WalletService {
     private final String ccmTokenSource;
 
     public ParticipantOnboardingService(@Autowired TenantManagerClient tenantManagerClient,
-                                        @Value("${participant.did.template:did:web:identity.cxve.localhost:}") String didTemplate,
+                                        @Autowired ParticipantDidResolver didResolver,
                                         @Value("${participant.dataplane.transfer-type:HttpData-PULL}") String dataplaneTransferType,
                                         @Value("${participant.dataplane.endpoint-type:HTTP}") String dataplaneEndpointType,
                                         @Value("${participant.dataplane.endpoint:}") String dataplaneEndpoint,
@@ -55,7 +54,7 @@ public class ParticipantOnboardingService implements WalletService {
                                         @Value("${participant.ccm.endpoint:}") String ccmEndpoint,
                                         @Value("${participant.ccm.token-source:provider}") String ccmTokenSource) {
         this.tenantManagerClient = tenantManagerClient;
-        this.didTemplate = didTemplate;
+        this.didResolver = didResolver;
         this.dataplaneTransferType = dataplaneTransferType;
         this.dataplaneEndpointType = dataplaneEndpointType;
         this.dataplaneEndpoint = dataplaneEndpoint;
@@ -154,6 +153,6 @@ public class ParticipantOnboardingService implements WalletService {
     }
 
     private String generateDid(PartnerRegistrationData registrationData) {
-        return ofNullable(registrationData.did()).orElseGet(() -> didTemplate + registrationData.shortName());
+        return didResolver.resolve(registrationData);
     }
 }

@@ -2,12 +2,14 @@ package com.metaform.cxve.application;
 
 import com.metaform.cxve.adapter.out.callback.RegistrationStatusService;
 import com.metaform.cxve.domain.model.OnboardingProcess;
+import com.metaform.cxve.domain.model.OnboardingStarted;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.ProvisionedParticipant;
 import com.metaform.cxve.domain.port.BusinessPartnerNumberService;
 import com.metaform.cxve.domain.port.CredentialIssuanceService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
+import com.metaform.cxve.domain.port.OnboardingEventPublisher;
 import com.metaform.cxve.domain.port.OnboardingRepository;
 import com.metaform.cxve.domain.port.RegistrationValidationService;
 import com.metaform.cxve.domain.port.WalletService;
@@ -46,6 +48,8 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     private final CredentialIssuanceService credentialIssuanceService;
     private final OnboardingRepository repository;
     private final RegistrationStatusService registrationStatusService;
+    private final OnboardingEventPublisher eventPublisher;
+    private final ParticipantDidResolver didResolver;
 
     public OnboardingOrchestratorImpl(RegistrationValidationService validationService,
                                       BusinessPartnerNumberService bpnService,
@@ -53,7 +57,9 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
                                       WalletService walletService,
                                       CredentialIssuanceService credentialIssuanceService,
                                       OnboardingRepository repository,
-                                      RegistrationStatusService registrationStatusService) {
+                                      RegistrationStatusService registrationStatusService,
+                                      OnboardingEventPublisher eventPublisher,
+                                      ParticipantDidResolver didResolver) {
         this.validationService = validationService;
         this.bpnService = bpnService;
         this.identityProofingService = identityProofingService;
@@ -61,6 +67,8 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         this.credentialIssuanceService = credentialIssuanceService;
         this.repository = repository;
         this.registrationStatusService = registrationStatusService;
+        this.eventPublisher = eventPublisher;
+        this.didResolver = didResolver;
     }
 
     @Override
@@ -69,6 +77,12 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         var process = OnboardingProcess.submitted(id, registrationData.externalId());
         repository.create(process, registrationData);
         log.info("Starting onboarding process ID '{}' for participant \"{}\")", id, registrationData.name());
+        // Announced BEFORE the process is driven: processOnboarding() runs the flow synchronously as
+        // far as it can go, so publishing afterwards would order "started" after the work it starts.
+        // The BPN is the submitted one, which resolveOrCreate keeps verbatim, and the DID is resolved
+        // by the same rule provisioning will use — so both identities are final already.
+        eventPublisher.onboardingStarted(new OnboardingStarted(
+                id, registrationData.externalId(), registrationData.bpn(), didResolver.resolve(registrationData)));
         processOnboarding(id);
         return id;
     }
