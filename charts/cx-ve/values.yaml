@@ -145,7 +145,7 @@ catenax-profile:
 # hostnames); only deltas belong here.
 onboarding-api:
   image:
-    pullPolicy: Never
+    pullPolicy: IfNotPresent
   # NATS auth switches 3 and 4 of 4 — see the NATS authentication block at the top of this file.
   # Uncomment BOTH together with switches 1-2. #3 gates the pod's fetch-nats-nkey init container,
   # its volume/mount and the whole nats-auth-seed job (Vault policy + role, NKey generation,

@@ -10,6 +10,20 @@ Stands up the complete Verification Environment on a single kind cluster (defaul
 Catena-X profile, Onboarding API, Certo and the Certo agent. Runs `setup-did-dns.sh --pre` before the release (its
 seed hooks need in-cluster DNS mid-install) and again in discovery mode after it.
 
+## `install-ve-vps.sh`
+
+VPS variant of `install-ve.sh`: installs the same umbrella release on an **existing** cluster reached through a
+kubeconfig, with **no DNS magic** — the hostname must be a real, publicly resolvable DNS name pointing at the VPS
+(wildcard record recommended: `<host>`, `issuer.<host>` and `identity.<host>` must all resolve), so the CoreDNS
+rewrites of `setup-did-dns.sh` are not needed. Nothing is built from source; all images are pulled from their
+registries (`onboarding-api.image.pullPolicy=Never` is overridden). Both parameters are required:
+
+```bash
+./scripts/install-ve-vps.sh -H ve.example.com -k ~/.kube/vps.config
+```
+
+After the install it verifies from outside the cluster that the issuer DID document resolves through the gateway.
+
 ## `setup-did-dns.sh`
 
 Makes the VE's gateway hostnames resolvable from **inside** the cluster, by adding `rewrite` rules to CoreDNS that
