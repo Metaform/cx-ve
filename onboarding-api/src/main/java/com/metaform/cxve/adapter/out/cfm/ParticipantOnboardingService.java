@@ -75,9 +75,10 @@ public class ParticipantOnboardingService implements WalletService {
         log.debug("Creating tenant with name '{}'", registrationData.name());
         var tenant = tenantManagerClient.createTenant(new TenantCreationRequest(Map.of("name", registrationData.name())));
         log.debug("Created tenant with ID '{}'", tenant.id());
-        log.debug("Deploy participant profile");
 
         var profile = toParticipantProfile(dataspaceId, registrationData, process.bpn());
+
+        log.info("Deploying participant profile for BPN = {} and DID = {}", process.bpn(), profile.getIdentifier());
 
         profile = tenantManagerClient.deployParticipantProfile(tenant.id(), profile);
         profile = tenantManagerClient.getParticipantProfile(tenant.id(), profile.getId());

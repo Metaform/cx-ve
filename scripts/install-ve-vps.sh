@@ -107,15 +107,6 @@ HOST_OVERRIDES=(
   # gateway path sits behind clearglass, which 401s every unauthenticated /tokens/* call.
 )
 
-# VPS overrides: no kind cluster to load locally-built images into, so everything is pulled
-# from the registry. The umbrella pins onboarding-api.image.pullPolicy=Never for the
-# kind-loaded image — on a VPS that would ErrImageNeverPull. Always (not IfNotPresent) so a
-# re-run picks up the newest published :latest images.
-VPS_OVERRIDES=(
-  --set "onboarding-api.image.pullPolicy=Always"
-  --set "complianceTracker.image.pullPolicy=Always"
-)
-
 # Trace the actual work (kept off during argument parsing / help output)
 set -x
 
