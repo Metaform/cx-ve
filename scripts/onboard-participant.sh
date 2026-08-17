@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # Registers a new partner with the Onboarding API's REST API and follows the onboarding progress
-# in the application logs. The registration endpoint returns 200 with an empty body immediately;
-# the CX-0006 sequence continues asynchronously and is currently only observable via logs.
+# in the application logs until a terminal state. The registration endpoint returns 200 with the
+# onboarding process id once the synchronous part of the flow has run; the CX-0006 sequence
+# continues asynchronously and its progression is currently only observable via logs.
 #
 # Usage:
 #   ./scripts/onboard-participant.sh [-n|--name <company-name>] [-s|--short-name <name>]
@@ -13,8 +14,8 @@
 #   -s, --short-name  short name appended to the platform's did:web template to form the
 #                     participant DID (default: derived from the company name plus a random
 #                     suffix, so repeated runs don't collide in the Tenant Manager)
-#   -b, --bpn         pre-assigned BPNL of the partner; bpn is a REQUIRED field of the
-#                     registration payload (default: derived from the run id, unique per run)
+#   -b, --bpn         pre-assigned BPNL of the partner (default: derived from the run id,
+#                     unique per run; the API itself would also assign one if omitted)
 #   -c, --cluster     name of the kind cluster created by install-ve.sh, used to locate the
 #                     kubeconfig at ~/.kube/<cluster-name>.config for log watching
 #                     (default: cxve); an explicitly set KUBECONFIG takes precedence
@@ -102,6 +103,8 @@ if [[ -z "${KUBECONFIG:-}" && -f "$HOME/.kube/$CLUSTER_NAME.config" ]]; then
   export KUBECONFIG="$HOME/.kube/$CLUSTER_NAME.config"
 fi
 
+# bpn stays in the payload although the API no longer requires it: a caller-known BPN keeps
+# repeated runs deterministic, and the duplicate check only sees a submitted BPN.
 # externalId and the VAT id are unique per run: registrations whose BPN, DID or any unique id
 # matches an onboarded partner or an in-flight registration are rejected as duplicates.
 # The ACTIVE "Catena-X" agreement matters: the MembershipCredential's memberOf claim is derived
@@ -140,37 +143,48 @@ payload=$(jq -n \
 
 echo "Registering partner \"$NAME\" (shortName=$SHORT_NAME, bpn=$BPN, externalId=$RUN_ID)"
 
-curl -fsS -X POST \
+PROCESS_ID=$(curl -fsS -X POST \
   -H "Content-Type: application/json" \
   -d "$payload" \
-  "${API_URL}/api/v2/administration/registration/Network/partnerRegistration"
+  "${API_URL}/api/v2/administration/registration/Network/partnerRegistration")
 
-echo "Registration submitted."
+echo "Registration submitted (process id: ${PROCESS_ID:-unknown})."
 
-# The process id is assigned server-side and only logged, not returned. Print the start line for
-# this registration and, when on a terminal, keep following the onboarding progression.
 if command -v kubectl >/dev/null && kubectl get "deployment/$DEPLOYMENT" -n "$NAMESPACE" >/dev/null 2>&1; then
-  sleep 2
-  kubectl logs "deployment/$DEPLOYMENT" -n "$NAMESPACE" --since=1m 2>/dev/null \
-    | grep -F "for participant \"$NAME\"" || true
   if [[ -t 1 || "${FOLLOW:-false}" == "true" ]]; then
     echo "Following onboarding progress until a terminal state (Ctrl-C to stop early):"
-    exec 3< <(kubectl logs "deployment/$DEPLOYMENT" -n "$NAMESPACE" -f --since=10s 2>/dev/null)
-    LOGS_PID=$!
+    # The pod output is parsed by POLLING full log snapshots rather than attaching a -f stream:
+    # each snapshot contains the container's whole log, so a terminal state reached at ANY point
+    # — including before this loop started; the registration call itself runs the flow for up to
+    # tens of seconds — is always seen. This avoids every failure mode the streaming variants
+    # had: --since windows that miss already-written lines (and --since-time comparing the LOCAL
+    # clock to the NODE clock, which drift on Docker Desktop), a stream that dies with the pod,
+    # and bash-3.2's read -t reporting a quiet stream like EOF.
+    # Only this run's lines are shown: the process id marks them all — the start line, the
+    # transitions and the terminal line ("nboarding" is the fallback against an older API that
+    # returns no process id).
+    if [[ -n "$PROCESS_ID" ]]; then FILTER="$PROCESS_ID"; else FILTER="nboarding"; fi
     RESULT=""
-    # -t bounds the wait per log line so a stalled onboarding cannot hang the script forever
-    while IFS= read -r -t 300 line <&3; do
-      [[ "$line" == *[Oo]nboarding* ]] || continue
-      echo "$line"
+    PRINTED=0
+    DEADLINE=$(( $(date +%s) + 300 ))
+    while (( $(date +%s) < DEADLINE )); do
+      LINES=$(kubectl logs "deployment/$DEPLOYMENT" -n "$NAMESPACE" --tail=-1 2>/dev/null \
+        | grep -F "$FILTER" || true)
+      COUNT=$(printf '%s' "$LINES" | grep -c . || true)
+      # A shrinking count means the container restarted and its log reset; print from the top
+      if (( COUNT < PRINTED )); then PRINTED=0; fi
+      if (( COUNT > PRINTED )); then
+        printf '%s\n' "$LINES" | tail -n $(( COUNT - PRINTED ))
+        PRINTED=$COUNT
+      fi
       # Terminal states end the follow; "paused at ... awaiting async completion" does not match
       # because the state word must directly follow the process id
-      if [[ "$line" =~ Onboarding\ [0-9a-f-]+\ (completed|rejected|failed) ]]; then
+      if [[ "$LINES" =~ Onboarding\ ${PROCESS_ID:-[0-9a-f-]+}\ (completed|rejected|failed) ]]; then
         RESULT="${BASH_REMATCH[1]}"
         break
       fi
+      sleep 2
     done
-    exec 3<&-
-    kill "$LOGS_PID" 2>/dev/null || true
     if [[ "$RESULT" != "completed" ]]; then
       echo "Onboarding did not complete (terminal state: ${RESULT:-none within timeout})" >&2
       exit 1
