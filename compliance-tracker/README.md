@@ -53,12 +53,24 @@ The runtime mode is selected with the `-mode` flag (`development` \| `production
 
 ### Subjects
 
-The agent subscribes to `events.issuance.>` and `events.keypair.>` by default. Configured subjects
-are **merged** with those defaults rather than replacing them, so configuration can only widen the
-subscription — and any configured subject that *overlaps* a default (a catch-all `events.>`, or a
-leaf like `events.issuance.delivered`) makes NATS reject the consumer at startup with
+The agent subscribes to `events.>` by default, and `handler.Process` dispatches on the event
+**family** — the `SubjectPrefix*` constants, e.g. `events.issuance.` — decoding the family's base
+struct rather than a per-occurrence one, so a leaf added upstream needs no new case. Configured
+subjects are **merged** with `launcher.DefaultSubjects` rather than replacing
+them, so configuration can only widen the subscription — and because the default is already a
+catch-all, *any* configured subject overlaps it and makes NATS reject the consumer at startup with
 `consumer subject filters cannot overlap`. To subscribe to something narrower, edit
 `launcher.DefaultSubjects`.
+
+Two of the routed subjects are not EDC events: `events.onboarding.started` and
+`events.onboarding.completed` come from cx-ve's own Onboarding API. Their CloudEvent `type` follows
+the CX-0000 §2.3 reverse-DNS convention rather than EDC's Java-class-name one — see the header of
+`handler/event_types.go`, which documents both. The started event is where a BPN and a DID first
+appear together, before any provisioning — which is what lets the participant-context and issuance
+events that follow be attributed to a partner. The completed event is published for **every**
+terminal outcome, so its
+`state` field (`COMPLETED`, `REJECTED` or `FAILED`) has to be inspected; the subject alone does not
+mean success.
 
 ## Event handling
 
