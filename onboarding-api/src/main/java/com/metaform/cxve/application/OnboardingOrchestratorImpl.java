@@ -150,32 +150,34 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     }
 
     /**
-     * Logs the result of a single {@link #advance} call: state transitions at debug, terminal
-     * outcomes at info (or warn for rejection).
+     * Reports the result of a single {@link #advance} call: intermediate transitions at debug, and
+     * every terminal outcome — completed, rejected or failed alike — as an
+     * {@link OnboardingCompleted} event.
+     *
+     * <p>The announcement is keyed off {@link OnboardingProcess#isTerminal()} rather than off the
+     * individual states, so a terminal state added later cannot end an onboarding silently and leave
+     * a subscriber waiting on a process that is already over.
      */
     private void processOutcome(OnboardingProcess before, OnboardingProcess after) {
         if (before.state() == after.state()) {
             return;
         }
-        var evt = new OnboardingCompleted(after.id(), after.externalId(),
-                after.bpn(), after.holderId(), after.participantContextId(), after.state(), after.failureReason());
+        if (!after.isTerminal()) {
+            log.debug("Onboarding {} transitioned {} -> {}", after.id(), before.state(), after.state());
+            return;
+        }
         switch (after.state()) {
-            case COMPLETED -> {
-                log.info("Onboarding {} completed (bpn={}, participant context ID={})",
-                        after.id(), after.bpn(), after.participantContextId());
-                registrationStatusService.invokeCallback(after);
-                eventPublisher.onboardingCompleted(evt);
-            }
-            case REJECTED -> {
-                log.warn("Onboarding {} rejected: {}", after.id(), after.failureReason());
-                eventPublisher.onboardingCompleted(evt);
-            }
-            case FAILED -> {
-                log.error("Onboarding {} failed: {}", after.id(), after.failureReason());
-                eventPublisher.onboardingCompleted(evt);
-            }
-            default -> log.debug("Onboarding {} transitioned {} -> {}",
-                    after.id(), before.state(), after.state());
+            case COMPLETED -> log.info("Onboarding {} completed (bpn={}, participant context ID={})",
+                    after.id(), after.bpn(), after.participantContextId());
+            case REJECTED -> log.warn("Onboarding {} rejected: {}", after.id(), after.failureReason());
+            default -> log.error("Onboarding {} failed: {}", after.id(), after.failureReason());
+        }
+        // Announced ahead of the status callback: that callback is an outbound call to a third party,
+        // and the outcome must reach subscribers whether or not that party is reachable.
+        eventPublisher.onboardingCompleted(new OnboardingCompleted(after.id(), after.externalId(),
+                after.bpn(), after.holderId(), after.participantContextId(), after.state(), after.failureReason()));
+        if (after.state() == OnboardingState.COMPLETED) {
+            registrationStatusService.invokeCallback(after);
         }
     }
 

@@ -2,6 +2,7 @@ package com.metaform.cxve.application;
 
 import com.metaform.cxve.domain.model.CompanyRoleId;
 import com.metaform.cxve.domain.model.OnboardingProcess;
+import com.metaform.cxve.domain.model.OnboardingServiceProviderCallbackRequestData;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.ProvisionedParticipant;
@@ -10,12 +11,14 @@ import com.metaform.cxve.domain.port.IdentityProofingService;
 import com.metaform.cxve.domain.port.WalletService;
 import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
 import com.metaform.cxve.adapter.out.callback.InMemoryRegistrationStatusService;
+import com.metaform.cxve.adapter.out.callback.RegistrationStatusService;
 import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
 import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
 import com.metaform.cxve.adapter.out.validation.RegistrationValidationServiceImpl;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 class OnboardingOrchestratorImplTest {
 
@@ -135,6 +138,61 @@ class OnboardingOrchestratorImplTest {
         assertThat(event.participantContextId()).isEqualTo(process.participantContextId());
         assertThat(event.state()).isEqualTo(OnboardingState.COMPLETED);
         assertThat(event.failureMessage()).isNull();
+    }
+
+    @Test
+    void rejection_isAnnouncedAsATerminalOutcome() {
+        // A rejection ends the onboarding just as definitively as a completion. A subscriber that
+        // saw the started event has no other way to learn it is over.
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+        orchestrator.start(registration("BPNL0000000000XY"));
+        orchestrator.advanceByHolder("did:web:acme");
+
+        var rejectedId = orchestrator.start(registration("BPNL0000000000XY"));
+
+        assertThat(orchestrator.get(rejectedId).state()).isEqualTo(OnboardingState.REJECTED);
+        var event = events.completed().stream()
+                .filter(e -> e.processId().equals(rejectedId))
+                .findFirst()
+                .orElseThrow();
+        assertThat(event.state()).isEqualTo(OnboardingState.REJECTED);
+        assertThat(event.failureMessage()).contains("already registered");
+        // Two registrations, two started events, two terminal announcements: every onboarding that
+        // is announced as started is also announced as finished.
+        assertThat(events.started()).hasSize(2);
+        assertThat(events.completed()).hasSize(2);
+    }
+
+    @Test
+    void completion_isAnnouncedEvenWhenTheStatusCallbackFails() {
+        // The status callback is an outbound call to the onboarding service provider. It must not be
+        // able to suppress the event — otherwise an unreachable third party silently costs every
+        // subscriber the completion of a successful onboarding.
+        var failingCallback = new RegistrationStatusService() {
+            @Override
+            public OnboardingServiceProviderCallbackRequestData getCallbackAddress() {
+                return null;
+            }
+
+            @Override
+            public void setCallbackAddress(OnboardingServiceProviderCallbackRequestData callbackData) {
+            }
+
+            @Override
+            public void invokeCallback(OnboardingProcess after) {
+                throw new IllegalStateException("callback endpoint unreachable");
+            }
+        };
+        var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
+                wallet, credentials, repository, failingCallback, events,
+                RecordingOnboardingEventPublisher.didResolver());
+
+        var id = orchestrator.start(registration("BPNL0000000000XY"));
+        catchThrowable(() -> orchestrator.advanceByHolder("did:web:acme"));
+
+        assertThat(repository.findById(id).orElseThrow().state()).isEqualTo(OnboardingState.COMPLETED);
+        assertThat(events.completed()).hasSize(1);
+        assertThat(events.completed().get(0).state()).isEqualTo(OnboardingState.COMPLETED);
     }
 
     @Test
