@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   e2e:
-    name: Dual-VE end-to-end test
+    name: In-cluster End-To-End of the VE
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:

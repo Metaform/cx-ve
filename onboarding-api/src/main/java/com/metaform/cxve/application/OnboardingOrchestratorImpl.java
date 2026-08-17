@@ -1,13 +1,16 @@
 package com.metaform.cxve.application;
 
 import com.metaform.cxve.adapter.out.callback.RegistrationStatusService;
+import com.metaform.cxve.domain.model.OnboardingCompleted;
 import com.metaform.cxve.domain.model.OnboardingProcess;
+import com.metaform.cxve.domain.model.OnboardingStarted;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.ProvisionedParticipant;
 import com.metaform.cxve.domain.port.BusinessPartnerNumberService;
 import com.metaform.cxve.domain.port.CredentialIssuanceService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
+import com.metaform.cxve.domain.port.OnboardingEventPublisher;
 import com.metaform.cxve.domain.port.OnboardingRepository;
 import com.metaform.cxve.domain.port.RegistrationValidationService;
 import com.metaform.cxve.domain.port.WalletService;
@@ -46,6 +49,8 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     private final CredentialIssuanceService credentialIssuanceService;
     private final OnboardingRepository repository;
     private final RegistrationStatusService registrationStatusService;
+    private final OnboardingEventPublisher eventPublisher;
+    private final ParticipantDidResolver didResolver;
 
     public OnboardingOrchestratorImpl(RegistrationValidationService validationService,
                                       BusinessPartnerNumberService bpnService,
@@ -53,7 +58,9 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
                                       WalletService walletService,
                                       CredentialIssuanceService credentialIssuanceService,
                                       OnboardingRepository repository,
-                                      RegistrationStatusService registrationStatusService) {
+                                      RegistrationStatusService registrationStatusService,
+                                      OnboardingEventPublisher eventPublisher,
+                                      ParticipantDidResolver didResolver) {
         this.validationService = validationService;
         this.bpnService = bpnService;
         this.identityProofingService = identityProofingService;
@@ -61,6 +68,8 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         this.credentialIssuanceService = credentialIssuanceService;
         this.repository = repository;
         this.registrationStatusService = registrationStatusService;
+        this.eventPublisher = eventPublisher;
+        this.didResolver = didResolver;
     }
 
     @Override
@@ -69,7 +78,25 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         var process = OnboardingProcess.submitted(id, registrationData.externalId());
         repository.create(process, registrationData);
         log.info("Starting onboarding process ID '{}' for participant \"{}\")", id, registrationData.name());
-        processOnboarding(id);
+        // Announced BEFORE the process is driven: processOnboarding() runs the flow synchronously as
+        // far as it can go, so publishing afterwards would order "started" after the work it starts.
+        // The BPN is the submitted one, which resolveOrCreate keeps verbatim, and the DID is resolved
+        // by the same rule provisioning will use — so both identities are final already.
+        eventPublisher.onboardingStarted(new OnboardingStarted(
+                id, registrationData.externalId(), registrationData.bpn(), didResolver.resolve(registrationData)));
+        try {
+            processOnboarding(id);
+        } catch (RuntimeException e) {
+            // Unlike the issuance-event path — where NatsIssuanceListener naks and JetStream
+            // redelivers, so a transient error simply retries — a throw here has no second chance:
+            // nothing else drives advance(), and the holder link that advanceByHolder needs is only
+            // established once participant provisioning returns. Left alone the process would sit
+            // non-terminal forever, which isActiveRegistration() reads as in flight, so the partner
+            // could never re-register either. Record and announce the failure, then let the caller
+            // see the error.
+            recordFailure(id, e);
+            throw e;
+        }
         return id;
     }
 
@@ -135,23 +162,54 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     }
 
     /**
-     * Logs the result of a single {@link #advance} call: state transitions at debug, terminal
-     * outcomes at info (or warn for rejection).
+     * Drives an onboarding that died on an exception to {@link OnboardingState#FAILED}, so it is
+     * reported through the same path as a declared failure.
+     */
+    private void recordFailure(String processId, RuntimeException cause) {
+        var process = get(processId);
+        if (process.isTerminal()) {
+            // The outcome is already recorded and announced and the exception came from something
+            // afterwards (the status callback, say). Overwriting it would turn a completed onboarding
+            // into a failed one and announce it twice.
+            log.error("Onboarding {} raised an error after reaching {}", processId, process.state(), cause);
+            return;
+        }
+        // Logged with the cause here — processOutcome reports the outcome, not the stack trace.
+        log.error("Onboarding {} raised an error at {}", processId, process.state(), cause);
+        var failed = process.failed("Failed at %s: %s".formatted(process.state(), cause.getMessage()));
+        repository.save(failed);
+        processOutcome(process, failed);
+    }
+
+    /**
+     * Reports the result of a single {@link #advance} call: intermediate transitions at debug, and
+     * every terminal outcome — completed, rejected or failed alike — as an
+     * {@link OnboardingCompleted} event.
+     *
+     * <p>The announcement is keyed off {@link OnboardingProcess#isTerminal()} rather than off the
+     * individual states, so a terminal state added later cannot end an onboarding silently and leave
+     * a subscriber waiting on a process that is already over.
      */
     private void processOutcome(OnboardingProcess before, OnboardingProcess after) {
         if (before.state() == after.state()) {
             return;
         }
+        if (!after.isTerminal()) {
+            log.debug("Onboarding {} transitioned {} -> {}", after.id(), before.state(), after.state());
+            return;
+        }
         switch (after.state()) {
-            case COMPLETED -> {
-                log.info("Onboarding {} completed (bpn={}, wallet={})",
-                        after.id(), after.bpn(), after.participantProfileId());
-                 registrationStatusService.invokeCallback(after);
-            }
+            case COMPLETED -> log.info("Onboarding {} completed (bpn={}, participant context ID={})",
+                    after.id(), after.bpn(), after.participantContextId());
             case REJECTED -> log.warn("Onboarding {} rejected: {}", after.id(), after.failureReason());
-            case FAILED -> log.error("Onboarding {} failed: {}", after.id(), after.failureReason());
-            default -> log.debug("Onboarding {} transitioned {} -> {}",
-                    after.id(), before.state(), after.state());
+            default -> log.error("Onboarding {} failed: {}", after.id(), after.failureReason());
+        }
+        // Announced ahead of the status callback: that callback is an outbound call to a third party,
+        // and the outcome must reach subscribers whether or not that party is reachable.
+        eventPublisher.onboardingCompleted(new OnboardingCompleted(after.id(), after.externalId(),
+                after.bpn(), after.holderId(), after.participantContextId(), after.state(), after.failureReason()));
+        if (after.state() == OnboardingState.COMPLETED) {
+            registrationStatusService.invokeCallback(after);
         }
     }
 

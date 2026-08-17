@@ -1,10 +1,13 @@
 package com.metaform.cxve.adapter.out.nats;
 
+import com.metaform.cxve.domain.port.OnboardingEventPublisher;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;
 import io.nats.client.Nats;
 import io.nats.client.Options;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.time.Duration;
 import org.slf4j.Logger;
@@ -45,5 +48,37 @@ public class NatsConfiguration {
     @Bean
     public JetStream jetStream(Connection connection) throws IOException {
         return connection.jetStream();
+    }
+
+    /**
+     * Declared here rather than annotated as a component so the "is NATS on?" condition lives in
+     * exactly one place — a @Component would be instantiated whenever the app is scanned and fail
+     * to find a {@link JetStream} bean with NATS disabled.
+     */
+    @Bean
+    public OnboardingEventPublisher onboardingEventPublisher(JetStream jetStream) {
+        var source = resolveSource();
+        log.info("Publishing onboarding events with CloudEvents source '{}'", source);
+        return new NatsOnboardingEventPublisher(jetStream, source);
+    }
+
+    /**
+     * The CloudEvents {@code source} for events this app emits: its hostname, matching the EDC
+     * runtimes (whose events-nats bridge uses the injected {@code Hostname} service). Under
+     * Kubernetes HOSTNAME is the pod name, which identifies the producing instance.
+     */
+    private static String resolveSource() {
+        var fromEnv = System.getenv("HOSTNAME");
+        if (fromEnv != null && !fromEnv.isBlank()) {
+            return fromEnv;
+        }
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (UnknownHostException e) {
+            // Never fail startup over a cosmetic attribute; "localhost" is what EDC's Hostname
+            // service defaults to as well.
+            log.warn("Could not resolve the local hostname for the CloudEvents source, using 'localhost'", e);
+            return "localhost";
+        }
     }
 }

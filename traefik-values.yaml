@@ -54,6 +54,7 @@ gatewayClass:
 gateway:
   enabled: false
 
-service:
-  annotations:
-    metallb.io/loadBalancerIPs: "194.163.180.88"
+# activate this on a real VPS, replacing the IP address
+#service:
+#  annotations:
+#    metallb.io/loadBalancerIPs: "194.163.180.88"

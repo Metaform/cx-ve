@@ -1,7 +1,9 @@
 package com.metaform.cxve.application;
 
 import com.metaform.cxve.domain.model.CompanyRoleId;
+import com.metaform.cxve.domain.model.OnboardingCompleted;
 import com.metaform.cxve.domain.model.OnboardingProcess;
+import com.metaform.cxve.domain.model.OnboardingServiceProviderCallbackRequestData;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.ProvisionedParticipant;
@@ -10,12 +12,14 @@ import com.metaform.cxve.domain.port.IdentityProofingService;
 import com.metaform.cxve.domain.port.WalletService;
 import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
 import com.metaform.cxve.adapter.out.callback.InMemoryRegistrationStatusService;
+import com.metaform.cxve.adapter.out.callback.RegistrationStatusService;
 import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
 import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
 import com.metaform.cxve.adapter.out.validation.RegistrationValidationServiceImpl;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 class OnboardingOrchestratorImplTest {
 
@@ -56,8 +60,11 @@ class OnboardingOrchestratorImplTest {
         }
     };
 
+    private final RecordingOnboardingEventPublisher events = new RecordingOnboardingEventPublisher();
+
     private OnboardingOrchestratorImpl orchestratorWith(IdentityProofingService proofing) {
-        return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials, repository, new InMemoryRegistrationStatusService());
+        return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials, repository,
+                new InMemoryRegistrationStatusService(), events, RecordingOnboardingEventPublisher.didResolver());
     }
 
     private static PartnerRegistrationData registration(String bpn) {
@@ -87,6 +94,192 @@ class OnboardingOrchestratorImplTest {
         assertThat(process.bpn()).isNotBlank();
         assertThat(process.participantProfileId()).isEqualTo("wallet-" + id);
         assertThat(process.isTerminal()).isTrue();
+    }
+
+    @Test
+    void start_announcesTheOnboardingWithBothIdentities() {
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+
+        var id = orchestrator.start(registration("BPNL0000000000XY"));
+
+        assertThat(events.started()).hasSize(1);
+        var event = events.started().get(0);
+        assertThat(event.processId()).isEqualTo(id);
+        assertThat(event.externalId()).isEqualTo("ext-123");
+        assertThat(event.bpn()).isEqualTo("BPNL0000000000XY");
+        // No DID supplied, so it follows the template — the same value provisioning will use.
+        assertThat(event.did()).isEqualTo(RecordingOnboardingEventPublisher.DID_TEMPLATE + "Acme");
+    }
+
+    @Test
+    void start_announcesTheCallerSuppliedDidWhenGiven() {
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+        var supplied = registration("BPNL0000000000XY").withDid("did:web:acme.example.com");
+
+        orchestrator.start(supplied);
+
+        assertThat(events.started().get(0).did()).isEqualTo("did:web:acme.example.com");
+    }
+
+    @Test
+    void completion_announcesTheProvisionedIdentities() {
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+
+        var id = orchestrator.start(registration("BPNL0000000000XY"));
+        var process = orchestrator.advanceByHolder("did:web:acme").orElseThrow();
+
+        assertThat(process.state()).isEqualTo(OnboardingState.COMPLETED);
+        assertThat(events.completed()).hasSize(1);
+        var event = events.completed().get(0);
+        assertThat(event.processId()).isEqualTo(id);
+        assertThat(event.externalId()).isEqualTo("ext-123");
+        assertThat(event.bpn()).isEqualTo("BPNL0000000000XY");
+        // The DID actually provisioned (the linked holder), not the one predicted at start.
+        assertThat(event.did()).isEqualTo("did:web:acme");
+        assertThat(event.participantContextId()).isEqualTo(process.participantContextId());
+        assertThat(event.state()).isEqualTo(OnboardingState.COMPLETED);
+        assertThat(event.failureMessage()).isNull();
+    }
+
+    @Test
+    void rejection_isAnnouncedAsATerminalOutcome() {
+        // A rejection ends the onboarding just as definitively as a completion. A subscriber that
+        // saw the started event has no other way to learn it is over.
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+        orchestrator.start(registration("BPNL0000000000XY"));
+        orchestrator.advanceByHolder("did:web:acme");
+
+        var rejectedId = orchestrator.start(registration("BPNL0000000000XY"));
+
+        assertThat(orchestrator.get(rejectedId).state()).isEqualTo(OnboardingState.REJECTED);
+        var event = events.completed().stream()
+                .filter(e -> e.processId().equals(rejectedId))
+                .findFirst()
+                .orElseThrow();
+        assertThat(event.state()).isEqualTo(OnboardingState.REJECTED);
+        assertThat(event.failureMessage()).contains("already registered");
+        // Two registrations, two started events, two terminal announcements: every onboarding that
+        // is announced as started is also announced as finished.
+        assertThat(events.started()).hasSize(2);
+        assertThat(events.completed()).hasSize(2);
+    }
+
+    @Test
+    void completion_isAnnouncedEvenWhenTheStatusCallbackFails() {
+        // The status callback is an outbound call to the onboarding service provider. It must not be
+        // able to suppress the event — otherwise an unreachable third party silently costs every
+        // subscriber the completion of a successful onboarding.
+        var failingCallback = new RegistrationStatusService() {
+            @Override
+            public OnboardingServiceProviderCallbackRequestData getCallbackAddress() {
+                return null;
+            }
+
+            @Override
+            public void setCallbackAddress(OnboardingServiceProviderCallbackRequestData callbackData) {
+            }
+
+            @Override
+            public void invokeCallback(OnboardingProcess after) {
+                throw new IllegalStateException("callback endpoint unreachable");
+            }
+        };
+        var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
+                wallet, credentials, repository, failingCallback, events,
+                RecordingOnboardingEventPublisher.didResolver());
+
+        var id = orchestrator.start(registration("BPNL0000000000XY"));
+        catchThrowable(() -> orchestrator.advanceByHolder("did:web:acme"));
+
+        assertThat(repository.findById(id).orElseThrow().state()).isEqualTo(OnboardingState.COMPLETED);
+        assertThat(events.completed()).hasSize(1);
+        assertThat(events.completed().get(0).state()).isEqualTo(OnboardingState.COMPLETED);
+    }
+
+    @Test
+    void aThrowingStep_failsTheProcessAndAnnouncesTheOutcome() {
+        // start() is the one drive with nothing behind it: the issuance path gets its message nak'd
+        // and redelivered, but here nothing re-drives advance(), and the holder link advanceByHolder
+        // would need is only established once provisioning returns. So an exception must not leave
+        // the process suspended between states.
+        var unreachableTenantManager = new WalletService() {
+            @Override
+            public ProvisionedParticipant provisionWallet(OnboardingProcess process, PartnerRegistrationData registrationData) {
+                throw new RuntimeException("No cell found in CFM Tenant Manager");
+            }
+
+            @Override
+            public ProvisionedParticipant checkProvisionStatus(OnboardingProcess process) {
+                throw new UnsupportedOperationException("not reached");
+            }
+        };
+        var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
+                unreachableTenantManager, credentials, repository, new InMemoryRegistrationStatusService(),
+                events, RecordingOnboardingEventPublisher.didResolver());
+
+        var thrown = catchThrowable(() -> orchestrator.start(registration("BPNL0000000000XY")));
+
+        // The caller still sees the error — it says the synchronous part did not get through.
+        assertThat(thrown).hasMessage("No cell found in CFM Tenant Manager");
+
+        assertThat(events.started()).hasSize(1);
+        var processId = events.started().get(0).processId();
+        // Terminal rather than wedged at IDENTITY_VERIFIED, so it no longer counts as in flight and
+        // the partner can retry the registration.
+        assertThat(repository.findById(processId).orElseThrow().state()).isEqualTo(OnboardingState.FAILED);
+        assertThat(repository.findActiveByBpn("BPNL0000000000XY")).isEmpty();
+
+        assertThat(events.completed()).hasSize(1);
+        var event = events.completed().get(0);
+        assertThat(event.processId()).isEqualTo(processId);
+        assertThat(event.state()).isEqualTo(OnboardingState.FAILED);
+        // The step it died at, and why: without both, a subscriber sees only that it ended.
+        assertThat(event.failureMessage())
+                .contains("IDENTITY_VERIFIED", "No cell found in CFM Tenant Manager");
+    }
+
+    @Test
+    void anErrorAfterATerminalOutcome_doesNotRelabelIt() {
+        // The failure handler runs on the way out of start(), by which point the outcome may already
+        // be recorded and announced. Reporting that rejection as a failure, and announcing it a
+        // second time, would be worse than the error being reacted to.
+        var throwsAfterRecording = new RecordingOnboardingEventPublisher() {
+            @Override
+            public void onboardingCompleted(OnboardingCompleted event) {
+                super.onboardingCompleted(event);
+                throw new IllegalStateException("publisher blew up");
+            }
+        };
+        var completedFirst = orchestratorWith(new IdentityProofingServiceStub());
+        completedFirst.start(registration("BPNL0000000000XY"));
+        completedFirst.advanceByHolder("did:web:acme");
+        var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
+                wallet, credentials, repository, new InMemoryRegistrationStatusService(),
+                throwsAfterRecording, RecordingOnboardingEventPublisher.didResolver());
+
+        // Duplicate of the completed registration, so it is rejected inside start() itself.
+        var thrown = catchThrowable(() -> orchestrator.start(registration("BPNL0000000000XY")));
+
+        assertThat(thrown).hasMessage("publisher blew up");
+        assertThat(throwsAfterRecording.completed()).hasSize(1);
+        var event = throwsAfterRecording.completed().get(0);
+        assertThat(event.state()).isEqualTo(OnboardingState.REJECTED);
+        assertThat(repository.findById(event.processId()).orElseThrow().state())
+                .isEqualTo(OnboardingState.REJECTED);
+    }
+
+    @Test
+    void completion_isAnnouncedOnlyOnceEvenWhenReDriven() {
+        // advance() is re-driven by callbacks and issuance events; a terminal process must not
+        // re-announce, or a subscriber would see the same onboarding complete repeatedly.
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+
+        var id = orchestrator.start(registration("BPNL0000000000XY"));
+        orchestrator.advanceByHolder("did:web:acme");
+        orchestrator.advance(id);
+        orchestrator.advance(id);
+
+        assertThat(events.completed()).hasSize(1);
     }
 
     @Test
@@ -169,7 +362,8 @@ class OnboardingOrchestratorImplTest {
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                wallet, failingCredentials, repository, new InMemoryRegistrationStatusService());
+                wallet, failingCredentials, repository, new InMemoryRegistrationStatusService(),
+                events, RecordingOnboardingEventPublisher.didResolver());
 
         var id = orchestrator.start(registration("BPNL0000000000XY"));
         orchestrator.advanceByHolder("did:web:acme");
@@ -179,6 +373,13 @@ class OnboardingOrchestratorImplTest {
         assertThat(orchestrator.get(id).state()).isEqualTo(OnboardingState.FAILED);
         assertThat(repository.findById(id)).isPresent();
         assertThat(repository.findActiveByBpn("BPNL0000000000XY")).isEmpty();
+
+        // A terminal outcome is announced whichever way it ends: a subscriber waiting on this
+        // onboarding must not be left hanging just because it failed.
+        assertThat(events.completed()).hasSize(1);
+        var event = events.completed().get(0);
+        assertThat(event.state()).isEqualTo(OnboardingState.FAILED);
+        assertThat(event.failureMessage()).isEqualTo(orchestrator.get(id).failureReason());
     }
 
     @Test

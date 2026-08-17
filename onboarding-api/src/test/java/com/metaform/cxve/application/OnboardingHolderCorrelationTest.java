@@ -58,7 +58,9 @@ class OnboardingHolderCorrelationTest {
             wallet,
             credentials,
             repository,
-            new InMemoryRegistrationStatusService());
+            new InMemoryRegistrationStatusService(),
+            new RecordingOnboardingEventPublisher(),
+            RecordingOnboardingEventPublisher.didResolver());
 
     private static PartnerRegistrationData registration() {
         return new PartnerRegistrationData(
