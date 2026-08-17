@@ -84,7 +84,19 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         // by the same rule provisioning will use — so both identities are final already.
         eventPublisher.onboardingStarted(new OnboardingStarted(
                 id, registrationData.externalId(), registrationData.bpn(), didResolver.resolve(registrationData)));
-        processOnboarding(id);
+        try {
+            processOnboarding(id);
+        } catch (RuntimeException e) {
+            // Unlike the issuance-event path — where NatsIssuanceListener naks and JetStream
+            // redelivers, so a transient error simply retries — a throw here has no second chance:
+            // nothing else drives advance(), and the holder link that advanceByHolder needs is only
+            // established once participant provisioning returns. Left alone the process would sit
+            // non-terminal forever, which isActiveRegistration() reads as in flight, so the partner
+            // could never re-register either. Record and announce the failure, then let the caller
+            // see the error.
+            recordFailure(id, e);
+            throw e;
+        }
         return id;
     }
 
@@ -147,6 +159,26 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
             }
         }
         return process;
+    }
+
+    /**
+     * Drives an onboarding that died on an exception to {@link OnboardingState#FAILED}, so it is
+     * reported through the same path as a declared failure.
+     */
+    private void recordFailure(String processId, RuntimeException cause) {
+        var process = get(processId);
+        if (process.isTerminal()) {
+            // The outcome is already recorded and announced and the exception came from something
+            // afterwards (the status callback, say). Overwriting it would turn a completed onboarding
+            // into a failed one and announce it twice.
+            log.error("Onboarding {} raised an error after reaching {}", processId, process.state(), cause);
+            return;
+        }
+        // Logged with the cause here — processOutcome reports the outcome, not the stack trace.
+        log.error("Onboarding {} raised an error at {}", processId, process.state(), cause);
+        var failed = process.failed("Failed at %s: %s".formatted(process.state(), cause.getMessage()));
+        repository.save(failed);
+        processOutcome(process, failed);
     }
 
     /**
