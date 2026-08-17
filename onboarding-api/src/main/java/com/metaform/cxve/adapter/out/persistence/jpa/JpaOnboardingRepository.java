@@ -49,8 +49,7 @@ public class JpaOnboardingRepository implements OnboardingRepository {
 
     @Override
     public void create(OnboardingProcess process, PartnerRegistrationData payload) {
-        var entity = new OnboardingProcessEntity();
-        applyProcess(process, entity);
+        var entity = toEntity(process);
         entity.setPayload(writePayload(payload));
         if (payload.uniqueIds() != null) {
             entity.setUniqueIds(payload.uniqueIds().stream()
@@ -65,7 +64,7 @@ public class JpaOnboardingRepository implements OnboardingRepository {
         // Load-then-update, NOT a fresh entity: a fresh one would merge null over the payload
         // columns written at create.
         var entity = repository.findById(process.id()).orElseGet(OnboardingProcessEntity::new);
-        applyProcess(process, entity);
+        updateEntity(entity, process);
         repository.save(entity);
     }
 
@@ -125,7 +124,15 @@ public class JpaOnboardingRepository implements OnboardingRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
-    private static void applyProcess(OnboardingProcess process, OnboardingProcessEntity entity) {
+    private OnboardingProcessEntity toEntity(OnboardingProcess process) {
+        var entity = new OnboardingProcessEntity();
+        updateEntity(entity, process);
+        return entity;
+    }
+
+    private void updateEntity(OnboardingProcessEntity entity, OnboardingProcess process) {
+        // The id is assigned by the app, not generated: without it persist() refuses the entity.
+        // A no-op for a loaded entity (the process id never changes).
         entity.setId(process.id());
         entity.setExternalId(process.externalId());
         entity.setState(process.state());

@@ -35,7 +35,7 @@ class NetworkControllerTest {
     /** Required fields that are lists (@NotEmpty); the rest are strings (@NotBlank). */
     private static final Set<String> LIST_FIELDS = Set.of("uniqueIds", "companyRoles", "agreements");
 
-    /** A complete payload carrying every required field: name, bpn, shortName, uniqueIds, externalId, companyRoles, agreements. */
+    /** A complete payload carrying every required field: name, shortName, uniqueIds, externalId, companyRoles, agreements. */
     private static final String VALID_BODY = """
             {
               "name": "Acme Corp",
@@ -136,8 +136,25 @@ class NetworkControllerTest {
         assertThat(output).contains("Rejected request with 400 due to invalid shape:");
     }
 
+    @Test
+    void registerPartner_withoutBpn_isAccepted() throws Exception {
+        // The BPN is deliberately optional on ingress: when absent, the BusinessPartnerNumberService
+        // assigns one at the BPN step of the onboarding.
+        var payload = validPayload();
+        payload.remove("bpn");
+
+        mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload.toString()))
+                .andExpect(status().isOk());
+
+        var captor = ArgumentCaptor.forClass(PartnerRegistrationData.class);
+        verify(networkService).registerPartner(captor.capture());
+        assertThat(captor.getValue().bpn()).isNull();
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = { "name", "bpn", "shortName", "uniqueIds", "externalId", "companyRoles", "agreements" })
+    @ValueSource(strings = { "name", "shortName", "uniqueIds", "externalId", "companyRoles", "agreements" })
     void registerPartner_withMissingRequiredField_returns400WithMessageAndLogs(String field, CapturedOutput output) throws Exception {
         var payload = validPayload();
         payload.remove(field);
@@ -154,7 +171,7 @@ class NetworkControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = { "name", "bpn", "shortName", "externalId" })
+    @ValueSource(strings = { "name", "shortName", "externalId" })
     void registerPartner_withBlankRequiredField_returns400WithMessageAndLogs(String field, CapturedOutput output) throws Exception {
         var payload = validPayload();
         payload.put(field, "   ");

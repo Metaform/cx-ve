@@ -423,9 +423,10 @@ type OnboardingEvent struct {
 }
 
 // OnboardingStartedEvent announces an accepted registration, before any provisioning has happened.
-// Both identities are already final: the BPN is the submitted one, and the DID is derived from the
-// participant DID template by the same rule provisioning will use — which is what makes this the
-// event that binds a BPN to a DID for everything that follows.
+// The DID is already final — derived from the participant DID template by the same rule
+// provisioning will use. The BPN is final only when the registration submitted one; it is empty
+// for a registration without a BPN (one gets assigned during onboarding and arrives on the
+// completed event), so the BPN↔DID binding this event establishes is conditional on Bpn being set.
 type OnboardingStartedEvent struct{ OnboardingEvent }
 
 // OnboardingCompletedEvent announces that an onboarding reached a terminal state — any of them, not

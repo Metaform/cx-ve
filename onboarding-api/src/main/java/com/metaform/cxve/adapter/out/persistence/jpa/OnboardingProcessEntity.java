@@ -73,7 +73,7 @@ public class OnboardingProcessEntity {
     private String participantContextId;
 
     /** The registration payload as JSON ({@code text} on Postgres). Written once at create. */
-    @JdbcTypeCode(SqlTypes.LONG32VARCHAR)
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload")
     private String payload;
 

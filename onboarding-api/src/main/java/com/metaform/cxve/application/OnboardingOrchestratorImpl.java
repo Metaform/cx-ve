@@ -75,9 +75,10 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     @Override
     public String start(PartnerRegistrationData registrationData) {
         var id = UUID.randomUUID().toString();
-        // Both identities are final from submission — the BPN is the payload's (resolveOrCreate
-        // keeps it verbatim), the DID is resolved by the same rule provisioning will use — so they
-        // are seeded on the process, which is authoritative for them from here on.
+        // The process is authoritative for both identities from here on. The DID is final at
+        // submission (resolved by the same rule provisioning will use). The BPN is final only when
+        // the registration supplied one (resolveOrCreate keeps it verbatim); when it did not, the
+        // seed is null and the BPN step assigns one — subscribers get it via the completed event.
         var did = didResolver.resolve(registrationData);
         var process = OnboardingProcess.submitted(id, registrationData.externalId(), registrationData.bpn(), did);
         repository.create(process, registrationData);

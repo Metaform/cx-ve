@@ -112,6 +112,22 @@ class OnboardingOrchestratorImplTest {
     }
 
     @Test
+    void start_withoutBpn_announcesTheAssignedBpnOnCompletion() {
+        // The BPN is optional on ingress. The started event then honestly carries none — the BPN
+        // step has not run yet — and the completed event delivers the one the
+        // BusinessPartnerNumberService assigned.
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+
+        var id = orchestrator.start(registration(null));
+        orchestrator.advanceByHolder("did:web:acme");
+
+        assertThat(events.started().get(0).bpn()).isNull();
+        var assigned = orchestrator.get(id).bpn();
+        assertThat(assigned).isNotBlank();
+        assertThat(events.completed().get(0).bpn()).isEqualTo(assigned);
+    }
+
+    @Test
     void start_announcesTheCallerSuppliedDidWhenGiven() {
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
         var supplied = registration("BPNL0000000000XY").withDid("did:web:acme.example.com");

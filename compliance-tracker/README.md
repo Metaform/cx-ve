@@ -67,10 +67,10 @@ Two of the routed subjects are not EDC events: `events.onboarding.started` and
 the CX-0000 §2.3 reverse-DNS convention rather than EDC's Java-class-name one — see the header of
 `handler/event_types.go`, which documents both. The started event is where a BPN and a DID first
 appear together, before any provisioning — which is what lets the participant-context and issuance
-events that follow be attributed to a partner. The completed event is published for **every**
-terminal outcome, so its
-`state` field (`COMPLETED`, `REJECTED` or `FAILED`) has to be inspected; the subject alone does not
-mean success.
+events that follow be attributed to a partner. Caveat: the BPN is optional on registration, so a
+started event may carry only the DID; the assigned BPN then arrives on the completed event. The
+completed event is published for **every** terminal outcome, so its `state` field (`COMPLETED`,
+`REJECTED` or `FAILED`) has to be inspected; the subject alone does not mean success.
 
 ## Event handling
 
