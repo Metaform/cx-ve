@@ -142,6 +142,33 @@ class OnboardingOrchestratorImplTest {
     }
 
     @Test
+    void aRejectedDuplicate_doesNotStealTheHolderCorrelation() {
+        // The holder DID is seeded at submission, so a rejected duplicate carries the same one as
+        // the onboarding it duplicated. An issuance event for that DID must still reach the
+        // onboarding that is running, not the rejected attempt.
+        var pending = new IdentityProofingService() {
+            @Override
+            public String initiateProofing(OnboardingProcess process) {
+                return "proof-pending";
+            }
+
+            @Override
+            public boolean isVerified(String proofingReference) {
+                return false;
+            }
+        };
+        var orchestrator = orchestratorWith(pending);
+        var id = orchestrator.start(registration("BPNL0000000000XY"));
+        var duplicateId = orchestrator.start(registration("BPNL0000000000XY"));
+        assertThat(orchestrator.get(duplicateId).state()).isEqualTo(OnboardingState.REJECTED);
+
+        var advanced = orchestrator.advanceByHolder(RecordingOnboardingEventPublisher.DID_TEMPLATE + "Acme");
+
+        assertThat(advanced).isPresent();
+        assertThat(advanced.get().id()).isEqualTo(id);
+    }
+
+    @Test
     void rejection_isAnnouncedAsATerminalOutcome() {
         // A rejection ends the onboarding just as definitively as a completion. A subscriber that
         // saw the started event has no other way to learn it is over.

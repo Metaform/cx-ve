@@ -75,15 +75,17 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     @Override
     public String start(PartnerRegistrationData registrationData) {
         var id = UUID.randomUUID().toString();
-        var process = OnboardingProcess.submitted(id, registrationData.externalId());
+        // Both identities are final from submission — the BPN is the payload's (resolveOrCreate
+        // keeps it verbatim), the DID is resolved by the same rule provisioning will use — so they
+        // are seeded on the process, which is authoritative for them from here on.
+        var did = didResolver.resolve(registrationData);
+        var process = OnboardingProcess.submitted(id, registrationData.externalId(), registrationData.bpn(), did);
         repository.create(process, registrationData);
         log.info("Starting onboarding process ID '{}' for participant \"{}\")", id, registrationData.name());
         // Announced BEFORE the process is driven: processOnboarding() runs the flow synchronously as
         // far as it can go, so publishing afterwards would order "started" after the work it starts.
-        // The BPN is the submitted one, which resolveOrCreate keeps verbatim, and the DID is resolved
-        // by the same rule provisioning will use — so both identities are final already.
         eventPublisher.onboardingStarted(new OnboardingStarted(
-                id, registrationData.externalId(), registrationData.bpn(), didResolver.resolve(registrationData)));
+                id, registrationData.externalId(), registrationData.bpn(), did));
         try {
             processOnboarding(id);
         } catch (RuntimeException e) {

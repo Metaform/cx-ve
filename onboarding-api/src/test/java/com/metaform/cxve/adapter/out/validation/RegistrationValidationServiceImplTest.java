@@ -24,9 +24,16 @@ class RegistrationValidationServiceImplTest {
                 List.of(CompanyRoleId.ACTIVE_PARTICIPANT), did, null, null, null);
     }
 
-    /** Seeds an onboarding in the given state, as the orchestrator would leave it behind. */
+    /**
+     * Seeds an onboarding in the given state, as the orchestrator would leave it behind: the
+     * process carries the payload's BPN and DID from submission, since it is authoritative for
+     * both. (Production resolves a template DID when none is submitted; the raw value here keeps
+     * the absent-identity cases testable.)
+     */
     private void onboarding(OnboardingState state, PartnerRegistrationData data) {
-        var process = OnboardingProcess.submitted("process-" + data.externalId(), data.externalId()).withState(state);
+        var process = OnboardingProcess
+                .submitted("process-" + data.externalId(), data.externalId(), data.bpn(), data.did())
+                .withState(state);
         repository.create(process, data);
     }
 

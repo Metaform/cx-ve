@@ -2,10 +2,15 @@ package com.metaform.cxve.domain.model;
 
 /**
  * Tracks a single partner onboarding as it moves through {@link OnboardingState}.
- * {@code externalId} is the caller-supplied correlation id from the registration payload;
- * {@code bpn}, {@code participantProfileId} and {@code holderId} are populated as the corresponding steps
- * complete. {@code holderId} is the identifier used to correlate downstream IdentityHub issuance
- * events back to this process.
+ * {@code externalId} is the caller-supplied correlation id from the registration payload.
+ *
+ * <p>{@code bpn} and {@code holderId} are AUTHORITATIVE on this record and seeded at submission:
+ * the BPN with the payload's (mandatory) value, the holder id with the participant DID resolved by
+ * the same rule provisioning will use. The corresponding steps later confirm or overwrite them
+ * ({@code withBpn} with the resolved/created BPN, {@code withHolderId} with the provisioned
+ * participant's identifier) — queries and events read them from here, never from the payload.
+ * {@code holderId} is also the identifier that correlates downstream IdentityHub issuance events
+ * back to this process.
  *
  * <p>Immutable — each transition returns a new instance via the {@code with*} helpers.
  */
@@ -28,8 +33,8 @@ public record OnboardingProcess(
     }
 
 
-    public static OnboardingProcess submitted(String id, String externalId) {
-        return new OnboardingProcess(id, externalId, OnboardingState.SUBMITTED, null, null, null, null);
+    public static OnboardingProcess submitted(String id, String externalId, String bpn, String did) {
+        return new OnboardingProcess(id, externalId, OnboardingState.SUBMITTED, bpn, null, did, null);
     }
 
     public OnboardingProcess withState(OnboardingState newState) {

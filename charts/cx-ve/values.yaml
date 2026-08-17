@@ -108,7 +108,9 @@ core-platform-distribution:
   postgresql:
     # Helm replaces lists wholesale, so this list must repeat the platform defaults in full —
     # the final `certo` entry is the CX-VE-specific addition (certo's database lives in the
-    # platform's Postgres).
+    # platform's Postgres). The onboarding API's `onboarding` database is deliberately NOT here:
+    # the onboarding-api chart provisions it itself (its postgres-seed job), so it works against
+    # a platform release this list never touched.
     databases:
       - { db: controlplane,  user: cp,      password: cp }
       - { db: identityhub,   user: ih,      password: ih }

@@ -13,13 +13,12 @@ public record PartnerRegistration(
 ) {
 
     /**
-     * Builds the view with the effective registration data: the BPN and DID assigned on the
-     * process during onboarding take precedence over the submitted payload, which may lack both.
+     * Builds the view with the process's BPN and holder DID overlaid on the payload: the process
+     * is authoritative for both — seeded from the submission and confirmed or overwritten by the
+     * onboarding steps — so the payload's values are never consulted.
      */
     public static PartnerRegistration of(OnboardingProcess process, PartnerRegistrationData payload) {
-        var effective = payload
-                .withBpn(process.bpn() != null ? process.bpn() : payload.bpn())
-                .withDid(process.holderId() != null ? process.holderId() : payload.did());
+        var effective = payload.withBpn(process.bpn()).withDid(process.holderId());
         return new PartnerRegistration(process.id(), process.state(), effective);
     }
 
