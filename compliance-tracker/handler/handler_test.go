@@ -227,6 +227,9 @@ func TestProcess_EveryFamily_PersistsItsCorrelationKeys(t *testing.T) {
 		SubjectCredentialOfferReceived:     pctxOnly,
 		SubjectDidDocumentPublished:        {ParticipantContextID: "pctx-1", HolderDid: "did:web:acme"},
 		SubjectIssuanceCredentialDelivered: {HolderDid: "holder-1"},
+		// Certo's CCM family: the event's own side only — the counterparty identifiers in the
+		// payload are a DIFFERENT participant and must not become this event's keys.
+		SubjectCertificateExchangeFulfilled: pctxOnly,
 		// Secrets carry no attributable identity at all; the event is recorded keyless.
 		SubjectSecretCreated: {},
 	} {
@@ -237,6 +240,10 @@ func TestProcess_EveryFamily_PersistsItsCorrelationKeys(t *testing.T) {
 				"participantContextId": "pctx-1",
 				"did":                  "did:web:acme",
 				"holderId":             "holder-1",
+				// The counterparty of a certificate exchange: present on the wire, and expected
+				// to be ignored by every family's key extraction.
+				"counterpartyBpn": "BPNL_COUNTERPARTY",
+				"counterpartyDid": "did:web:counterparty",
 			}))
 
 			require.NoError(t, err)

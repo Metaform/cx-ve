@@ -64,10 +64,14 @@ catch-all, *any* configured subject overlaps it and makes NATS reject the consum
 `consumer subject filters cannot overlap`. To subscribe to something narrower, edit
 `launcher.DefaultSubjects`.
 
-Two of the routed subjects are not EDC events: `events.onboarding.started` and
-`events.onboarding.completed` come from cx-ve's own Onboarding API. Their CloudEvent `type` follows
-the CX-0000 §2.3 reverse-DNS convention rather than EDC's Java-class-name one — see the header of
-`handler/event_types.go`, which documents both. The started event is where a BPN and a DID first
+Two of the routed families are not EDC events. The `events.onboarding.*` subjects come from
+cx-ve's own Onboarding API and the `events.certificate.exchange.*` subjects from Certo (CX-0135
+certificate exchange); both follow the CX-0000 §2.3 reverse-DNS `type` convention rather than
+EDC's Java-class-name one — see the header of `handler/event_types.go`, which documents all three
+producers. A certificate exchange event carries the publishing side's own participant context
+(its correlation key) plus the counterparty's BPN and DID, which deliberately do NOT become keys:
+Certo publishes each side of an exchange separately, so promoting the counterparty would
+attribute one side's activity to the other. The onboarding started event is where a BPN and a DID first
 appear together, before any provisioning — which is what lets the participant-context and issuance
 events that follow be attributed to a partner. Caveat: the BPN is optional on registration, so a
 started event may carry only the DID; the assigned BPN then arrives on the completed event. The

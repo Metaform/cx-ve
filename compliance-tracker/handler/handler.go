@@ -147,6 +147,14 @@ func (p *Processor) track(ctx context.Context, subject string, occurredAt time.T
 		edcEvt := CredentialOfferEvent{}
 		err := json.Unmarshal(jsonRaw, &edcEvt)
 		return store.CorrelationKeys{ParticipantContextID: edcEvt.ParticipantContextID}, err
+	case strings.HasPrefix(subject, SubjectPrefixCertificateExchange):
+		ccmEvt := CertificateExchangeEvent{}
+		err := json.Unmarshal(jsonRaw, &ccmEvt)
+		// The event's own side only. Certo publishes each side of an exchange separately (Role
+		// says which), so every participant gets its own perspective — promoting the
+		// counterpartyBpn/-Did here would attribute this side's activity to the other participant
+		// as well. They stay queryable in the envelope.
+		return store.CorrelationKeys{ParticipantContextID: ccmEvt.ParticipantContextID}, err
 	case strings.HasPrefix(subject, SubjectPrefixIssuance):
 		edcEvt := IssuanceEvent{}
 		err := json.Unmarshal(jsonRaw, &edcEvt)
