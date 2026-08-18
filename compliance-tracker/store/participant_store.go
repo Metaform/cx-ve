@@ -6,6 +6,25 @@ import (
 	"fmt"
 )
 
+// ParticipantStore maintains the registry. Every method is idempotent — delivery is
+// at-least-once, so each may run again on redelivery.
+type ParticipantStore interface {
+	// Open records a started registration. Re-opening an existing participant is a no-op.
+	Open(ctx context.Context, p *Participant) error
+	// LinkParticipantContext attaches the participant context to the still-running registration
+	// of the given DID (the did:web document publication is where the two first appear together).
+	// Matching no participant — a context outside any onboarding, e.g. the operator's own — is
+	// fine.
+	LinkParticipantContext(ctx context.Context, did, participantContextID string) error
+	// Close marks the registration terminal. Closing one never opened still records what the
+	// closure knows (the tracker may have started mid-flight).
+	Close(ctx context.Context, c *ParticipantClosure) error
+	// HasDid says whether any participant carries this DID. Diagnostic: an issuance holder id
+	// that matches no participant means holder ids are NOT participant DIDs, and correlation
+	// would be silently broken — worth a warning, not an error.
+	HasDid(ctx context.Context, did string) (bool, error)
+}
+
 // postgresParticipantStore maintains the participant registry with plain SQL. Every statement is
 // idempotent under redelivery: Open ignores an existing row, Link and Close overwrite with the
 // same values they wrote before.
@@ -34,7 +53,7 @@ func (s *postgresParticipantStore) LinkParticipantContext(ctx context.Context, d
 	// duplicated, and the dead row must not capture the link. Zero matched rows (a context
 	// outside any onboarding, e.g. the operator's own) is not an error.
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
-		UPDATE %s SET participant_context_id = $2 WHERE did = $1 AND state = 'RUNNING'
+		UPDATE %s SET participant_context_id = $2 WHERE did = $1 AND STATE = 'RUNNING'
 	`, participantTable), did, participantContextID)
 	return err
 }
@@ -45,14 +64,14 @@ func (s *postgresParticipantStore) Close(ctx context.Context, c *ParticipantClos
 	// registration's lifetime made it into the ledger either. The identity fields overwrite only
 	// when the closure carries them.
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO %[1]s (process_id, external_id, did, bpn, participant_context_id, state, started_at, completed_at)
+		INSERT INTO %[1]s (process_id, external_id, did, bpn, participant_context_id, STATE, started_at, completed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), COALESCE($7, now()))
 		ON CONFLICT (process_id) DO UPDATE SET
 			external_id            = COALESCE(EXCLUDED.external_id, %[1]s.external_id),
 			did                    = COALESCE(EXCLUDED.did, %[1]s.did),
 			bpn                    = COALESCE(EXCLUDED.bpn, %[1]s.bpn),
 			participant_context_id = COALESCE(EXCLUDED.participant_context_id, %[1]s.participant_context_id),
-			state                  = EXCLUDED.state,
+			STATE                  = EXCLUDED.state,
 			completed_at           = EXCLUDED.completed_at
 	`, participantTable),
 		c.ProcessID, nullString(c.ExternalID), nullString(c.Did), nullString(c.Bpn),

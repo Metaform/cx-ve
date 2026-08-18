@@ -4,7 +4,6 @@
 package store
 
 import (
-	"context"
 	"time"
 
 	"github.com/eclipse-cfm/cfm/common/system"
@@ -12,6 +11,9 @@ import (
 
 // EventStoreKey resolves the EventStore from the agent's service registry.
 const EventStoreKey system.ServiceType = "compliancetracker:EventStore"
+
+// ParticipantStoreKey resolves the ParticipantStore from the agent's service registry.
+const ParticipantStoreKey system.ServiceType = "compliancetracker:ParticipantStore"
 
 // CorrelationKeys are the identifiers promoted out of an event's payload into indexed columns, so
 // events can be attributed to a participant without unpacking JSON. Which key a family carries
@@ -41,15 +43,6 @@ type EventRecord struct {
 	Envelope []byte
 	Keys     CorrelationKeys
 }
-
-// EventStore is the ledger. Record is idempotent: writing the same (Source, EventID) again is a
-// no-op, not an error.
-type EventStore interface {
-	Record(ctx context.Context, e *EventRecord) error
-}
-
-// ParticipantStoreKey resolves the ParticipantStore from the agent's service registry.
-const ParticipantStoreKey system.ServiceType = "compliancetracker:ParticipantStore"
 
 // Participant is the registry row that makes the ledger correlatable: one row per participant
 // (or failed registration attempt), unifying the three identities — BPN, DID, participant
@@ -90,23 +83,4 @@ type ParticipantClosure struct {
 	// State is the terminal OnboardingState constant name: COMPLETED, REJECTED or FAILED.
 	State       string
 	CompletedAt time.Time
-}
-
-// ParticipantStore maintains the registry. Every method is idempotent — delivery is
-// at-least-once, so each may run again on redelivery.
-type ParticipantStore interface {
-	// Open records a started registration. Re-opening an existing participant is a no-op.
-	Open(ctx context.Context, p *Participant) error
-	// LinkParticipantContext attaches the participant context to the still-running registration
-	// of the given DID (the did:web document publication is where the two first appear together).
-	// Matching no participant — a context outside any onboarding, e.g. the operator's own — is
-	// fine.
-	LinkParticipantContext(ctx context.Context, did, participantContextID string) error
-	// Close marks the registration terminal. Closing one never opened still records what the
-	// closure knows (the tracker may have started mid-flight).
-	Close(ctx context.Context, c *ParticipantClosure) error
-	// HasDid says whether any participant carries this DID. Diagnostic: an issuance holder id
-	// that matches no participant means holder ids are NOT participant DIDs, and correlation
-	// would be silently broken — worth a warning, not an error.
-	HasDid(ctx context.Context, did string) (bool, error)
 }

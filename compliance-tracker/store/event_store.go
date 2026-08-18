@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// EventStore is the ledger. Record is idempotent: writing the same (Source, EventID) again is a
+// no-op, not an error.
+type EventStore interface {
+	Record(ctx context.Context, e *EventRecord) error
+}
+
 // postgresEventStore writes the ledger with plain SQL. Deliberately not the generic
 // sqlstore.EntityStore: that models versioned mutable entities in a single JSONB column, while
 // this table is append-only with promoted key columns and conflict-ignoring inserts.
@@ -28,10 +34,10 @@ func (s *postgresEventStore) Record(ctx context.Context, e *EventRecord) error {
 		return fmt.Errorf("event %s on %s has no envelope", e.EventID, e.Subject)
 	}
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO %s (source, event_id, subject, type, occurred_at, envelope,
+		INSERT INTO %s (SOURCE, event_id, subject, TYPE, occurred_at, envelope,
 		                participant_context_id, holder_did, bpn, onboarding_process_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		ON CONFLICT (source, event_id) DO NOTHING
+		ON CONFLICT (SOURCE, event_id) DO NOTHING
 	`, eventTable),
 		e.Source, eventID(e), e.Subject, e.Type, nullTime(e.OccurredAt), string(e.Envelope),
 		nullString(e.Keys.ParticipantContextID), nullString(e.Keys.HolderDid),
