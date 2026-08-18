@@ -20,7 +20,10 @@ func createTables(db *sql.DB) error {
 	if err := createParticipantTable(db); err != nil {
 		return err
 	}
-	return createParticipantEventView(db)
+	if err := createParticipantEventView(db); err != nil {
+		return err
+	}
+	return createParticipantEventlogView(db)
 }
 
 // createEventTable creates the hard-fact ledger of all events that occurred, just as they occurred.
@@ -105,5 +108,38 @@ func createParticipantEventView(db *sql.DB) error {
 			               OR COALESCE(e.occurred_at, e.recorded_at) <= p.completed_at)
 			END
 	`, eventTable, participantTable))
+	return err
+}
+
+// createParticipantEventlogView creates the rollup: ONE row per participant, all three identities
+// (BPN, DID, participant context id) alongside the participant's whole history as a time-ordered
+// array of compact event summaries. The full envelope stays one join away in the event table (by
+// source + event_id); inlining it here would balloon every row with credential payloads. LEFT
+// JOIN so a participant appears from the moment its onboarding starts, before anything is
+// attributed.
+func createParticipantEventlogView(db *sql.DB) error {
+	_, err := db.Exec(fmt.Sprintf(`
+		CREATE OR REPLACE VIEW participant_eventlog AS
+		SELECT
+			p.process_id,
+			p.external_id,
+			p.bpn,
+			p.did,
+			p.participant_context_id,
+			p.state,
+			count(e.event_id) AS event_count,
+			jsonb_agg(
+				jsonb_build_object(
+					'occurred_at', COALESCE(e.occurred_at, e.recorded_at),
+					'subject', e.subject,
+					'type', e.type,
+					'source', e.source,
+					'event_id', e.event_id
+				) ORDER BY COALESCE(e.occurred_at, e.recorded_at)
+			) FILTER (WHERE e.event_id IS NOT NULL) AS events
+		FROM %s p
+		LEFT JOIN participant_event e ON e.participant_id = p.process_id
+		GROUP BY p.process_id, p.external_id, p.bpn, p.did, p.participant_context_id, p.state
+	`, participantTable))
 	return err
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -218,4 +219,55 @@ func TestParticipantEventView_OnboardingEventsAttributeByProcessIdOnly(t *testin
 		CorrelationKeys{OnboardingProcessID: "proc-view-dup", HolderDid: "did:web:view-dup"})
 
 	assert.Equal(t, []string{"proc-view-dup"}, attributions(t, "view-dup", "dup-completed"))
+}
+
+// ---------------------------------------------------------------------------------------------
+// participant_eventlog view — the per-participant rollup
+// ---------------------------------------------------------------------------------------------
+
+func TestParticipantEventlogView_RollsUpAParticipantsWholeHistory(t *testing.T) {
+	// One row per participant, unifying BPN, DID and participant context — the events array must
+	// contain every attributed event in occurrence order, as compact summaries (the full envelope
+	// stays in the event table).
+	sut := newPostgresParticipantStore(testDB)
+	require.NoError(t, sut.Open(context.Background(), participant("proc-rollup", "did:web:rollup")))
+	require.NoError(t, sut.LinkParticipantContext(context.Background(), "did:web:rollup", "pctx-rollup"))
+
+	// Inserted out of order; the rollup must sort by occurrence.
+	viewEvent(t, "rollup", "second", t0.Add(2*time.Minute), CorrelationKeys{ParticipantContextID: "pctx-rollup"})
+	viewEvent(t, "rollup", "first", t0.Add(time.Minute), CorrelationKeys{HolderDid: "did:web:rollup"})
+
+	var eventCount int
+	var eventsJSON string
+	require.NoError(t, testDB.QueryRow(`
+		SELECT event_count, events FROM participant_eventlog WHERE process_id = 'proc-rollup'`).
+		Scan(&eventCount, &eventsJSON))
+
+	assert.Equal(t, 2, eventCount)
+	var events []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(eventsJSON), &events))
+	require.Len(t, events, 2)
+	assert.Equal(t, "first", events[0]["event_id"])
+	assert.Equal(t, "second", events[1]["event_id"])
+	// The summary carries what identifies and locates the event — envelope retrieval needs
+	// source + event_id, reading needs subject/type/time.
+	for _, key := range []string{"occurred_at", "subject", "type", "source", "event_id"} {
+		assert.Contains(t, events[0], key)
+	}
+}
+
+func TestParticipantEventlogView_AParticipantWithoutEventsStillAppears(t *testing.T) {
+	// The row exists from the moment the onboarding starts — an empty history is a statement
+	// ("nothing observed yet"), not a missing participant.
+	sut := newPostgresParticipantStore(testDB)
+	require.NoError(t, sut.Open(context.Background(), participant("proc-rollup-empty", "did:web:rollup-empty")))
+
+	var eventCount int
+	var events sql.NullString
+	require.NoError(t, testDB.QueryRow(`
+		SELECT event_count, events FROM participant_eventlog WHERE process_id = 'proc-rollup-empty'`).
+		Scan(&eventCount, &events))
+
+	assert.Equal(t, 0, eventCount)
+	assert.False(t, events.Valid)
 }

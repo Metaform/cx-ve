@@ -118,6 +118,17 @@ SELECT subject, type, occurred_at FROM participant_event
 WHERE participant_id = '<process-id>' ORDER BY COALESCE(occurred_at, recorded_at);
 ```
 
+On top of it, the `participant_eventlog` view is the rollup: ONE row per participant, carrying
+BPN, DID and participant context id alongside the whole history as a time-ordered JSONB array of
+compact event summaries (`occurred_at`, `subject`, `type`, `source`, `event_id`; the full
+envelope is one join away in the `event` table via source + event id). A participant appears from
+the moment its onboarding starts, with an empty history.
+
+```sql
+-- one participant's whole story, by any of its identities
+SELECT * FROM participant_eventlog WHERE bpn = '<bpn>';  -- or did = … or participant_context_id = …
+```
+
 As a diagnostic, an issuance event whose `holderId` matches no participant logs a warning:
 correlation rests on the assumption that issuance holder ids are participant DIDs, and a mismatch
 would mean it is silently broken.
