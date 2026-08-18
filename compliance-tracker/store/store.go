@@ -48,38 +48,41 @@ type EventStore interface {
 	Record(ctx context.Context, e *EventRecord) error
 }
 
-// BindingStoreKey resolves the BindingStore from the agent's service registry.
-const BindingStoreKey system.ServiceType = "compliancetracker:BindingStore"
+// ParticipantStoreKey resolves the ParticipantStore from the agent's service registry.
+const ParticipantStoreKey system.ServiceType = "compliancetracker:ParticipantStore"
 
-// Binding is the projection that makes the ledger correlatable: one row per onboarding process,
-// built purely from the event stream (never from the Onboarding API's database — the tracker is
-// an independent observer). The onboarding started event opens it with the identities known at
-// submission; the DID-document published event links the participant context; the completed event
-// confirms the final identities and closes it. Events are then attributed to processes at READ
+// Participant is the registry row that makes the ledger correlatable: one row per participant
+// (or failed registration attempt), unifying the three identities — BPN, DID, participant
+// context id — that never occur together in a single event. Built purely from the event stream
+// (never from the Onboarding API's database — the tracker is an independent observer): the
+// onboarding started event opens it with the identities known at submission; the DID-document
+// published event links the participant context; the completed event confirms the final
+// identities and closes the registration. Events are then attributed to participants at READ
 // time, by joining their correlation keys against these rows — so the ledger stays immutable and
-// binding knowledge learned late applies to history automatically.
-type Binding struct {
+// identity knowledge learned late applies to history automatically. The onboarding process id is
+// the participant's provenance and primary key: the process that created it.
+type Participant struct {
 	ProcessID  string
 	ExternalID string
 	// Did is final from the started event. Bpn is empty when the registration submitted none;
 	// the assigned one arrives with the closure.
 	Did string
 	Bpn string
-	// StartedAt opens the process's attribution window; the zero value falls back to the wall
-	// clock at insert.
+	// StartedAt is the earliest an event can be attributed to this participant; the zero value
+	// falls back to the wall clock at insert.
 	StartedAt time.Time
 }
 
-// BindingClosure records a process reaching a terminal state. For REJECTED and FAILED the window
-// closes — the identifiers become free for re-registration, so later events must not attribute
-// here. A COMPLETED process instead owns its identity permanently: its window stays open and all
-// of the participant's later activity keeps attributing to the onboarding that created it.
-type BindingClosure struct {
+// ParticipantClosure records a registration reaching a terminal state. A COMPLETED participant
+// owns its identity permanently: all of its later activity keeps attributing to it. For REJECTED
+// and FAILED the attribution window closes with the terminal event — the identifiers become free
+// for re-registration, so later events must not attribute to the dead attempt.
+type ParticipantClosure struct {
 	ProcessID string
-	// The identity fields overwrite the binding when set — the completed event carries the
-	// authoritative, finally-assigned values. Empty means "not carried" and leaves the binding
-	// as learned. They also let a closure for a process never seen starting (the tracker may have
-	// started mid-flight) record what it knows.
+	// The identity fields overwrite the participant when set — the completed event carries the
+	// authoritative, finally-assigned values. Empty means "not carried" and leaves the
+	// participant as learned. They also let a closure for a registration never seen starting
+	// (the tracker may have started mid-flight) record what it knows.
 	ExternalID           string
 	Did                  string
 	Bpn                  string
@@ -89,20 +92,21 @@ type BindingClosure struct {
 	CompletedAt time.Time
 }
 
-// BindingStore maintains the projection. Every method is idempotent — delivery is at-least-once,
-// so each may run again on redelivery.
-type BindingStore interface {
-	// Open records a started onboarding. Re-opening an existing process is a no-op.
-	Open(ctx context.Context, b *Binding) error
-	// LinkParticipantContext attaches the participant context to the still-running binding of the
-	// given DID (the did:web document publication is where the two first appear together).
-	// Matching no binding — a context outside any onboarding, e.g. the operator's own — is fine.
+// ParticipantStore maintains the registry. Every method is idempotent — delivery is
+// at-least-once, so each may run again on redelivery.
+type ParticipantStore interface {
+	// Open records a started registration. Re-opening an existing participant is a no-op.
+	Open(ctx context.Context, p *Participant) error
+	// LinkParticipantContext attaches the participant context to the still-running registration
+	// of the given DID (the did:web document publication is where the two first appear together).
+	// Matching no participant — a context outside any onboarding, e.g. the operator's own — is
+	// fine.
 	LinkParticipantContext(ctx context.Context, did, participantContextID string) error
-	// Close marks the process terminal. Closing a process never opened still records what the
+	// Close marks the registration terminal. Closing one never opened still records what the
 	// closure knows (the tracker may have started mid-flight).
-	Close(ctx context.Context, c *BindingClosure) error
-	// HasDid says whether any binding knows this DID. Diagnostic: an issuance holder id that
-	// matches no binding means holder ids are NOT participant DIDs, and correlation would be
-	// silently broken — worth a warning, not an error.
+	Close(ctx context.Context, c *ParticipantClosure) error
+	// HasDid says whether any participant carries this DID. Diagnostic: an issuance holder id
+	// that matches no participant means holder ids are NOT participant DIDs, and correlation
+	// would be silently broken — worth a warning, not an error.
 	HasDid(ctx context.Context, did string) (bool, error)
 }

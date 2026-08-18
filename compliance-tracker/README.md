@@ -85,37 +85,42 @@ plus the correlation keys the event's family carries, promoted to indexed column
 `(source, event_id)` — CloudEvents scope id uniqueness to the producer — and inserts are
 `ON CONFLICT DO NOTHING`, which is what makes at-least-once delivery record-exactly-once.
 
-### Correlating events to onboarding processes
+### Correlating events to participants
 
 Correlation is built purely from the event stream — never from the Onboarding API's database; the
-tracker is an independent observer. A `binding` table projects one row per onboarding process:
+tracker is an independent observer. A `participant` table registers one row per participant (or
+failed registration attempt), unifying the three identities that never occur together in a single
+event — BPN, DID and participant context id — learned from the onboarding lifecycle; the
+onboarding process id is the row's primary key as the participant's provenance:
 
-| Event | What it teaches the binding |
+| Event | What it teaches the registry |
 |---|---|
-| `events.onboarding.started` | opens the process: `process_id ↔ did` (and `↔ bpn` when submitted) |
+| `events.onboarding.started` | registers the participant: `process_id ↔ did` (and `↔ bpn` when submitted) |
 | `events.diddocument.published` | links `did ↔ participant_context_id` — the one event carrying both |
-| `events.onboarding.completed` | confirms the final identities, closes the process with its terminal state |
+| `events.onboarding.completed` | confirms the final identities, closes the registration with its terminal state |
 
-Events are attributed to processes at **read time** by the `process_event` view, so the ledger
-stays immutable and binding knowledge learned late applies to history automatically. Attribution
-rules: an event carrying an onboarding process id attributes to exactly that process (a rejected
-duplicate's events carry the duplicated DID and must not leak into the process they duplicated);
-any other event attributes by identity — holder DID or participant context id — within the
-process's attribution window. The window opens at the started event; for `REJECTED`/`FAILED` it
-closes at the terminal event (a dead process frees its identifiers for re-registration), while a
-`COMPLETED` process owns its identity permanently, so the participant's post-onboarding activity
-keeps attributing to the onboarding that created it. Events matching no binding (the operator's
-own contexts, secrets) do not appear in the view but stay queryable in the `event` table.
+Events are attributed to participants at **read time** by the `participant_event` view, so the
+ledger stays immutable and identity knowledge learned late applies to history automatically.
+Attribution rules: an event carrying an onboarding process id attributes to exactly the
+participant that process created (a rejected duplicate's events carry the duplicated DID and must
+not leak into the participant they duplicated); any other event attributes by identity — holder
+DID or participant context id. A live participant (`RUNNING` or `COMPLETED`) owns its identity
+permanently, so ALL of its activity attributes to it — a contract negotiation or a key rotation
+years after onboarding included. The time window is the exception, fencing off `REJECTED`/`FAILED`
+registration attempts: a dead attempt frees its identifiers for re-registration, so only events
+between its start and its terminal event may attribute to it. Events matching no participant (the
+operator's own contexts, secrets) do not appear in the view but stay queryable in the `event`
+table.
 
 ```sql
--- everything that happened around one onboarding, in order
-SELECT subject, type, occurred_at FROM process_event
-WHERE binding_process_id = '<process-id>' ORDER BY COALESCE(occurred_at, recorded_at);
+-- everything that concerns one participant, in order
+SELECT subject, type, occurred_at FROM participant_event
+WHERE participant_id = '<process-id>' ORDER BY COALESCE(occurred_at, recorded_at);
 ```
 
-As a diagnostic, an issuance event whose `holderId` matches no binding logs a warning: correlation
-rests on the assumption that issuance holder ids are participant DIDs, and a mismatch would mean
-it is silently broken.
+As a diagnostic, an issuance event whose `holderId` matches no participant logs a warning:
+correlation rests on the assumption that issuance holder ids are participant DIDs, and a mismatch
+would mean it is silently broken.
 
 Events are delivered at-least-once, so handlers must be idempotent. The value returned from
 `Process` decides the message's fate:

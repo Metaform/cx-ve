@@ -136,10 +136,10 @@ func TestComplianceTracker_Integration(t *testing.T) {
 	assert.JSONEq(t, string(payload), envelope)
 
 	// And the correlation must close: the issuance event names only the holder DID, yet the view
-	// attributes it to the onboarding process the started event bound that DID to.
+	// attributes it to the participant the started event bound that DID to.
 	var attributedTo string
 	require.NoError(t, db.QueryRow(`
-		SELECT binding_process_id FROM process_event
+		SELECT participant_id FROM participant_event
 		WHERE source = '/cxve/test' AND event_id = 'ce-1'`).Scan(&attributedTo))
 	assert.Equal(t, "proc-e2e", attributedTo)
 }

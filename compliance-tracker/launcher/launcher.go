@@ -64,9 +64,9 @@ func LaunchAndWaitSignal(shutdown <-chan struct{}) {
 		},
 		NewProcessor: func(ctx *lifecycleagent.AgentContext) lifecycleagent.EventProcessor[lifecycleagent.CloudEvent[any]] {
 			return handler.NewProcessor(&handler.Config{
-				LogMonitor: ctx.Monitor,
-				Events:     ctx.Registry.Resolve(store.EventStoreKey).(store.EventStore),
-				Bindings:   ctx.Registry.Resolve(store.BindingStoreKey).(store.BindingStore),
+				LogMonitor:   ctx.Monitor,
+				Events:       ctx.Registry.Resolve(store.EventStoreKey).(store.EventStore),
+				Participants: ctx.Registry.Resolve(store.ParticipantStoreKey).(store.ParticipantStore),
 			})
 		},
 	}
