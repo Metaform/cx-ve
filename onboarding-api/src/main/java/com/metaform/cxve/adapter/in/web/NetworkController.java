@@ -21,14 +21,17 @@ public class NetworkController {
     }
 
     /**
-     * Registers a partner company (Authorization required - Roles: configure_partner_registration).
-     * Payloads missing a required field (see {@link PartnerRegistrationData}) are rejected with 400;
-     * such rejections are logged and the exact error message is returned (see {@link InvalidRequestShapeHandler}).
+     * Registers a partner company on behalf of the calling client — the token identity (see
+     * {@link TokenClientId}) is recorded on the onboarding process and its status callbacks are
+     * routed to that client's registered callback. Payloads missing a required field (see
+     * {@link PartnerRegistrationData}) are rejected with 400; such rejections are logged and the
+     * exact error message is returned (see {@link InvalidRequestShapeHandler}).
      *
      * @return the ID of the onboarding process
      */
     @PostMapping("/partnerRegistration")
-    public String registerPartner(@Valid @RequestBody PartnerRegistrationData registrationData) {
-        return networkService.registerPartner(registrationData);
+    public String registerPartner(@Valid @RequestBody PartnerRegistrationData registrationData,
+                                  @AuthenticationPrincipal Jwt token) {
+        return networkService.registerPartner(TokenClientId.from(token), registrationData);
     }
 }

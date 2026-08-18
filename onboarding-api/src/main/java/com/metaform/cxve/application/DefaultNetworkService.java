@@ -18,7 +18,7 @@ public class DefaultNetworkService implements NetworkService {
     }
 
     @Override
-    public String registerPartner(PartnerRegistrationData registrationData) {
-        return orchestrator.start(registrationData);
+    public String registerPartner(String clientId, PartnerRegistrationData registrationData) {
+        return orchestrator.start(clientId, registrationData);
     }
 }

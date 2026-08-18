@@ -19,7 +19,9 @@ public interface RegistrationStatusService {
     void setCallbackAddress(String clientId, CallbackRequestData callbackData);
 
     /**
-     * Notifies every registered callback of the process's status.
+     * Notifies the callback of the client that submitted the process ({@code process.clientId()})
+     * of its status; a process without a recorded submitter, or a submitter without a registered
+     * callback, is dropped with a warning.
      */
     void invokeCallback(OnboardingProcess after);
 }

@@ -25,6 +25,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -104,13 +105,13 @@ class NetworkControllerTest {
     @Test
     void registerPartner_returns200AndDelegatesToService() throws Exception {
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
-                        .with(jwt())
+                        .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isOk());
 
         var captor = ArgumentCaptor.forClass(PartnerRegistrationData.class);
-        verify(networkService).registerPartner(captor.capture());
+        verify(networkService).registerPartner(eq("client-1"), captor.capture());
 
         var data = captor.getValue();
         assertThat(data.name()).isEqualTo("Acme Corp");
@@ -136,7 +137,7 @@ class NetworkControllerTest {
     @Test
     void registerPartner_withMalformedJson_returns400WithMessageAndLogs(CapturedOutput output) throws Exception {
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
-                        .with(jwt())
+                        .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ not json"))
                 .andExpect(status().isBadRequest())
@@ -148,7 +149,7 @@ class NetworkControllerTest {
     @Test
     void registerPartner_withUnknownEnumValue_returns400WithMessageAndLogs(CapturedOutput output) throws Exception {
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
-                        .with(jwt())
+                        .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 { "companyRoles": [ "NOT_A_ROLE" ] }
@@ -167,13 +168,13 @@ class NetworkControllerTest {
         payload.remove("bpn");
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
-                        .with(jwt())
+                        .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
                 .andExpect(status().isOk());
 
         var captor = ArgumentCaptor.forClass(PartnerRegistrationData.class);
-        verify(networkService).registerPartner(captor.capture());
+        verify(networkService).registerPartner(eq("client-1"), captor.capture());
         assertThat(captor.getValue().bpn()).isNull();
     }
 
@@ -185,7 +186,7 @@ class NetworkControllerTest {
         var expectedMessage = field + ": " + (LIST_FIELDS.contains(field) ? "must not be empty" : "must not be blank");
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
-                        .with(jwt())
+                        .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
                 .andExpect(status().isBadRequest())
@@ -203,7 +204,7 @@ class NetworkControllerTest {
         var expectedMessage = field + ": must not be blank";
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
-                        .with(jwt())
+                        .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
                 .andExpect(status().isBadRequest())
@@ -221,7 +222,7 @@ class NetworkControllerTest {
         var expectedMessage = field + ": must not be empty";
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
-                        .with(jwt())
+                        .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
                 .andExpect(status().isBadRequest())

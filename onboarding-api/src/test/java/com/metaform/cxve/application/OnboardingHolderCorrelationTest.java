@@ -72,7 +72,7 @@ class OnboardingHolderCorrelationTest {
     @Test
     void linkedHolder_correlatesEventBackToProcess() {
         // Provisioning links the holder (the participant DID) during the first drive.
-        var id = orchestrator.start(registration());
+        var id = orchestrator.start("osp-1", registration());
 
         var result = orchestrator.advanceByHolder("did:web:acme");
 
