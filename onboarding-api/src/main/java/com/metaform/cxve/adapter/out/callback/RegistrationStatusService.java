@@ -6,18 +6,17 @@ import com.metaform.cxve.domain.model.CallbackRequestData;
 public interface RegistrationStatusService {
 
     /**
-     * Gets the callback address the onboarding service provider with the given client id has
-     * registered, or null if it has not registered one. A null client id addresses the anonymous
-     * registration (one set without a client id).
+     * Gets the callback address registered under the given client identity, or null if none is.
      */
     CallbackRequestData getCallbackAddress(String clientId);
 
     /**
-     * Registers the callback address of an onboarding service provider, keyed on the client id
-     * inside the data; a provider re-registering under the same client id overwrites its previous
-     * callback, and only that one.
+     * Registers the callback address of an onboarding service provider under the given client
+     * identity — the caller's authenticated identity, not anything from the payload (whose
+     * clientId is the provider's own OAuth2 client for the outbound callback call). Re-registering
+     * under the same identity overwrites that registration, and only that one.
      */
-    void setCallbackAddress(CallbackRequestData callbackData);
+    void setCallbackAddress(String clientId, CallbackRequestData callbackData);
 
     /**
      * Notifies every registered callback of the process's status.

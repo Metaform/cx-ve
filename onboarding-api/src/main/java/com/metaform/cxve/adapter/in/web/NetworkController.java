@@ -3,6 +3,8 @@ package com.metaform.cxve.adapter.in.web;
 import com.metaform.cxve.application.NetworkService;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import jakarta.validation.Valid;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;

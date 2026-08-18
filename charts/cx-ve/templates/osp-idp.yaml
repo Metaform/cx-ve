@@ -1,0 +1,114 @@
+## The VE's OAuth2 issuer for EXTERNAL callers of the Onboarding API — the onboarding service
+## provider (OSP) role. Ory Hydra, headless: no UI, no user store, just client_credentials for
+## machine clients and a JWKS the API validates against. Deliberately NOT the platform's jwtlet:
+## jwtlet's only grant exchanges Kubernetes ServiceAccount tokens, a workload-identity mechanism
+## that must not be handed to external parties.
+##
+## Tokens are JWTs (strategies.access_token=jwt) with the granted scopes in the `scp` claim and
+## `sub` = client_id. The issuer — and the URL clients fetch tokens from — is the gateway route
+## http://<global.host>/auth/osp (token endpoint <issuer>/oauth2/token); the API fetches the JWKS
+## cluster-internally from the public port. Clients are seeded by osp-idp-seed-job.yaml.
+{{- if .Values.ospIdp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osp-idp
+  labels:
+    app: osp-idp
+    {{- include "cx-ve.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osp-idp
+  template:
+    metadata:
+      labels:
+        app: osp-idp
+    spec:
+      initContainers:
+        # Schema migration; crash-loops until the platform's postgres-init job has created the
+        # `hydra` database (listed under core-platform-distribution.postgresql.databases).
+        - name: migrate
+          image: {{ .Values.ospIdp.image }}
+          args: [ "migrate", "sql", "-e", "--yes" ]
+          env:
+            - name: DSN
+              value: {{ .Values.ospIdp.database.dsn | quote }}
+      containers:
+        - name: hydra
+          image: {{ .Values.ospIdp.image }}
+          # --dev: plain-HTTP issuer without TLS termination — the gateway is http in the VE
+          args: [ "serve", "all", "--dev" ]
+          env:
+            - name: DSN
+              value: {{ .Values.ospIdp.database.dsn | quote }}
+            # The `iss` of every issued token; must equal the external route below
+            - name: URLS_SELF_ISSUER
+              value: "http://{{ .Values.global.host }}/auth/osp"
+            - name: SECRETS_SYSTEM
+              value: {{ .Values.ospIdp.systemSecret | quote }}
+            # JWT access tokens (default is opaque) so the API can validate locally via JWKS
+            - name: STRATEGIES_ACCESS_TOKEN
+              value: jwt
+          ports:
+            - name: public
+              containerPort: 4444
+            - name: admin
+              containerPort: 4445
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: admin
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.ospIdp.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osp-idp
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: osp-idp
+  ports:
+    - name: public
+      port: 4444
+      targetPort: public
+    - name: admin
+      port: 4445
+      targetPort: admin
+---
+# The external surface: token endpoint + discovery/JWKS under http://<host>/auth/osp. Only the
+# PUBLIC port — the admin API (client management) stays cluster-internal.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: osp-idp
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.global.gatewayName }}
+      kind: Gateway
+      sectionName: http
+  hostnames:
+    - {{ .Values.global.host }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /auth/osp
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: osp-idp
+          port: 4444
+          weight: 1
+{{- end }}

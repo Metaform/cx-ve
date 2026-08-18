@@ -23,6 +23,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    // OAuth2 resource server: bearer-JWT validation against the VE's OSP IdP (Ory Hydra)
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
     // Postgres persistence for onboarding processes; active only under the "postgres" profile
     // (see application.yaml), so the app still runs broker- and database-free by default
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
@@ -33,6 +35,8 @@ dependencies {
     implementation("io.cloudevents:cloudevents-json-jackson:4.1.1")
     testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    // jwt() request post-processors for the controller tests
+    testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
     // In-memory stand-in for Postgres in the repository tests (schema is vanilla JPA DDL)
     testRuntimeOnly("com.h2database:h2")

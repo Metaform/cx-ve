@@ -219,7 +219,7 @@ class OnboardingOrchestratorImplTest {
             }
 
             @Override
-            public void setCallbackAddress(CallbackRequestData callbackData) {
+            public void setCallbackAddress(String clientId, CallbackRequestData callbackData) {
             }
 
             @Override

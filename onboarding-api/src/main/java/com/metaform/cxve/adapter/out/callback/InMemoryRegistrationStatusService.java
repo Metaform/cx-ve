@@ -11,20 +11,15 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Holds one callback registration per onboarding service provider, keyed on the client id it
- * registered under — so a second provider setting its callback no longer overwrites the first.
- * Status updates fan out to every registered callback: an onboarding process carries no record of
- * which client submitted it, so all providers are notified and filter for their own registrations.
+ * Holds one callback registration per onboarding service provider, keyed on the client identity
+ * it registered under — so a second provider setting its callback no longer overwrites the first.
+ * The key is the caller's authenticated identity, handed in by the controller; it is never taken
+ * from the payload. Status updates fan out to every registered callback: an onboarding process
+ * carries no record of which client submitted it, so all providers are notified and filter for
+ * their own registrations.
  */
 @Service
 public class InMemoryRegistrationStatusService implements RegistrationStatusService {
-
-    /**
-     * Map slot for a registration without a client id. The map rejects null keys, and a provider
-     * that does not identify itself still deserves the pre-multi-client behavior: one anonymous
-     * registration, overwritten by the next anonymous one.
-     */
-    private static final String ANONYMOUS_CLIENT = "";
 
     private static final Logger log = LoggerFactory.getLogger(InMemoryRegistrationStatusService.class);
 
@@ -32,12 +27,12 @@ public class InMemoryRegistrationStatusService implements RegistrationStatusServ
 
     @Override
     public CallbackRequestData getCallbackAddress(String clientId) {
-        return callbacks.get(clientKey(clientId));
+        return callbacks.get(clientId);
     }
 
     @Override
-    public void setCallbackAddress(CallbackRequestData callbackData) {
-        callbacks.put(clientKey(callbackData.clientId()), callbackData);
+    public void setCallbackAddress(String clientId, CallbackRequestData callbackData) {
+        callbacks.put(clientId, callbackData);
     }
 
     @Override
@@ -58,9 +53,5 @@ public class InMemoryRegistrationStatusService implements RegistrationStatusServ
                 log.warn("Error invoking callback for client '{}'", clientId, e);
             }
         });
-    }
-
-    private String clientKey(String clientId) {
-        return clientId == null ? ANONYMOUS_CLIENT : clientId;
     }
 }

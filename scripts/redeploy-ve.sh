@@ -75,6 +75,7 @@ HOST_OVERRIDES=(
   --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
   --set "onboarding-api.httpRoute.hostnames={${HOST}}"
   --set-string "onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
+  --set-string "onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "certo.gateway.hostnames={${HOST}}"
 )
 

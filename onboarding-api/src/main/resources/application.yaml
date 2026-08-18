@@ -21,6 +21,19 @@ spring:
       # Hibernate manages the schema; move to `validate` once it is migration-managed.
       ddl-auto: update                                          # SPRING_JPA_HIBERNATE_DDLAUTO
     open-in-view: false
+  # Bearer-JWT validation on /api/** against the VE's OSP IdP, Ory Hydra (ApiSecurityConfig) —
+  # NOT the platform's jwtlet: API callers are external onboarding service providers, and
+  # jwtlet's only grant exchanges Kubernetes SA tokens, a workload-identity mechanism external
+  # clients must not be handed. The JWKS is fetched lazily on the first request, so startup does
+  # not need the IdP to be reachable. issuer-uri is the expected `iss` value — Hydra's
+  # urls.self.issuer, the EXTERNAL gateway URL clients obtain their tokens from; with jwk-set-uri
+  # also set, Boot performs no discovery against it.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json  # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI
+          issuer-uri: http://cxve.localhost/auth/osp                                      # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUERURI
 
 springdoc:
   swagger-ui:

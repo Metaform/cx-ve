@@ -109,14 +109,33 @@ class VerificationEnvironmentE2eTest {
         wiremock.stubFor(post(urlPathEqualTo("/registration/status"))
                 .willReturn(okJson("{}")));
 
-        // set callback url: status updates land on the WireMock stub above
+        // set callback url: status updates land on the WireMock stub above. Registering the
+        // callback is the one call gated on the configure_partner_registration scope.
         var callbackUrl = "http://%s:%d/registration/status".formatted(CALLBACK_HOST, wiremock.getPort());
         given()
                 .baseUri(ONBOARDING_API_URL)
+                .header("Authorization", "Bearer " + ospAccessToken())
                 .contentType(ContentType.JSON)
                 .body(new SetCallbackRequest(callbackUrl, null, null, null))
                 .post("/api/administration/RegistrationStatus/callback")
                 .then().statusCode(204);
+    }
+
+    /**
+     * Bearer token of the OSP caller, obtained exactly as an external onboarding service
+     * provider obtains one: OAuth2 client_credentials against the VE's OSP IdP (Ory Hydra)
+     * through the gateway, with the osp-client the umbrella chart seeds. Deliberately NOT
+     * jwtlet: its only grant exchanges Kubernetes SA tokens, which external parties don't have.
+     * Fetched per call: tokens expire, the suite runs for minutes.
+     */
+    private static String ospAccessToken() {
+        return given()
+                .auth().preemptive().basic("osp-client", "osp-secret")
+                .formParam("grant_type", "client_credentials")
+                .formParam("scope", "configure_partner_registration")
+                .post("http://cxve.localhost/auth/osp/oauth2/token")
+                .then().statusCode(200)
+                .extract().path("access_token");
     }
 
     /**
@@ -459,6 +478,7 @@ class VerificationEnvironmentE2eTest {
         // kick off the onboarding, then wait for the async callback
         given()
                 .baseUri(VerificationEnvironmentE2eTest.ONBOARDING_API_URL)
+                .header("Authorization", "Bearer " + ospAccessToken())
                 .contentType("application/json")
                 .body(newParticipant)
                 .post("/api/v2/administration/registration/Network/partnerRegistration")

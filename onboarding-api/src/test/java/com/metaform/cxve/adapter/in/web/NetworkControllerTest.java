@@ -3,6 +3,7 @@ package com.metaform.cxve.adapter.in.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.metaform.cxve.application.NetworkService;
+import com.metaform.cxve.config.ApiSecurityConfig;
 import com.metaform.cxve.domain.model.CompanyRoleId;
 import com.metaform.cxve.domain.model.ConsentStatusId;
 import com.metaform.cxve.domain.model.DocumentTypeId;
@@ -18,17 +19,21 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(NetworkController.class)
+@Import(ApiSecurityConfig.class)
 @ExtendWith(OutputCaptureExtension.class)
 class NetworkControllerTest {
 
@@ -81,9 +86,25 @@ class NetworkControllerTest {
     @MockitoBean
     private NetworkService networkService;
 
+    // Replaces the JWKS-backed decoder bean; the jwt() post-processor injects tokens directly.
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
+
+    @Test
+    void registerPartner_withoutABearerToken_is401() throws Exception {
+        // Registration needs no particular scope, but it does need an authenticated caller.
+        mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(networkService);
+    }
+
     @Test
     void registerPartner_returns200AndDelegatesToService() throws Exception {
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+                        .with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isOk());
@@ -115,6 +136,7 @@ class NetworkControllerTest {
     @Test
     void registerPartner_withMalformedJson_returns400WithMessageAndLogs(CapturedOutput output) throws Exception {
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+                        .with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ not json"))
                 .andExpect(status().isBadRequest())
@@ -126,6 +148,7 @@ class NetworkControllerTest {
     @Test
     void registerPartner_withUnknownEnumValue_returns400WithMessageAndLogs(CapturedOutput output) throws Exception {
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+                        .with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 { "companyRoles": [ "NOT_A_ROLE" ] }
@@ -144,6 +167,7 @@ class NetworkControllerTest {
         payload.remove("bpn");
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+                        .with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
                 .andExpect(status().isOk());
@@ -161,6 +185,7 @@ class NetworkControllerTest {
         var expectedMessage = field + ": " + (LIST_FIELDS.contains(field) ? "must not be empty" : "must not be blank");
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+                        .with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
                 .andExpect(status().isBadRequest())
@@ -178,6 +203,7 @@ class NetworkControllerTest {
         var expectedMessage = field + ": must not be blank";
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+                        .with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
                 .andExpect(status().isBadRequest())
@@ -195,6 +221,7 @@ class NetworkControllerTest {
         var expectedMessage = field + ": must not be empty";
 
         mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+                        .with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
                 .andExpect(status().isBadRequest())
