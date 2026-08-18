@@ -2,11 +2,16 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/eclipse-cfm/cfm/common/lifecycleagent"
 	"github.com/eclipse-cfm/cfm/common/system"
+	"github.com/eclipse-cfm/cfm/common/types"
+	"github.com/metaform/cx-ve/compliance-tracker/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,28 +33,105 @@ func (m *recordingMonitor) Warnf(message string, args ...any) {
 	m.warns = append(m.warns, fmt.Sprintf(message, args...))
 }
 
-func processorWith(monitor system.LogMonitor) *Processor {
-	return NewProcessor(&Config{LogMonitor: monitor})
+// recordingStore captures what the processor persisted — the ledger is the tracker's actual
+// output, so most tests assert against it rather than the log.
+type recordingStore struct {
+	records []*store.EventRecord
+	err     error
 }
 
+func (s *recordingStore) Record(_ context.Context, e *store.EventRecord) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.records = append(s.records, e)
+	return nil
+}
+
+// one requires exactly one persisted record and returns it.
+func (s *recordingStore) one(t *testing.T) *store.EventRecord {
+	t.Helper()
+	require.Len(t, s.records, 1)
+	return s.records[0]
+}
+
+// recordingParticipants captures how the processor maintained the participant registry. HasDid answers
+// "known" unless didUnknown is set, so tests not about the holder-id diagnostic stay warning-free.
+type recordingParticipants struct {
+	opened     []*store.Participant
+	linked     []string // "did->pctx"
+	closed     []*store.ParticipantClosure
+	didUnknown bool
+	err        error
+}
+
+func (b *recordingParticipants) Open(_ context.Context, participant *store.Participant) error {
+	if b.err != nil {
+		return b.err
+	}
+	b.opened = append(b.opened, participant)
+	return nil
+}
+
+func (b *recordingParticipants) LinkParticipantContext(_ context.Context, did, pctx string) error {
+	if b.err != nil {
+		return b.err
+	}
+	b.linked = append(b.linked, did+"->"+pctx)
+	return nil
+}
+
+func (b *recordingParticipants) Close(_ context.Context, closure *store.ParticipantClosure) error {
+	if b.err != nil {
+		return b.err
+	}
+	b.closed = append(b.closed, closure)
+	return nil
+}
+
+func (b *recordingParticipants) HasDid(_ context.Context, _ string) (bool, error) {
+	return !b.didUnknown, b.err
+}
+
+func processorWith(monitor system.LogMonitor, events store.EventStore) *Processor {
+	return processorParticipants(monitor, events, &recordingParticipants{})
+}
+
+func processorParticipants(monitor system.LogMonitor, events store.EventStore, participants store.ParticipantStore) *Processor {
+	return NewProcessor(&Config{LogMonitor: monitor, Events: events, Participants: participants})
+}
+
+// eventTime is the CloudEvent time every test envelope carries — the timestamp that must reach
+// the participant attribution windows and the ledger's occurred_at.
+var eventTime = time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+
 // event builds the envelope the framework delivers. Data is left as a map because Process
-// re-marshals it before decoding into the event type, exactly as it arrives from JetStream.
+// re-marshals it before decoding into the event type, exactly as it arrives from JetStream; Raw is
+// the marshalled envelope, as it would be off the wire.
 func event(subject string, data map[string]any) lifecycleagent.EventContext[lifecycleagent.CloudEvent[any]] {
+	payload := lifecycleagent.CloudEvent[any]{
+		SpecVersion: lifecycleagent.SpecVersion,
+		ID:          "ce-1",
+		Source:      "onboarding-api-7d56645cc7-2bzkl",
+		Time:        eventTime,
+		Data:        data,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		panic(err)
+	}
 	return lifecycleagent.EventContext[lifecycleagent.CloudEvent[any]]{
 		Subject: subject,
-		Payload: lifecycleagent.CloudEvent[any]{
-			SpecVersion: lifecycleagent.SpecVersion,
-			ID:          "ce-1",
-			Source:      "onboarding-api-7d56645cc7-2bzkl",
-			Data:        data,
-		},
+		Payload: payload,
+		Raw:     raw,
 	}
 }
 
 func TestProcess_OnboardingStarted(t *testing.T) {
 	monitor := &recordingMonitor{}
+	events := &recordingStore{}
 
-	err := processorWith(monitor).Process(context.Background(), event(SubjectOnboardingStarted, map[string]any{
+	err := processorWith(monitor, events).Process(context.Background(), event(SubjectOnboardingStarted, map[string]any{
 		"processId":  "proc-1",
 		"externalId": "ext-123",
 		"bpn":        "BPNL0000000001AB",
@@ -63,12 +145,19 @@ func TestProcess_OnboardingStarted(t *testing.T) {
 	assert.Contains(t, monitor.infos[1], "BPNL0000000001AB")
 	assert.Contains(t, monitor.infos[1], "did:web:identity.cxve.localhost:acme")
 	assert.Empty(t, monitor.warns)
+	// And both land as ledger keys, which is what slice 2's correlation will run on.
+	assert.Equal(t, store.CorrelationKeys{
+		OnboardingProcessID: "proc-1",
+		Bpn:                 "BPNL0000000001AB",
+		HolderDid:           "did:web:identity.cxve.localhost:acme",
+	}, events.one(t).Keys)
 }
 
 func TestProcess_OnboardingCompleted(t *testing.T) {
 	monitor := &recordingMonitor{}
+	events := &recordingStore{}
 
-	err := processorWith(monitor).Process(context.Background(), event(SubjectOnboardingCompleted, map[string]any{
+	err := processorWith(monitor, events).Process(context.Background(), event(SubjectOnboardingCompleted, map[string]any{
 		"processId":            "proc-1",
 		"externalId":           "ext-123",
 		"bpn":                  "BPNL0000000001AB",
@@ -83,6 +172,13 @@ func TestProcess_OnboardingCompleted(t *testing.T) {
 	assert.Contains(t, monitor.infos[1], "pctx-9")
 	// A success is not a warning, whatever else it logs.
 	assert.Empty(t, monitor.warns)
+	// The completed event is the only onboarding event that knows the participant context.
+	assert.Equal(t, store.CorrelationKeys{
+		OnboardingProcessID:  "proc-1",
+		Bpn:                  "BPNL0000000001AB",
+		HolderDid:            "did:web:identity.cxve.localhost:acme",
+		ParticipantContextID: "pctx-9",
+	}, events.one(t).Keys)
 }
 
 func TestProcess_OnboardingCompleted_ReportsANonSuccessfulOutcomeAsSuch(t *testing.T) {
@@ -91,8 +187,9 @@ func TestProcess_OnboardingCompleted_ReportsANonSuccessfulOutcomeAsSuch(t *testi
 	for _, outcome := range []OnboardingState{OnboardingStateFailed, OnboardingStateRejected} {
 		t.Run(string(outcome), func(t *testing.T) {
 			monitor := &recordingMonitor{}
+			events := &recordingStore{}
 
-			err := processorWith(monitor).Process(context.Background(), event(SubjectOnboardingCompleted, map[string]any{
+			err := processorWith(monitor, events).Process(context.Background(), event(SubjectOnboardingCompleted, map[string]any{
 				"processId":      "proc-2",
 				"externalId":     "ext-2",
 				"bpn":            "BPNL0000000001AB",
@@ -107,52 +204,91 @@ func TestProcess_OnboardingCompleted_ReportsANonSuccessfulOutcomeAsSuch(t *testi
 			assert.Contains(t, monitor.warns[0], "participant provisioning timed out")
 			// Only the generic "Event received" line — nothing reported this as a completion.
 			assert.Len(t, monitor.infos, 1)
+			// A terminal failure is still ledger material — with the keys it does have.
+			assert.Equal(t, store.CorrelationKeys{OnboardingProcessID: "proc-2", Bpn: "BPNL0000000001AB"},
+				events.one(t).Keys)
 		})
 	}
 }
 
-func TestProcess_MalformedOnboardingPayload_IsDropped(t *testing.T) {
-	// A payload that cannot be decoded is a fatal error by the framework's contract: the message is
-	// acknowledged and dropped rather than redelivered forever. Nothing must be reported from it.
-	monitor := &recordingMonitor{}
-
-	err := processorWith(monitor).Process(context.Background(), event(SubjectOnboardingCompleted, map[string]any{
-		"processId": "proc-3",
-		"bpn":       42, // the wire type is a string
-	}))
-
-	require.Error(t, err)
-	assert.Len(t, monitor.infos, 1)
-	assert.Empty(t, monitor.warns)
-}
-
-func TestProcess_RoutesOnTheFamily_NotTheIndividualSubject(t *testing.T) {
-	// Leaves that no case ever named. Dispatching on the family prefix means they are decoded into
-	// the family's base struct rather than falling through, so a leaf added upstream is covered
-	// without touching the switch.
-	for _, subject := range []string{
-		SubjectIssuanceRejected,            // never enumerated
-		SubjectIssuanceErrored,             // never enumerated
-		SubjectKeyPairRotated,              // never enumerated
-		SubjectParticipantContextDeleted,   // never enumerated
-		SubjectIssuanceCredentialDelivered, // was enumerated
+func TestProcess_EveryFamily_PersistsItsCorrelationKeys(t *testing.T) {
+	// One representative leaf per family: what makes the ledger correlatable is that each family's
+	// keys are promoted to columns, so a family whose case forgets its key would store its events
+	// unattributable.
+	pctxOnly := store.CorrelationKeys{ParticipantContextID: "pctx-1"}
+	for subject, expected := range map[string]store.CorrelationKeys{
+		SubjectAssetCreated:                pctxOnly,
+		SubjectContractDefinitionCreated:   pctxOnly,
+		SubjectContractNegotiationAgreed:   pctxOnly,
+		SubjectPolicyDefinitionCreated:     pctxOnly,
+		SubjectTransferProcessStarted:      pctxOnly,
+		SubjectKeyPairAdded:                pctxOnly,
+		SubjectParticipantContextCreated:   pctxOnly,
+		SubjectCredentialOfferReceived:     pctxOnly,
+		SubjectDidDocumentPublished:        {ParticipantContextID: "pctx-1", HolderDid: "did:web:acme"},
+		SubjectIssuanceCredentialDelivered: {HolderDid: "holder-1"},
+		// Certo's CCM family: the event's own side only — the counterparty identifiers in the
+		// payload are a DIFFERENT participant and must not become this event's keys.
+		SubjectCertificateExchangeFulfilled: pctxOnly,
+		// Secrets carry no attributable identity at all; the event is recorded keyless.
+		SubjectSecretCreated: {},
 	} {
 		t.Run(subject, func(t *testing.T) {
-			monitor := &recordingMonitor{}
+			events := &recordingStore{}
 
-			require.NoError(t, processorWith(monitor).Process(context.Background(), event(subject, map[string]any{
-				"holderId":             "holder-1",
+			err := processorWith(&recordingMonitor{}, events).Process(context.Background(), event(subject, map[string]any{
 				"participantContextId": "pctx-1",
-				"keyId":                "key-1",
-			})))
+				"did":                  "did:web:acme",
+				"holderId":             "holder-1",
+				// The counterparty of a certificate exchange: present on the wire, and expected
+				// to be ignored by every family's key extraction.
+				"counterpartyBpn": "BPNL_COUNTERPARTY",
+				"counterpartyDid": "did:web:counterparty",
+			}))
 
-			// A malformed payload on the same subject must now be rejected — proof the family case
-			// really decodes it, rather than ignoring it as an unrecognised subject would.
-			require.Error(t, processorWith(monitor).Process(context.Background(), event(subject, map[string]any{
-				"participantContextId": 42, // the wire type is a string
+			require.NoError(t, err)
+			assert.Equal(t, expected, events.one(t).Keys)
+		})
+	}
+}
+
+func TestProcess_PersistsTheRawEnvelope(t *testing.T) {
+	// The ledger stores the message body as delivered, NOT a re-marshal of the typed envelope:
+	// the typed form drops every member it does not declare (the onboarding events' sourcebpn and
+	// participantdid extensions, for instance), and what was dropped could never be recovered.
+	events := &recordingStore{}
+	evt := event(SubjectOnboardingStarted, map[string]any{"processId": "proc-1"})
+	evt.Raw = []byte(`{"id":"ce-1","sourcebpn":"BPNL0000000001AB","data":{"processId":"proc-1"}}`)
+
+	require.NoError(t, processorWith(&recordingMonitor{}, events).Process(context.Background(), evt))
+
+	record := events.one(t)
+	assert.Equal(t, evt.Raw, record.Envelope)
+	assert.Equal(t, "ce-1", record.EventID)
+	assert.Equal(t, evt.Payload.Source, record.Source)
+	assert.Equal(t, SubjectOnboardingStarted, record.Subject)
+}
+
+func TestProcess_MalformedPayload_IsPersistedWithoutKeys(t *testing.T) {
+	// A payload the family struct cannot decode is still an event that happened. Dropping it (the
+	// pre-ledger behaviour) would leave a hole in the record precisely where something went wrong —
+	// so it is stored keyless and flagged, and the message is acked, not redelivered forever.
+	for _, subject := range []string{SubjectOnboardingCompleted, SubjectIssuanceReceived, SubjectKeyPairRotated} {
+		t.Run(subject, func(t *testing.T) {
+			monitor := &recordingMonitor{}
+			events := &recordingStore{}
+
+			err := processorWith(monitor, events).Process(context.Background(), event(subject, map[string]any{
+				"processId":            "proc-3",
+				"bpn":                  42, // the wire type is a string
+				"participantContextId": 42,
 				"holderId":             42,
-				"keyId":                42,
-			})))
+			}))
+
+			require.NoError(t, err)
+			require.Len(t, monitor.warns, 1)
+			assert.Contains(t, monitor.warns[0], subject)
+			assert.Equal(t, store.CorrelationKeys{}, events.one(t).Keys)
 		})
 	}
 }
@@ -162,7 +298,7 @@ func TestProcess_DidDocumentUnpublished_IsNotReportedAsALink(t *testing.T) {
 	// them apart — and reporting an unpublish as a link would invert its meaning.
 	monitor := &recordingMonitor{}
 
-	err := processorWith(monitor).Process(context.Background(), event(SubjectDidDocumentUnpublished, map[string]any{
+	err := processorWith(monitor, &recordingStore{}).Process(context.Background(), event(SubjectDidDocumentUnpublished, map[string]any{
 		"did":                  "did:web:identity.cxve.localhost:acme",
 		"participantContextId": "pctx-9",
 	}))
@@ -171,15 +307,137 @@ func TestProcess_DidDocumentUnpublished_IsNotReportedAsALink(t *testing.T) {
 	assert.Len(t, monitor.infos, 1) // the generic "Event received" line only
 }
 
-func TestProcess_UnhandledSubject_IsAcknowledged(t *testing.T) {
-	// The agent subscribes to events.> , so it sees far more than it routes on. Anything unrecognised
-	// must be acked, not treated as an error, or the stream would back up behind it.
+func TestProcess_UnknownFamily_IsPersistedKeyless(t *testing.T) {
+	// The agent subscribes to events.> , so it sees families nothing here routes on. They must be
+	// recorded (the ledger claims completeness) and acked — an error would back the stream up
+	// behind them.
 	monitor := &recordingMonitor{}
+	events := &recordingStore{}
 
-	err := processorWith(monitor).Process(context.Background(), event(SubjectAssetCreated, map[string]any{
-		"processId": "not-an-onboarding-event",
+	err := processorWith(monitor, events).Process(context.Background(), event("events.somethingnew.created", map[string]any{
+		"participantContextId": "pctx-1",
 	}))
 
 	require.NoError(t, err)
-	assert.Len(t, monitor.infos, 1)
+	assert.Equal(t, store.CorrelationKeys{}, events.one(t).Keys)
+	assert.Empty(t, monitor.warns)
+}
+
+func TestProcess_OnboardingStarted_RegistersTheParticipant(t *testing.T) {
+	// The participant registry is what's read-time correlation joins against; a started
+	// event that does not open one leaves every later identity-keyed event unattributable.
+	participants := &recordingParticipants{}
+
+	err := processorParticipants(&recordingMonitor{}, &recordingStore{}, participants).Process(context.Background(),
+		event(SubjectOnboardingStarted, map[string]any{
+			"processId":  "proc-1",
+			"externalId": "ext-123",
+			"bpn":        "BPNL0000000001AB",
+			"did":        "did:web:acme",
+		}))
+
+	require.NoError(t, err)
+	require.Len(t, participants.opened, 1)
+	assert.Equal(t, &store.Participant{
+		ProcessID:  "proc-1",
+		ExternalID: "ext-123",
+		Did:        "did:web:acme",
+		Bpn:        "BPNL0000000001AB",
+		StartedAt:  eventTime, // the event's occurrence opens the attribution window, not the wall clock
+	}, participants.opened[0])
+	assert.Empty(t, participants.closed)
+}
+
+func TestProcess_OnboardingCompleted_ClosesTheRegistration(t *testing.T) {
+	// Every terminal outcome closes the registration — the STATE decides whether the window stays open
+	// (COMPLETED owns its identity permanently) or ends (REJECTED/FAILED free the identifiers),
+	// and that decision is the store's, so the closure must carry the state verbatim.
+	for _, outcome := range []OnboardingState{OnboardingStateCompleted, OnboardingStateRejected, OnboardingStateFailed} {
+		t.Run(string(outcome), func(t *testing.T) {
+			participants := &recordingParticipants{}
+
+			err := processorParticipants(&recordingMonitor{}, &recordingStore{}, participants).Process(context.Background(),
+				event(SubjectOnboardingCompleted, map[string]any{
+					"processId":            "proc-1",
+					"externalId":           "ext-123",
+					"bpn":                  "BPNL0000000001AB",
+					"did":                  "did:web:acme",
+					"participantContextId": "pctx-9",
+					"state":                string(outcome),
+				}))
+
+			require.NoError(t, err)
+			require.Len(t, participants.closed, 1)
+			assert.Equal(t, &store.ParticipantClosure{
+				ProcessID:            "proc-1",
+				ExternalID:           "ext-123",
+				Did:                  "did:web:acme",
+				Bpn:                  "BPNL0000000001AB",
+				ParticipantContextID: "pctx-9",
+				State:                string(outcome),
+				CompletedAt:          eventTime,
+			}, participants.closed[0])
+		})
+	}
+}
+
+func TestProcess_DidDocumentPublished_LinksTheParticipantContext(t *testing.T) {
+	// The publication is the one event carrying DID and participant context together — the only
+	// chance to teach the participant registry which context belongs to which onboarding. The unpublished leaf
+	// shares the payload and must NOT link: it tears the association down, not up.
+	payload := map[string]any{"did": "did:web:acme", "participantContextId": "pctx-9"}
+
+	linked := &recordingParticipants{}
+	require.NoError(t, processorParticipants(&recordingMonitor{}, &recordingStore{}, linked).
+		Process(context.Background(), event(SubjectDidDocumentPublished, payload)))
+	assert.Equal(t, []string{"did:web:acme->pctx-9"}, linked.linked)
+
+	unlinked := &recordingParticipants{}
+	require.NoError(t, processorParticipants(&recordingMonitor{}, &recordingStore{}, unlinked).
+		Process(context.Background(), event(SubjectDidDocumentUnpublished, payload)))
+	assert.Empty(t, unlinked.linked)
+}
+
+func TestProcess_IssuanceForAnUnknownHolder_IsFlagged(t *testing.T) {
+	// Correlation assumes issuance holder ids are participant DIDs. If one matches no participant the
+	// assumption may be wrong — silently broken correlation — so it must be surfaced, while the
+	// event is still recorded and acked (it may legitimately be an issuance outside onboarding).
+	monitor := &recordingMonitor{}
+	events := &recordingStore{}
+
+	err := processorParticipants(monitor, events, &recordingParticipants{didUnknown: true}).Process(context.Background(),
+		event(SubjectIssuanceCredentialDelivered, map[string]any{"holderId": "holder-1"}))
+
+	require.NoError(t, err)
+	require.Len(t, monitor.warns, 1)
+	assert.Contains(t, monitor.warns[0], "holder-1")
+	assert.Equal(t, store.CorrelationKeys{HolderDid: "holder-1"}, events.one(t).Keys)
+}
+
+func TestProcess_ParticipantStoreFailure_IsRecoverableAndNothingIsRecorded(t *testing.T) {
+	// A failed projection write NAKs the whole message BEFORE the ledger insert: redelivery then
+	// reruns both (idempotently), so ledger and projection can never drift apart by one being
+	// written without the other.
+	events := &recordingStore{}
+	participants := &recordingParticipants{err: errors.New("sql: database is closed")}
+
+	err := processorParticipants(&recordingMonitor{}, events, participants).Process(context.Background(),
+		event(SubjectOnboardingStarted, map[string]any{"processId": "proc-1"}))
+
+	require.Error(t, err)
+	assert.True(t, types.IsRecoverable(err))
+	assert.Empty(t, events.records)
+}
+
+func TestProcess_StoreFailure_IsRecoverable(t *testing.T) {
+	// Interest retention drops an event the moment it is acked, so acking on a failed write would
+	// lose it forever. The error must be recoverable — NAK, redeliver, and survive the database
+	// being down (or already closed during shutdown, which finalizes the pool before the loop).
+	events := &recordingStore{err: errors.New("sql: database is closed")}
+
+	err := processorWith(&recordingMonitor{}, events).Process(context.Background(),
+		event(SubjectOnboardingStarted, map[string]any{"processId": "proc-1"}))
+
+	require.Error(t, err)
+	assert.True(t, types.IsRecoverable(err))
 }

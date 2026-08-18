@@ -31,6 +31,7 @@ data:
     # SPACE-separated, not comma: viper's GetStringSlice on a scalar splits with strings.Fields.
     subjects: {{ . | join " " }}
     {{- end }}
+    postgres.dsn: {{ .Values.complianceTracker.config.postgresDsn }}
     {{- if .Values.complianceTracker.natsAuth.enabled }}
     nats.auth.method: nkey
     nats.auth.nkeySeedFile: /vault/secrets/nats.nk
