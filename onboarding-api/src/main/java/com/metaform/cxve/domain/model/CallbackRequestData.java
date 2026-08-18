@@ -1,6 +1,6 @@
 package com.metaform.cxve.domain.model;
 
-public record OnboardingServiceProviderCallbackRequestData(
+public record CallbackRequestData(
         String callbackUrl,
         String authUrl,
         String clientId,

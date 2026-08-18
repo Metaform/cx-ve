@@ -3,7 +3,7 @@ package com.metaform.cxve.application;
 import com.metaform.cxve.domain.model.CompanyRoleId;
 import com.metaform.cxve.domain.model.OnboardingCompleted;
 import com.metaform.cxve.domain.model.OnboardingProcess;
-import com.metaform.cxve.domain.model.OnboardingServiceProviderCallbackRequestData;
+import com.metaform.cxve.domain.model.CallbackRequestData;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.ProvisionedParticipant;
@@ -214,12 +214,12 @@ class OnboardingOrchestratorImplTest {
         // subscriber the completion of a successful onboarding.
         var failingCallback = new RegistrationStatusService() {
             @Override
-            public OnboardingServiceProviderCallbackRequestData getCallbackAddress() {
+            public CallbackRequestData getCallbackAddress(String clientId) {
                 return null;
             }
 
             @Override
-            public void setCallbackAddress(OnboardingServiceProviderCallbackRequestData callbackData) {
+            public void setCallbackAddress(CallbackRequestData callbackData) {
             }
 
             @Override
