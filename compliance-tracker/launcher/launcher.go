@@ -7,6 +7,7 @@
 //	COMPLIANCETRACKER_URI                       (required) NATS URL
 //	COMPLIANCETRACKER_BUCKET                    (required) JetStream KV bucket
 //	COMPLIANCETRACKER_STREAM                    (required) JetStream stream to bind to
+//	COMPLIANCETRACKER_POSTGRES_DSN              (required) Postgres DSN of the event ledger
 //	COMPLIANCETRACKER_SUBJECTS / _SUBJECT       (optional) merged with DefaultSubjects
 //	COMPLIANCETRACKER_CREATESTREAM              (optional) create the stream instead of requiring it
 //	COMPLIANCETRACKER_NATS_AUTH_METHOD          (optional) none|userinfo|token|nkey|credentials
@@ -18,7 +19,9 @@ package launcher
 
 import (
 	"github.com/eclipse-cfm/cfm/common/lifecycleagent"
+	"github.com/eclipse-cfm/cfm/common/system"
 	"github.com/metaform/cx-ve/compliance-tracker/handler"
+	"github.com/metaform/cx-ve/compliance-tracker/store"
 )
 
 const (
@@ -52,13 +55,17 @@ func LaunchAndWaitSignal(shutdown <-chan struct{}) {
 		ServiceName:  ServiceName,
 		ConfigPrefix: ConfigPrefix,
 		Subjects:     DefaultSubjects,
-		// No AssemblyProvider: the tracker has no downstream dependencies yet. When it needs to
-		// call one, register &httpclient.HttpClientServiceAssembly{} here, resolve it from
-		// ctx.Registry with serviceapi.HttpClientKey, and build a token provider with
-		// tokenexchange.NewTokenExchangeProvider — see the CFM keymanagementagent launcher.
+		// Everything an assembly Provides() is initialized before the agent starts consuming, so
+		// the store is up (or startup has failed fast) before the first event arrives. A future
+		// HTTP dependency registers its assembly here too — see the CFM keymanagementagent
+		// launcher for the httpclient + token-provider wiring.
+		AssemblyProvider: func() []system.ServiceAssembly {
+			return []system.ServiceAssembly{&store.PostgresServiceAssembly{}}
+		},
 		NewProcessor: func(ctx *lifecycleagent.AgentContext) lifecycleagent.EventProcessor[lifecycleagent.CloudEvent[any]] {
 			return handler.NewProcessor(&handler.Config{
 				LogMonitor: ctx.Monitor,
+				Events:     ctx.Registry.Resolve(store.EventStoreKey).(store.EventStore),
 			})
 		},
 	}

@@ -107,10 +107,11 @@ core-platform-distribution:
           txRenewalSupport: true
   postgresql:
     # Helm replaces lists wholesale, so this list must repeat the platform defaults in full —
-    # the final `certo` entry is the CX-VE-specific addition (certo's database lives in the
-    # platform's Postgres). The onboarding API's `onboarding` database is deliberately NOT here:
-    # the onboarding-api chart provisions it itself (its postgres-seed job), so it works against
-    # a platform release this list never touched.
+    # the `certo` and `compliance` entries are the CX-VE-specific additions (certo's database and
+    # the compliance tracker's event ledger live in the platform's Postgres). The onboarding API's
+    # `onboarding` database is deliberately NOT here: the onboarding-api chart provisions it
+    # itself (its postgres-seed job), so it works against a platform release this list never
+    # touched — an option the two components deployed from THIS chart don't need.
     databases:
       - { db: controlplane,  user: cp,      password: cp }
       - { db: identityhub,   user: ih,      password: ih }
@@ -120,6 +121,7 @@ core-platform-distribution:
       - { db: sigletdb,      user: siglet,  password: siglet }
       - { db: jwtlet,        user: jwtlet,  password: jwtlet }
       - { db: certo,         user: certo,   password: certo }
+      - { db: compliance,    user: compliance, password: compliance }
 
 # ---- Catena-X profile seeding ----------------------------------------------------------------
 catenax-profile:
@@ -359,3 +361,8 @@ complianceTracker:
     # "events.>" or a leaf of an existing default fails at startup. Narrow the subscription in
     # launcher.DefaultSubjects instead.
     subjects: []
+    # The event ledger: every received event is persisted here (the stream itself is memory
+    # storage with interest retention, so this database is the durable record). REQUIRED — the
+    # agent fails fast without it. The `compliance` database is provisioned by the platform's
+    # postgres-init job from the postgresql.databases list above (its CX-VE-specific entry).
+    postgresDsn: postgres://compliance:compliance@cx-ve-postgresql.edc-v.svc.cluster.local:5432/compliance?sslmode=disable

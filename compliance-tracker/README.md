@@ -7,17 +7,18 @@ A CFM **lifecycle agent**: a standalone service that consumes domain lifecycle e
 `agent/orchestration/*` (such as the certo agent this VE deploys), which react to Provision
 Manager activity messages instead.
 
-> **Status: scaffold.** The framework wiring, configuration, event decoding, subject dispatch and
-> error semantics are complete and tested. The compliance rules themselves are not — the two
-> handlers in `handler/handler.go` log and return, each marking where the rule goes with a `TODO`.
+> **Status: ledger, no rules yet.** The framework wiring, configuration, event decoding, subject
+> dispatch, error semantics and the Postgres event ledger are complete and tested. The compliance
+> rules themselves are not — the handlers in `handler/handler.go` extract, persist and return.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
 | `cmd/server/` | binary entrypoint |
-| `launcher/` | framework wiring: agent name, subjects, config prefix, processor construction |
-| `handler/` | the `EventProcessor`: subject routing and the (stubbed) compliance rules |
+| `launcher/` | framework wiring: agent name, subjects, config prefix, assemblies, processor construction |
+| `handler/` | the `EventProcessor`: subject routing, correlation-key extraction, the (stubbed) compliance rules |
+| `store/` | the event ledger: Postgres schema, `EventStore`, service assembly |
 
 ## Building and testing
 
@@ -25,7 +26,7 @@ Manager activity messages instead.
 go build ./...
 go vet ./...
 make test-unit        # handler tests; no Docker needed
-make test             # all tests; the launcher suite starts a NATS testcontainer
+make test             # all tests; the launcher and store suites start NATS/Postgres testcontainers
 docker build -t compliance-tracker .
 ```
 
@@ -44,6 +45,7 @@ startup so the container restarts until it is configured.
 | `COMPLIANCETRACKER_URI` | yes | NATS URL |
 | `COMPLIANCETRACKER_BUCKET` | yes | JetStream KV bucket |
 | `COMPLIANCETRACKER_STREAM` | yes | JetStream stream to bind to |
+| `COMPLIANCETRACKER_POSTGRES_DSN` | yes | Postgres DSN of the event ledger |
 | `COMPLIANCETRACKER_SUBJECTS` / `_SUBJECT` | no | merged with `launcher.DefaultSubjects` |
 | `COMPLIANCETRACKER_CREATESTREAM` | no | create the stream instead of requiring it (default `false`) |
 | `COMPLIANCETRACKER_NATS_AUTH_METHOD` | no | `none` \| `userinfo` \| `token` \| `nkey` \| `credentials` |
@@ -72,7 +74,16 @@ started event may carry only the DID; the assigned BPN then arrives on the compl
 completed event is published for **every** terminal outcome, so its `state` field (`COMPLETED`,
 `REJECTED` or `FAILED`) has to be inspected; the subject alone does not mean success.
 
-## Event handling
+## Event handling and the ledger
+
+Every received event is appended to the `event` table of the configured Postgres database — the
+`edc-events` stream is memory storage with interest retention, so once a message is acknowledged
+the ledger row is its only remaining trace. Each row stores the **raw** CloudEvent envelope as
+JSONB (the typed structs drop members they do not declare; the ledger must not inherit that loss)
+plus the correlation keys the event's family carries, promoted to indexed columns:
+`participant_context_id`, `holder_did`, `bpn` and `onboarding_process_id`. The primary key is
+`(source, event_id)` — CloudEvents scope id uniqueness to the producer — and inserts are
+`ON CONFLICT DO NOTHING`, which is what makes at-least-once delivery record-exactly-once.
 
 Events are delivered at-least-once, so handlers must be idempotent. The value returned from
 `Process` decides the message's fate:
@@ -83,28 +94,36 @@ Events are delivered at-least-once, so handlers must be idempotent. The value re
 | `types.NewRecoverableError(…)` / `NewRecoverableWrappedError(…)` | negatively acknowledged, redelivered |
 | any other error | **fatal**: acknowledged and dropped |
 
-A payload that fails to unmarshal is also acknowledged and dropped, so every field of
-`ComplianceEventData` is optional. Fields it does not model are still reachable: the framework
-passes the undecoded message body as `EventContext.Raw`.
+Ledger completeness beats extraction: a payload the family struct cannot decode, or a family
+nothing routes on, is still recorded — keyless, with a warning — rather than dropped. Only a
+failed ledger write fails the message, and recoverably: the database being down is a reason to
+have the event redelivered, not to acknowledge it into oblivion.
 
 ## Running locally
 
 ```shell
 docker run -d --name ct-nats -p 4222:4222 nats:alpine -js
+docker run -d --name ct-pg -p 5432:5432 -e POSTGRES_USER=compliance \
+  -e POSTGRES_PASSWORD=compliance -e POSTGRES_DB=compliance postgres:17-alpine
 # create the "edc-events" stream with subject events.> , then:
 go run ./cmd/server -mode=development
 ```
 
-with `COMPLIANCETRACKER_URI=nats://127.0.0.1:4222`, `COMPLIANCETRACKER_BUCKET=cfm-bucket` and
-`COMPLIANCETRACKER_STREAM=edc-events` exported. `launcher/launcher_test.go` does exactly this
-end to end and is the quickest way to see the whole path exercised.
+with `COMPLIANCETRACKER_URI=nats://127.0.0.1:4222`, `COMPLIANCETRACKER_BUCKET=cfm-bucket`,
+`COMPLIANCETRACKER_STREAM=edc-events` and
+`COMPLIANCETRACKER_POSTGRES_DSN=postgres://compliance:compliance@127.0.0.1:5432/compliance?sslmode=disable`
+exported. `launcher/launcher_test.go` does exactly this end to end and is the quickest way to see
+the whole path exercised.
 
 ## Deployment
 
 Deployed by the umbrella chart: `charts/cx-ve/templates/compliance-tracker.yaml`, configured under
 `complianceTracker` in `charts/cx-ve/values.yaml`. A ConfigMap keyed `compliancetracker.env` is
 mounted at `/etc/appname`, a Vault init container delivers the NATS NKey seed for
-`nats.auth.nkeySeedFile`, and telemetry comes from `envFrom: telemetry-config`.
+`nats.auth.nkeySeedFile`, and telemetry comes from `envFrom: telemetry-config`. The `compliance`
+database lives in the platform's Postgres and is provisioned by its postgres-init job — the
+CX-VE-specific entry in the `postgresql.databases` list in `charts/cx-ve/values.yaml`; the agent
+creates its own schema at startup.
 
 It runs under the platform's `cfm-agents` ServiceAccount rather than an identity of its own — that
 component is already provisioned by the platform (Vault role `nats-cfm-agents`, seed at

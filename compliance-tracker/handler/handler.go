@@ -8,28 +8,34 @@ import (
 
 	"github.com/eclipse-cfm/cfm/common/lifecycleagent"
 	"github.com/eclipse-cfm/cfm/common/system"
+	"github.com/eclipse-cfm/cfm/common/types"
+	"github.com/metaform/cx-ve/compliance-tracker/store"
 )
 
 // Config holds the dependencies required by the Processor. Downstream clients (an HTTP client, a
-// token provider, a store) get added here as the compliance rules start calling out; see
+// token provider) get added here as the compliance rules start calling out; see
 // agent/lifecycle/keymanagementagent in the CFM repo for how those are wired in the launcher.
 type Config struct {
 	LogMonitor system.LogMonitor
+	Events     store.EventStore
 }
 
 // Processor reacts to the lifecycle events the compliance rules are based on.
 type Processor struct {
 	monitor system.LogMonitor
+	events  store.EventStore
 }
 
 // NewProcessor constructs a compliance tracker event processor.
 func NewProcessor(config *Config) *Processor {
 	return &Processor{
 		monitor: config.LogMonitor,
+		events:  config.Events,
 	}
 }
 
-// Process handles a single lifecycle event.
+// Process handles a single lifecycle event: extract the correlation keys the event's family
+// carries, then append the event to the ledger.
 //
 // The return value determines the fate of the NATS message: nil acknowledges it, a recoverable
 // error (types.NewRecoverableError / types.NewRecoverableWrappedError) negatively acknowledges it
@@ -44,62 +50,120 @@ func (p *Processor) Process(ctx context.Context, evt lifecycleagent.EventContext
 		return err
 	}
 
-	// Dispatched on the event FAMILY rather than the individual occurrence, decoding the family's
-	// base struct — the fields every leaf in the family shares. A leaf added upstream (a new
-	// issuance or key-pair event) then arrives already decoded and handled instead of falling
-	// through unrecognised. Where a rule needs to know which occurrence it was, the subject says.
-	subject := evt.Subject
+	// Ledger completeness beats extraction: a payload the family struct cannot decode — or a
+	// family nothing here knows — is still an event that happened, so it is recorded keyless
+	// rather than dropped. Only the ledger write itself may fail the message, and recoverably:
+	// the database being down is no reason to ack an event into oblivion (the stream's interest
+	// retention drops it on ack), it is a reason to have it redelivered.
+	keys, err := p.extract(evt.Subject, jsonRaw)
+	if err != nil {
+		p.monitor.Warnf("Event on %s does not decode (%s); recording it without correlation keys", evt.Subject, err)
+		keys = store.CorrelationKeys{}
+	}
+
+	err = p.events.Record(ctx, &store.EventRecord{
+		Source:     evt.Payload.Source,
+		EventID:    evt.Payload.ID,
+		Subject:    evt.Subject,
+		Type:       evt.Payload.Type,
+		OccurredAt: evt.Payload.Time,
+		// The raw message body, not a re-marshal of the typed envelope: the typed form drops
+		// members it does not declare, and the ledger must not inherit that loss.
+		Envelope: evt.Raw,
+		Keys:     keys,
+	})
+	if err != nil {
+		return types.NewRecoverableWrappedError(err, "failed to record event %s on %s", evt.Payload.ID, evt.Subject)
+	}
+	return nil
+}
+
+// extract decodes the correlation keys an event's family carries, and reports the occurrences the
+// tracker narrates (the DID↔context linking, onboarding outcomes).
+//
+// Dispatched on the event FAMILY rather than the individual occurrence, decoding the family's
+// base struct — the fields every leaf in the family shares. A leaf added upstream (a new issuance
+// or key-pair event) then arrives already decoded and handled instead of falling through
+// unrecognized. Where a rule needs to know which occurrence it was, the subject says.
+func (p *Processor) extract(subject string, jsonRaw []byte) (store.CorrelationKeys, error) {
 	switch {
+	case strings.HasPrefix(subject, SubjectPrefixAsset):
+		edcEvt := AssetEvent{}
+		err := json.Unmarshal(jsonRaw, &edcEvt)
+		return store.CorrelationKeys{ParticipantContextID: edcEvt.ParticipantContextID}, err
+	case strings.HasPrefix(subject, SubjectPrefixContractDefinition):
+		edcEvt := ContractDefinitionEvent{}
+		err := json.Unmarshal(jsonRaw, &edcEvt)
+		return store.CorrelationKeys{ParticipantContextID: edcEvt.ParticipantContextID}, err
+	case strings.HasPrefix(subject, SubjectPrefixContractNegotiation):
+		edcEvt := ContractNegotiationEvent{}
+		err := json.Unmarshal(jsonRaw, &edcEvt)
+		return store.CorrelationKeys{ParticipantContextID: edcEvt.ParticipantContextID}, err
+	case strings.HasPrefix(subject, SubjectPrefixPolicyDefinition):
+		edcEvt := PolicyDefinitionEvent{}
+		err := json.Unmarshal(jsonRaw, &edcEvt)
+		return store.CorrelationKeys{ParticipantContextID: edcEvt.ParticipantContextID}, err
+	case strings.HasPrefix(subject, SubjectPrefixTransferProcess):
+		edcEvt := TransferProcessEvent{}
+		err := json.Unmarshal(jsonRaw, &edcEvt)
+		return store.CorrelationKeys{ParticipantContextID: edcEvt.ParticipantContextID}, err
 	case strings.HasPrefix(subject, SubjectPrefixKeyPair):
 		edcEvt := KeyPairEvent{}
-		err = json.Unmarshal(jsonRaw, &edcEvt)
-		_ = edcEvt
+		err := json.Unmarshal(jsonRaw, &edcEvt)
+		return store.CorrelationKeys{ParticipantContextID: edcEvt.ParticipantContextID}, err
 	case strings.HasPrefix(subject, SubjectPrefixDidDocument):
 		edcEvt := DidDocumentEvent{}
-		err = json.Unmarshal(jsonRaw, &edcEvt)
+		err := json.Unmarshal(jsonRaw, &edcEvt)
 		// The published and unpublished leaves carry an identical payload, so the subject is the only
 		// thing that says whether the binding is being established or torn down.
 		if err == nil && subject == SubjectDidDocumentPublished {
 			// linking those two
 			p.monitor.Infof("Linking <%s> and <%s>", edcEvt.ParticipantContextID, edcEvt.Did)
 		}
+		return store.CorrelationKeys{ParticipantContextID: edcEvt.ParticipantContextID, HolderDid: edcEvt.Did}, err
 	case strings.HasPrefix(subject, SubjectPrefixParticipantContext):
 		edcEvt := ParticipantContextEvent{}
-		err = json.Unmarshal(jsonRaw, &edcEvt)
-		_ = edcEvt
+		err := json.Unmarshal(jsonRaw, &edcEvt)
+		return store.CorrelationKeys{ParticipantContextID: edcEvt.ParticipantContextID}, err
+	case strings.HasPrefix(subject, SubjectPrefixCredentialOffer):
+		edcEvt := CredentialOfferEvent{}
+		err := json.Unmarshal(jsonRaw, &edcEvt)
+		return store.CorrelationKeys{ParticipantContextID: edcEvt.ParticipantContextID}, err
 	case strings.HasPrefix(subject, SubjectPrefixIssuance):
 		edcEvt := IssuanceEvent{}
-		err = json.Unmarshal(jsonRaw, &edcEvt)
-		_ = edcEvt
+		err := json.Unmarshal(jsonRaw, &edcEvt)
+		// HolderID only: IssuerParticipantContextID is the ISSUER's context, and putting it in
+		// the participant-context column would attribute the participant's issuance to the operator.
+		return store.CorrelationKeys{HolderDid: edcEvt.HolderID}, err
 	case strings.HasPrefix(subject, SubjectPrefixOnboarding):
-		err = p.onboarding(subject, jsonRaw)
+		return p.onboarding(subject, jsonRaw)
 	}
-	if err != nil {
-		return err
-	}
-	return nil
+	// A family nothing routes on (secrets, or something new upstream) carries no keys the ledger
+	// knows how to promote — recorded all the same.
+	return store.CorrelationKeys{}, nil
 }
 
-// onboarding reports a cx-ve onboarding lifecycle event.
+// onboarding extracts and reports a cx-ve onboarding lifecycle event.
 //
 // The only family whose leaves do not share a payload: the outcome fields exist on the completed
 // event alone, so decoding OnboardingEvent would drop exactly what makes the event worth tracking.
 // Hence the occurrence, not just the family.
-func (p *Processor) onboarding(subject string, jsonRaw []byte) error {
+func (p *Processor) onboarding(subject string, jsonRaw []byte) (store.CorrelationKeys, error) {
 	switch subject {
 	case SubjectOnboardingStarted:
 		event := OnboardingStartedEvent{}
 		if err := json.Unmarshal(jsonRaw, &event); err != nil {
-			return err
+			return store.CorrelationKeys{}, err
 		}
 		// The one event carrying the BPN and the DID together before anything is provisioned, so it
 		// is what lets the participant-context and issuance events that follow — which carry only a
 		// context id or a holder id — be attributed to a partner.
 		p.monitor.Infof("Onboarding %s started: BPN <%s>, DID <%s>", event.ProcessID, event.Bpn, event.Did)
+		return store.CorrelationKeys{OnboardingProcessID: event.ProcessID, Bpn: event.Bpn, HolderDid: event.Did}, nil
 	case SubjectOnboardingCompleted:
 		event := OnboardingCompletedEvent{}
 		if err := json.Unmarshal(jsonRaw, &event); err != nil {
-			return err
+			return store.CorrelationKeys{}, err
 		}
 		// Announced for every terminal outcome, so the state decides how it is reported: taking the
 		// subject alone would read a rejection or a failure as a successful onboarding.
@@ -110,6 +174,15 @@ func (p *Processor) onboarding(subject string, jsonRaw []byte) error {
 			p.monitor.Warnf("Onboarding %s ended as %s (BPN <%s>): %s",
 				event.ProcessID, event.State, event.Bpn, event.FailureMessage)
 		}
+		return store.CorrelationKeys{
+			OnboardingProcessID:  event.ProcessID,
+			Bpn:                  event.Bpn,
+			HolderDid:            event.Did,
+			ParticipantContextID: event.ParticipantContextID,
+		}, nil
 	}
-	return nil
+	// A new onboarding leaf still shares the family base — enough for the keys, if not a report.
+	event := OnboardingEvent{}
+	err := json.Unmarshal(jsonRaw, &event)
+	return store.CorrelationKeys{OnboardingProcessID: event.ProcessID, Bpn: event.Bpn, HolderDid: event.Did}, err
 }
