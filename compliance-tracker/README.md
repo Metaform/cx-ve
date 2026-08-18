@@ -155,15 +155,15 @@ have the event redelivered, not to acknowledge it into oblivion.
 
 ```shell
 docker run -d --name ct-nats -p 4222:4222 nats:alpine -js
-docker run -d --name ct-pg -p 5432:5432 -e POSTGRES_USER=compliance \
-  -e POSTGRES_PASSWORD=compliance -e POSTGRES_DB=compliance postgres:17-alpine
+docker run -d --name ct-pg -p 5432:5432 -e POSTGRES_USER=event_tracker \
+  -e POSTGRES_PASSWORD=event_tracker -e POSTGRES_DB=event_tracker postgres:17-alpine
 # create the "edc-events" stream with subject events.> , then:
 go run ./cmd/server -mode=development
 ```
 
 with `COMPLIANCETRACKER_URI=nats://127.0.0.1:4222`, `COMPLIANCETRACKER_BUCKET=cfm-bucket`,
 `COMPLIANCETRACKER_STREAM=edc-events` and
-`COMPLIANCETRACKER_POSTGRES_DSN=postgres://compliance:compliance@127.0.0.1:5432/compliance?sslmode=disable`
+`COMPLIANCETRACKER_POSTGRES_DSN=postgres://event_tracker:event_tracker@127.0.0.1:5432/event_tracker?sslmode=disable`
 exported. `launcher/launcher_test.go` does exactly this end to end and is the quickest way to see
 the whole path exercised.
 
@@ -172,7 +172,7 @@ the whole path exercised.
 Deployed by the umbrella chart: `charts/cx-ve/templates/compliance-tracker.yaml`, configured under
 `complianceTracker` in `charts/cx-ve/values.yaml`. A ConfigMap keyed `compliancetracker.env` is
 mounted at `/etc/appname`, a Vault init container delivers the NATS NKey seed for
-`nats.auth.nkeySeedFile`, and telemetry comes from `envFrom: telemetry-config`. The `compliance`
+`nats.auth.nkeySeedFile`, and telemetry comes from `envFrom: telemetry-config`. The `event_tracker`
 database lives in the platform's Postgres and is provisioned by its postgres-init job — the
 CX-VE-specific entry in the `postgresql.databases` list in `charts/cx-ve/values.yaml`; the agent
 creates its own schema at startup.
