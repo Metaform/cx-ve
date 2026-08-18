@@ -6,6 +6,8 @@ public interface NetworkService {
 
     /**
      * Registers a partner company.
+     *
+     * @return
      */
-    void registerPartner(PartnerRegistrationData registrationData);
+    String registerPartner(PartnerRegistrationData registrationData);
 }

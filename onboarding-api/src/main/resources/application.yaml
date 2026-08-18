@@ -8,6 +8,19 @@
 spring:
   application:
     name: cx-ve                                                 # SPRING_APPLICATION_NAME
+  # Postgres persistence for onboarding processes (JpaOnboardingRepository) is the DEFAULT.
+  # Startup requires a reachable database; run with SPRING_PROFILES_ACTIVE=test (the profile
+  # document at the bottom of this file) to fall back to the in-memory store instead — no
+  # database needed, state lost on restart.
+  datasource:
+    url: jdbc:postgresql://localhost:5432/onboarding            # SPRING_DATASOURCE_URL
+    username: onboarding                                        # SPRING_DATASOURCE_USERNAME
+    password: onboarding                                        # SPRING_DATASOURCE_PASSWORD
+  jpa:
+    hibernate:
+      # Hibernate manages the schema; move to `validate` once it is migration-managed.
+      ddl-auto: update                                          # SPRING_JPA_HIBERNATE_DDLAUTO
+    open-in-view: false
 
 springdoc:
   swagger-ui:
@@ -75,3 +88,17 @@ participant:
     endpoint-type: HTTP                                         # PARTICIPANT_CCM_ENDPOINTTYPE
     endpoint: ""                                                # PARTICIPANT_CCM_ENDPOINT
     token-source: provider                                      # PARTICIPANT_CCM_TOKENSOURCE
+
+# Profile "test": the in-memory OnboardingRepository instead of Postgres, with the whole
+# DataSource/JPA machinery excluded so no database is required at startup. For tests and
+# storage-free local runs.
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
+      - org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration

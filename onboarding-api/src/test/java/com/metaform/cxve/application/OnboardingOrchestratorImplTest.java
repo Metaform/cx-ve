@@ -112,6 +112,22 @@ class OnboardingOrchestratorImplTest {
     }
 
     @Test
+    void start_withoutBpn_announcesTheAssignedBpnOnCompletion() {
+        // The BPN is optional on ingress. The started event then honestly carries none — the BPN
+        // step has not run yet — and the completed event delivers the one the
+        // BusinessPartnerNumberService assigned.
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+
+        var id = orchestrator.start(registration(null));
+        orchestrator.advanceByHolder("did:web:acme");
+
+        assertThat(events.started().get(0).bpn()).isNull();
+        var assigned = orchestrator.get(id).bpn();
+        assertThat(assigned).isNotBlank();
+        assertThat(events.completed().get(0).bpn()).isEqualTo(assigned);
+    }
+
+    @Test
     void start_announcesTheCallerSuppliedDidWhenGiven() {
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
         var supplied = registration("BPNL0000000000XY").withDid("did:web:acme.example.com");
@@ -139,6 +155,33 @@ class OnboardingOrchestratorImplTest {
         assertThat(event.participantContextId()).isEqualTo(process.participantContextId());
         assertThat(event.state()).isEqualTo(OnboardingState.COMPLETED);
         assertThat(event.failureMessage()).isNull();
+    }
+
+    @Test
+    void aRejectedDuplicate_doesNotStealTheHolderCorrelation() {
+        // The holder DID is seeded at submission, so a rejected duplicate carries the same one as
+        // the onboarding it duplicated. An issuance event for that DID must still reach the
+        // onboarding that is running, not the rejected attempt.
+        var pending = new IdentityProofingService() {
+            @Override
+            public String initiateProofing(OnboardingProcess process) {
+                return "proof-pending";
+            }
+
+            @Override
+            public boolean isVerified(String proofingReference) {
+                return false;
+            }
+        };
+        var orchestrator = orchestratorWith(pending);
+        var id = orchestrator.start(registration("BPNL0000000000XY"));
+        var duplicateId = orchestrator.start(registration("BPNL0000000000XY"));
+        assertThat(orchestrator.get(duplicateId).state()).isEqualTo(OnboardingState.REJECTED);
+
+        var advanced = orchestrator.advanceByHolder(RecordingOnboardingEventPublisher.DID_TEMPLATE + "Acme");
+
+        assertThat(advanced).isPresent();
+        assertThat(advanced.get().id()).isEqualTo(id);
     }
 
     @Test

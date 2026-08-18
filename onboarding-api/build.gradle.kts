@@ -23,12 +23,19 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    // Postgres persistence for onboarding processes; active only under the "postgres" profile
+    // (see application.yaml), so the app still runs broker- and database-free by default
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    runtimeOnly("org.postgresql:postgresql")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6")
     // NATS/JetStream client + CloudEvents, version-matched to the platform's events-nats bridge
     implementation("io.nats:jnats:2.25.3")
     implementation("io.cloudevents:cloudevents-json-jackson:4.1.1")
     testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
+    // In-memory stand-in for Postgres in the repository tests (schema is vanilla JPA DDL)
+    testRuntimeOnly("com.h2database:h2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

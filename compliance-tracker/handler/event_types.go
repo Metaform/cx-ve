@@ -2,23 +2,33 @@ package handler
 
 import "encoding/json"
 
-// Go representations of every concrete subclass of the EDC `Event` base class
-// (org.eclipse.edc.spi.event.Event), as delivered to this agent.
+// Go representations of every event this agent can be delivered. They come from two producers
+// sharing one stream and one envelope, but not one set of conventions.
 //
-// Wire format: the EDC `events-nats` bridge publishes CloudEvents v1.0 in structured mode. The
-// CloudEvent `type` is the payload's fully-qualified Java class name (e.g.
+// Most are EDC events: every concrete subclass of the EDC `Event` base class
+// (org.eclipse.edc.spi.event.Event), published by the `events-nats` bridge as CloudEvents v1.0 in
+// structured mode. The CloudEvent `type` is the payload's fully-qualified Java class name (e.g.
 // "org.eclipse.edc.identityhub.spi.keypair.events.KeyPairAdded") and `data` holds the event
 // payload — NOT the EventEnvelope, so the envelope's id/at do not appear here. The NATS subject is
 // "events." + the event's Event.name() value, which is what the Subject* constants below spell out.
+//
+// The onboarding family instead comes from cx-ve's own Onboarding API
+// (com.metaform.cxve.adapter.out.nats.NatsOnboardingEventPublisher). Its `type` is a reverse-DNS
+// name per CX-0000 §2.3 ("org.catena-x.onboarding.<name>.v1") rather than a class name, and its
+// `subject` carries the onboarding process id. That envelope also repeats the BPN and DID as the
+// `sourcebpn` and `participantdid` extensions, not modelled here: lifecycleagent.CloudEvent drops
+// top-level members it does not declare, and the payload carries both fields anyway.
 //
 // The Java hierarchy is two levels deep: an abstract per-family base (KeyPairEvent, IssuanceEvent,
 // ...) carrying the shared fields, and a concrete leaf per occurrence. That is mirrored here by
 // embedding the family struct, which encoding/json flattens into the same JSON object.
 //
-// Naming: <JavaClassName>Event, so KeyPairAdded -> KeyPairAddedEvent.
+// Naming: <JavaTypeName>Event, so KeyPairAdded -> KeyPairAddedEvent and OnboardingStarted ->
+// OnboardingStartedEvent.
 
 // ---------------------------------------------------------------------------------------------
-// Subjects — "events." + Event.name(). Use these in the Process dispatch switch.
+// Subjects. Use these in the Process dispatch switch; for the EDC families they are
+// "events." + Event.name().
 // ---------------------------------------------------------------------------------------------
 
 const (
@@ -94,6 +104,33 @@ const (
 	SubjectIssuanceErrored             = "events.issuance.errored"
 	SubjectIssuanceCredentialGenerated = "events.issuance.credential.generated"
 	SubjectIssuanceCredentialDelivered = "events.issuance.credential.delivered"
+
+	// Onboarding — com.metaform.cxve.domain.model (cx-ve, not EDC)
+	SubjectOnboardingStarted   = "events.onboarding.started"
+	SubjectOnboardingCompleted = "events.onboarding.completed"
+)
+
+// ---------------------------------------------------------------------------------------------
+// Subject prefixes — one per family, for dispatching on the family rather than the individual
+// occurrence. Each pairs with the family's base struct (SubjectPrefixIssuance -> IssuanceEvent),
+// which is what every leaf in the family shares, so a leaf added upstream is decoded and handled
+// without a new case. The two contract families need their second segment: "events.contract."
+// alone would not separate definitions from negotiations.
+// ---------------------------------------------------------------------------------------------
+
+const (
+	SubjectPrefixAsset               = "events.asset."
+	SubjectPrefixContractDefinition  = "events.contract.definition."
+	SubjectPrefixContractNegotiation = "events.contract.negotiation."
+	SubjectPrefixPolicyDefinition    = "events.policy.definition."
+	SubjectPrefixTransferProcess     = "events.transfer.process."
+	SubjectPrefixSecret              = "events.secret."
+	SubjectPrefixDidDocument         = "events.diddocument."
+	SubjectPrefixKeyPair             = "events.keypair."
+	SubjectPrefixParticipantContext  = "events.participantcontext."
+	SubjectPrefixCredentialOffer     = "events.credentialoffer."
+	SubjectPrefixIssuance            = "events.issuance."
+	SubjectPrefixOnboarding          = "events.onboarding."
 )
 
 // ---------------------------------------------------------------------------------------------
@@ -372,6 +409,38 @@ type CredentialDeliveredEvent struct {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Onboarding
+// ---------------------------------------------------------------------------------------------
+
+// OnboardingEvent carries the fields shared by both onboarding events. ProcessID is the correlation
+// key between them (and is also the CloudEvent subject); ExternalID is the id the onboarding service
+// provider submitted the registration under.
+type OnboardingEvent struct {
+	ProcessID  string `json:"processId,omitempty"`
+	ExternalID string `json:"externalId,omitempty"`
+	Bpn        string `json:"bpn,omitempty"`
+	Did        string `json:"did,omitempty"`
+}
+
+// OnboardingStartedEvent announces an accepted registration, before any provisioning has happened.
+// The DID is already final — derived from the participant DID template by the same rule
+// provisioning will use. The BPN is final only when the registration submitted one; it is empty
+// for a registration without a BPN (one gets assigned during onboarding and arrives on the
+// completed event), so the BPN↔DID binding this event establishes is conditional on Bpn being set.
+type OnboardingStartedEvent struct{ OnboardingEvent }
+
+// OnboardingCompletedEvent announces that an onboarding reached a terminal state — any of them, not
+// just success — so State is what says how it ended and must be inspected. Did and
+// ParticipantContextID are empty when the onboarding never got far enough to be assigned them, and
+// FailureMessage is set for OnboardingStateRejected and OnboardingStateFailed.
+type OnboardingCompletedEvent struct {
+	OnboardingEvent
+	ParticipantContextID string          `json:"participantContextId,omitempty"`
+	State                OnboardingState `json:"state,omitempty"`
+	FailureMessage       string          `json:"failureMessage,omitempty"`
+}
+
+// ---------------------------------------------------------------------------------------------
 // Supporting value types
 // ---------------------------------------------------------------------------------------------
 
@@ -383,6 +452,18 @@ const (
 	ParticipantContextStateCreated     ParticipantContextState = "CREATED"
 	ParticipantContextStateActivated   ParticipantContextState = "ACTIVATED"
 	ParticipantContextStateDeactivated ParticipantContextState = "DEACTIVATED"
+)
+
+// OnboardingState is the terminal state reached by an onboarding, likewise serialized as the enum
+// constant name. Only these three appear on the wire: the Onboarding API announces an outcome
+// exactly when the process becomes terminal, so the intermediate states of its state machine
+// (SUBMITTED, VALIDATED, BPN_ASSIGNED, ...) are never published.
+type OnboardingState string
+
+const (
+	OnboardingStateCompleted OnboardingState = "COMPLETED"
+	OnboardingStateRejected  OnboardingState = "REJECTED"
+	OnboardingStateFailed    OnboardingState = "FAILED"
 )
 
 // CredentialFormat is likewise serialized as the enum constant name.

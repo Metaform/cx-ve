@@ -22,9 +22,11 @@ public class NetworkController {
      * Registers a partner company (Authorization required - Roles: configure_partner_registration).
      * Payloads missing a required field (see {@link PartnerRegistrationData}) are rejected with 400;
      * such rejections are logged and the exact error message is returned (see {@link InvalidRequestShapeHandler}).
+     *
+     * @return the ID of the onboarding process
      */
     @PostMapping("/partnerRegistration")
-    public void registerPartner(@Valid @RequestBody PartnerRegistrationData registrationData) {
-        networkService.registerPartner(registrationData);
+    public String registerPartner(@Valid @RequestBody PartnerRegistrationData registrationData) {
+        return networkService.registerPartner(registrationData);
     }
 }

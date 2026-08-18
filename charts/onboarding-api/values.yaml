@@ -1,4 +1,7 @@
-# State is in-memory: keep a single replica until a durable OnboardingRepository exists.
+# Onboarding state is durable in Postgres (config.spring.profiles.active: postgres below), so a
+# restart no longer loses in-flight onboardings. Still a single replica by default: the
+# registration duplicate check is not guarded by a database constraint, so concurrent replicas
+# could race it.
 replicaCount: 1
 
 image:
@@ -100,6 +103,32 @@ natsAuth:
     natsDeployment: cx-ve-nats
     image: natsio/nats-box:latest
 
+# Postgres persistence for onboarding processes. The seed job creates the `onboarding` database
+# and user on the platform's Postgres (create-if-missing, re-runs on every upgrade) — the
+# platform's own postgres-init hook works from a hardcoded list that does not include this app.
+# The app is pointed at that database via config.spring.datasource below; db/user/password here
+# and the datasource URL/credentials there must agree.
+#
+# NOTE the same release-name assumption as natsAuth above: the defaults name the canonical
+# cx-ve umbrella release's Postgres (cx-ve-postgresql) and its admin Secret.
+database:
+  seed:
+    enabled: true
+    # Same image family as the platform's postgres-init hook
+    image: postgres:17.7-alpine
+    host: cx-ve-postgresql.edc-v.svc.cluster.local
+    port: 5432
+    adminUser: postgres
+    adminDatabase: postgres
+    # Secret created by the platform's postgresql template (<release>-postgresql); requires this
+    # release to live in the same namespace as the platform.
+    adminPasswordSecret:
+      name: cx-ve-postgresql
+      key: postgres-password
+    db: onboarding
+    user: onboarding
+    password: onboarding
+
 # Gateway API exposure (there is deliberately no Ingress template)
 httpRoute:
   enabled: true
@@ -120,6 +149,16 @@ config:
   spring:
     application:
       name: cx-ve
+    # Postgres persistence (JpaOnboardingRepository) is the app's default — this only points it
+    # at the platform's Postgres. Schema handling stays on the image's defaults
+    # (spring.jpa.hibernate.ddl-auto: update). Storage-free operation (in-memory store, no
+    # database) is the app's "test" profile: spring.profiles.active: test here, plus
+    # database.seed.enabled: false above.
+    datasource:
+      # Must agree with the database.seed block above
+      url: jdbc:postgresql://cx-ve-postgresql.edc-v.svc.cluster.local:5432/onboarding
+      username: onboarding
+      password: onboarding
   # Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and
   # springdoc URLs are generated with the external /onboarding prefix
   server:

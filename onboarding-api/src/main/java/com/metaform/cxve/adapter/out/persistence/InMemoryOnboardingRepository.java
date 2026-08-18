@@ -9,20 +9,21 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
 /**
- * In-memory {@link OnboardingRepository}. State is lost on restart and not shared across replicas —
- * fine for local/stub use; replace with a persistent implementation for production.
+ * In-memory {@link OnboardingRepository}, active only under the {@code test} profile. State is
+ * lost on restart and not shared across replicas; everywhere else the durable
+ * {@code JpaOnboardingRepository} is the default (complementary profile expressions, so exactly
+ * one of the two exists in any context).
  */
 @Repository
+@Profile("test")
 public class InMemoryOnboardingRepository implements OnboardingRepository {
 
     private final ConcurrentHashMap<String, OnboardingProcess> processes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, PartnerRegistrationData> payloads = new ConcurrentHashMap<>();
-    // Secondary index holderId -> processId, so issuance events arriving over NATS can be correlated
-    // back to a process. Maintained on every save from OnboardingProcess.holderId().
-    private final ConcurrentHashMap<String, String> holderIndex = new ConcurrentHashMap<>();
 
     @Override
     public void create(OnboardingProcess process, PartnerRegistrationData payload) {
@@ -33,9 +34,6 @@ public class InMemoryOnboardingRepository implements OnboardingRepository {
     @Override
     public void save(OnboardingProcess process) {
         processes.put(process.id(), process);
-        if (process.holderId() != null) {
-            holderIndex.put(process.holderId(), process.id());
-        }
     }
 
     @Override
@@ -45,7 +43,16 @@ public class InMemoryOnboardingRepository implements OnboardingRepository {
 
     @Override
     public Optional<OnboardingProcess> findByHolderId(String holderId) {
-        return Optional.ofNullable(holderIndex.get(holderId)).map(processes::get);
+        // A scan, not an index: the holder id is seeded at submission, so a REJECTED duplicate of a
+        // running onboarding carries the same one — an index keyed on it would let whichever saved
+        // last shadow the other. Preferring the non-terminal match keeps issuance events flowing to
+        // the onboarding that is still running; the terminal fallback keeps redelivered events for
+        // a finished one resolvable (a harmless no-op for the caller).
+        var matches = processes.values().stream()
+                .filter(p -> holderId.equals(p.holderId()))
+                .toList();
+        return matches.stream().filter(p -> !p.isTerminal()).findFirst()
+                .or(() -> matches.stream().findFirst());
     }
 
     @Override
