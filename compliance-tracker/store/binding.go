@@ -1,0 +1,68 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+)
+
+// postgresBindingStore maintains the binding projection with plain SQL. Every statement is
+// idempotent under redelivery: Open ignores an existing row, Link and Close overwrite with the
+// same values they wrote before.
+type postgresBindingStore struct {
+	db *sql.DB
+}
+
+func newPostgresBindingStore(db *sql.DB) *postgresBindingStore {
+	return &postgresBindingStore{db: db}
+}
+
+func (s *postgresBindingStore) Open(ctx context.Context, b *Binding) error {
+	// DO NOTHING rather than upsert: a redelivered started event must not un-close a binding its
+	// completed event already closed.
+	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO %s (process_id, external_id, did, bpn, started_at)
+		VALUES ($1, $2, $3, $4, COALESCE($5, now()))
+		ON CONFLICT (process_id) DO NOTHING
+	`, bindingTable),
+		b.ProcessID, nullString(b.ExternalID), nullString(b.Did), nullString(b.Bpn), nullTime(b.StartedAt))
+	return err
+}
+
+func (s *postgresBindingStore) LinkParticipantContext(ctx context.Context, did, participantContextID string) error {
+	// Only the RUNNING binding: a rejected duplicate carries the DID of the onboarding it
+	// duplicated, and the dead row must not capture the link. Zero matched rows (a context
+	// outside any onboarding, e.g. the operator's own) is not an error.
+	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE %s SET participant_context_id = $2 WHERE did = $1 AND state = 'RUNNING'
+	`, bindingTable), did, participantContextID)
+	return err
+}
+
+func (s *postgresBindingStore) Close(ctx context.Context, c *BindingClosure) error {
+	// An upsert, so a closure for a never-opened process still lands: started_at then equals
+	// completed_at — a zero-width window, which is honest, since nothing observed during the
+	// process's lifetime made it into the ledger either. The identity fields overwrite only when
+	// the closure carries them.
+	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s (process_id, external_id, did, bpn, participant_context_id, state, started_at, completed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), COALESCE($7, now()))
+		ON CONFLICT (process_id) DO UPDATE SET
+			external_id            = COALESCE(EXCLUDED.external_id, %[1]s.external_id),
+			did                    = COALESCE(EXCLUDED.did, %[1]s.did),
+			bpn                    = COALESCE(EXCLUDED.bpn, %[1]s.bpn),
+			participant_context_id = COALESCE(EXCLUDED.participant_context_id, %[1]s.participant_context_id),
+			state                  = EXCLUDED.state,
+			completed_at           = EXCLUDED.completed_at
+	`, bindingTable),
+		c.ProcessID, nullString(c.ExternalID), nullString(c.Did), nullString(c.Bpn),
+		nullString(c.ParticipantContextID), c.State, nullTime(c.CompletedAt))
+	return err
+}
+
+func (s *postgresBindingStore) HasDid(ctx context.Context, did string) (bool, error) {
+	var known bool
+	err := s.db.QueryRowContext(ctx,
+		fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s WHERE did = $1)`, bindingTable), did).Scan(&known)
+	return known, err
+}

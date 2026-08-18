@@ -85,6 +85,38 @@ plus the correlation keys the event's family carries, promoted to indexed column
 `(source, event_id)` — CloudEvents scope id uniqueness to the producer — and inserts are
 `ON CONFLICT DO NOTHING`, which is what makes at-least-once delivery record-exactly-once.
 
+### Correlating events to onboarding processes
+
+Correlation is built purely from the event stream — never from the Onboarding API's database; the
+tracker is an independent observer. A `binding` table projects one row per onboarding process:
+
+| Event | What it teaches the binding |
+|---|---|
+| `events.onboarding.started` | opens the process: `process_id ↔ did` (and `↔ bpn` when submitted) |
+| `events.diddocument.published` | links `did ↔ participant_context_id` — the one event carrying both |
+| `events.onboarding.completed` | confirms the final identities, closes the process with its terminal state |
+
+Events are attributed to processes at **read time** by the `process_event` view, so the ledger
+stays immutable and binding knowledge learned late applies to history automatically. Attribution
+rules: an event carrying an onboarding process id attributes to exactly that process (a rejected
+duplicate's events carry the duplicated DID and must not leak into the process they duplicated);
+any other event attributes by identity — holder DID or participant context id — within the
+process's attribution window. The window opens at the started event; for `REJECTED`/`FAILED` it
+closes at the terminal event (a dead process frees its identifiers for re-registration), while a
+`COMPLETED` process owns its identity permanently, so the participant's post-onboarding activity
+keeps attributing to the onboarding that created it. Events matching no binding (the operator's
+own contexts, secrets) do not appear in the view but stay queryable in the `event` table.
+
+```sql
+-- everything that happened around one onboarding, in order
+SELECT subject, type, occurred_at FROM process_event
+WHERE binding_process_id = '<process-id>' ORDER BY COALESCE(occurred_at, recorded_at);
+```
+
+As a diagnostic, an issuance event whose `holderId` matches no binding logs a warning: correlation
+rests on the assumption that issuance holder ids are participant DIDs, and a mismatch would mean
+it is silently broken.
+
 Events are delivered at-least-once, so handlers must be idempotent. The value returned from
 `Process` decides the message's fate:
 

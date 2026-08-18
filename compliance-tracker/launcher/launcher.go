@@ -66,6 +66,7 @@ func LaunchAndWaitSignal(shutdown <-chan struct{}) {
 			return handler.NewProcessor(&handler.Config{
 				LogMonitor: ctx.Monitor,
 				Events:     ctx.Registry.Resolve(store.EventStoreKey).(store.EventStore),
+				Bindings:   ctx.Registry.Resolve(store.BindingStoreKey).(store.BindingStore),
 			})
 		},
 	}

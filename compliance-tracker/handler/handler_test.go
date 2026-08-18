@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/eclipse-cfm/cfm/common/lifecycleagent"
 	"github.com/eclipse-cfm/cfm/common/system"
@@ -54,9 +55,55 @@ func (s *recordingStore) one(t *testing.T) *store.EventRecord {
 	return s.records[0]
 }
 
-func processorWith(monitor system.LogMonitor, events store.EventStore) *Processor {
-	return NewProcessor(&Config{LogMonitor: monitor, Events: events})
+// recordingBindings captures how the processor maintained the binding projection. HasDid answers
+// "known" unless didUnknown is set, so tests not about the holder-id diagnostic stay warning-free.
+type recordingBindings struct {
+	opened     []*store.Binding
+	linked     []string // "did->pctx"
+	closed     []*store.BindingClosure
+	didUnknown bool
+	err        error
 }
+
+func (b *recordingBindings) Open(_ context.Context, binding *store.Binding) error {
+	if b.err != nil {
+		return b.err
+	}
+	b.opened = append(b.opened, binding)
+	return nil
+}
+
+func (b *recordingBindings) LinkParticipantContext(_ context.Context, did, pctx string) error {
+	if b.err != nil {
+		return b.err
+	}
+	b.linked = append(b.linked, did+"->"+pctx)
+	return nil
+}
+
+func (b *recordingBindings) Close(_ context.Context, closure *store.BindingClosure) error {
+	if b.err != nil {
+		return b.err
+	}
+	b.closed = append(b.closed, closure)
+	return nil
+}
+
+func (b *recordingBindings) HasDid(_ context.Context, _ string) (bool, error) {
+	return !b.didUnknown, b.err
+}
+
+func processorWith(monitor system.LogMonitor, events store.EventStore) *Processor {
+	return processorBinding(monitor, events, &recordingBindings{})
+}
+
+func processorBinding(monitor system.LogMonitor, events store.EventStore, bindings store.BindingStore) *Processor {
+	return NewProcessor(&Config{LogMonitor: monitor, Events: events, Bindings: bindings})
+}
+
+// eventTime is the CloudEvent time every test envelope carries — the timestamp that must reach
+// the binding windows and the ledger's occurred_at.
+var eventTime = time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 
 // event builds the envelope the framework delivers. Data is left as a map because Process
 // re-marshals it before decoding into the event type, exactly as it arrives from JetStream; Raw is
@@ -66,6 +113,7 @@ func event(subject string, data map[string]any) lifecycleagent.EventContext[life
 		SpecVersion: lifecycleagent.SpecVersion,
 		ID:          "ce-1",
 		Source:      "onboarding-api-7d56645cc7-2bzkl",
+		Time:        eventTime,
 		Data:        data,
 	}
 	raw, err := json.Marshal(payload)
@@ -266,6 +314,112 @@ func TestProcess_UnknownFamily_IsPersistedKeyless(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, store.CorrelationKeys{}, events.one(t).Keys)
 	assert.Empty(t, monitor.warns)
+}
+
+func TestProcess_OnboardingStarted_OpensTheBinding(t *testing.T) {
+	// The binding projection is what slice 2's read-time correlation joins against; a started
+	// event that does not open one leaves every later identity-keyed event unattributable.
+	bindings := &recordingBindings{}
+
+	err := processorBinding(&recordingMonitor{}, &recordingStore{}, bindings).Process(context.Background(),
+		event(SubjectOnboardingStarted, map[string]any{
+			"processId":  "proc-1",
+			"externalId": "ext-123",
+			"bpn":        "BPNL0000000001AB",
+			"did":        "did:web:acme",
+		}))
+
+	require.NoError(t, err)
+	require.Len(t, bindings.opened, 1)
+	assert.Equal(t, &store.Binding{
+		ProcessID:  "proc-1",
+		ExternalID: "ext-123",
+		Did:        "did:web:acme",
+		Bpn:        "BPNL0000000001AB",
+		StartedAt:  eventTime, // the event's occurrence opens the attribution window, not the wall clock
+	}, bindings.opened[0])
+	assert.Empty(t, bindings.closed)
+}
+
+func TestProcess_OnboardingCompleted_ClosesTheBinding(t *testing.T) {
+	// Every terminal outcome closes the binding — the STATE decides whether the window stays open
+	// (COMPLETED owns its identity permanently) or ends (REJECTED/FAILED free the identifiers),
+	// and that decision is the store's, so the closure must carry the state verbatim.
+	for _, outcome := range []OnboardingState{OnboardingStateCompleted, OnboardingStateRejected, OnboardingStateFailed} {
+		t.Run(string(outcome), func(t *testing.T) {
+			bindings := &recordingBindings{}
+
+			err := processorBinding(&recordingMonitor{}, &recordingStore{}, bindings).Process(context.Background(),
+				event(SubjectOnboardingCompleted, map[string]any{
+					"processId":            "proc-1",
+					"externalId":           "ext-123",
+					"bpn":                  "BPNL0000000001AB",
+					"did":                  "did:web:acme",
+					"participantContextId": "pctx-9",
+					"state":                string(outcome),
+				}))
+
+			require.NoError(t, err)
+			require.Len(t, bindings.closed, 1)
+			assert.Equal(t, &store.BindingClosure{
+				ProcessID:            "proc-1",
+				ExternalID:           "ext-123",
+				Did:                  "did:web:acme",
+				Bpn:                  "BPNL0000000001AB",
+				ParticipantContextID: "pctx-9",
+				State:                string(outcome),
+				CompletedAt:          eventTime,
+			}, bindings.closed[0])
+		})
+	}
+}
+
+func TestProcess_DidDocumentPublished_LinksTheParticipantContext(t *testing.T) {
+	// The publication is the one event carrying DID and participant context together — the only
+	// chance to teach the binding which context belongs to which onboarding. The unpublished leaf
+	// shares the payload and must NOT link: it tears the association down, not up.
+	payload := map[string]any{"did": "did:web:acme", "participantContextId": "pctx-9"}
+
+	linked := &recordingBindings{}
+	require.NoError(t, processorBinding(&recordingMonitor{}, &recordingStore{}, linked).
+		Process(context.Background(), event(SubjectDidDocumentPublished, payload)))
+	assert.Equal(t, []string{"did:web:acme->pctx-9"}, linked.linked)
+
+	unlinked := &recordingBindings{}
+	require.NoError(t, processorBinding(&recordingMonitor{}, &recordingStore{}, unlinked).
+		Process(context.Background(), event(SubjectDidDocumentUnpublished, payload)))
+	assert.Empty(t, unlinked.linked)
+}
+
+func TestProcess_IssuanceForAnUnknownHolder_IsFlagged(t *testing.T) {
+	// Correlation assumes issuance holder ids are participant DIDs. If one matches no binding the
+	// assumption may be wrong — silently broken correlation — so it must be surfaced, while the
+	// event is still recorded and acked (it may legitimately be an issuance outside onboarding).
+	monitor := &recordingMonitor{}
+	events := &recordingStore{}
+
+	err := processorBinding(monitor, events, &recordingBindings{didUnknown: true}).Process(context.Background(),
+		event(SubjectIssuanceCredentialDelivered, map[string]any{"holderId": "holder-1"}))
+
+	require.NoError(t, err)
+	require.Len(t, monitor.warns, 1)
+	assert.Contains(t, monitor.warns[0], "holder-1")
+	assert.Equal(t, store.CorrelationKeys{HolderDid: "holder-1"}, events.one(t).Keys)
+}
+
+func TestProcess_BindingFailure_IsRecoverableAndNothingIsRecorded(t *testing.T) {
+	// A failed projection write NAKs the whole message BEFORE the ledger insert: redelivery then
+	// reruns both (idempotently), so ledger and projection can never drift apart by one being
+	// written without the other.
+	events := &recordingStore{}
+	bindings := &recordingBindings{err: errors.New("sql: database is closed")}
+
+	err := processorBinding(&recordingMonitor{}, events, bindings).Process(context.Background(),
+		event(SubjectOnboardingStarted, map[string]any{"processId": "proc-1"}))
+
+	require.Error(t, err)
+	assert.True(t, types.IsRecoverable(err))
+	assert.Empty(t, events.records)
 }
 
 func TestProcess_StoreFailure_IsRecoverable(t *testing.T) {

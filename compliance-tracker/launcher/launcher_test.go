@@ -78,16 +78,29 @@ func TestComplianceTracker_Integration(t *testing.T) {
 	assert.ElementsMatch(t, DefaultSubjects, consumer.CachedInfo().Config.FilterSubjects)
 
 	// Publish only once the consumer exists: under InterestPolicy a message with no interested
-	// consumer is discarded immediately.
+	// consumer is discarded immediately. Two events forming the correlation the view must make:
+	// the onboarding start binds the process to the DID, the issuance event carries only the DID.
+	started, err := json.Marshal(map[string]any{
+		"specversion": "1.0",
+		"id":          "ce-0",
+		"source":      "/cxve/test",
+		"type":        "org.catena-x.onboarding.started.v1",
+		"time":        "2026-08-18T12:00:00Z",
+		"data":        map[string]string{"processId": "proc-e2e", "externalId": "ext-1", "did": "did:web:acme"},
+	})
+	require.NoError(t, err)
 	payload, err := json.Marshal(map[string]any{
 		"specversion": "1.0",
 		"id":          "ce-1",
 		"source":      "/cxve/test",
 		"type":        "io.cfm.issuance.delivered",
+		"time":        "2026-08-18T12:05:00Z",
 		"data":        map[string]string{"holderId": "did:web:acme", "id": "credential-1"},
 	})
 	require.NoError(t, err)
 
+	_, err = natsclient.NewMsgClient(nt.Client).Publish(ctx, "events.onboarding.started", started)
+	require.NoError(t, err)
 	_, err = natsclient.NewMsgClient(nt.Client).Publish(ctx, "events.issuance.delivered", payload)
 	require.NoError(t, err)
 
@@ -121,4 +134,12 @@ func TestComplianceTracker_Integration(t *testing.T) {
 	assert.Equal(t, "io.cfm.issuance.delivered", eventType)
 	assert.Equal(t, "did:web:acme", holderDid)
 	assert.JSONEq(t, string(payload), envelope)
+
+	// And the correlation must close: the issuance event names only the holder DID, yet the view
+	// attributes it to the onboarding process the started event bound that DID to.
+	var attributedTo string
+	require.NoError(t, db.QueryRow(`
+		SELECT binding_process_id FROM process_event
+		WHERE source = '/cxve/test' AND event_id = 'ce-1'`).Scan(&attributedTo))
+	assert.Equal(t, "proc-e2e", attributedTo)
 }

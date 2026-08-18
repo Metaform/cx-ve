@@ -31,7 +31,7 @@ func (a *PostgresServiceAssembly) Name() string {
 }
 
 func (a *PostgresServiceAssembly) Provides() []system.ServiceType {
-	return []system.ServiceType{EventStoreKey}
+	return []system.ServiceType{EventStoreKey, BindingStoreKey}
 }
 
 func (a *PostgresServiceAssembly) Init(ictx *system.InitContext) error {
@@ -57,6 +57,7 @@ func (a *PostgresServiceAssembly) Init(ictx *system.InitContext) error {
 	}
 
 	ictx.Registry.Register(EventStoreKey, newPostgresEventStore(db))
+	ictx.Registry.Register(BindingStoreKey, newPostgresBindingStore(db))
 	return nil
 }
 
