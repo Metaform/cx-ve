@@ -32,6 +32,7 @@ public class VaultClient {
 
     private final TokenProvider tokenProvider;
     private final RestClient restClient;
+    private final String vaultUrl;
     private final String role;
     private final String resource;
     private final String scope;
@@ -44,10 +45,20 @@ public class VaultClient {
                        @Value("${vault.auth.resource}") String resource,
                        @Value("${vault.auth.scope}") String scope) {
         this.tokenProvider = tokenProvider;
-        this.restClient = RestClient.builder().baseUrl(vaultUrl).build();
+        this.vaultUrl = vaultUrl.endsWith("/") ? vaultUrl.substring(0, vaultUrl.length() - 1) : vaultUrl;
+        this.restClient = RestClient.builder().baseUrl(this.vaultUrl).build();
         this.role = role;
         this.resource = resource;
         this.scope = scope;
+    }
+
+    /**
+     * KV paths are multi-segment and arrive with their variable segment already URL-encoded by
+     * the caller — a URI template would re-encode the slashes (and the encoding), so the URI is
+     * built verbatim instead.
+     */
+    private java.net.URI kvUri(String path) {
+        return java.net.URI.create(vaultUrl + "/v1/" + path);
     }
 
     /**
@@ -59,7 +70,7 @@ public class VaultClient {
             return withAuthRetry(token -> {
                 try {
                     var response = restClient.get()
-                            .uri("/v1/{path}", path)
+                            .uri(kvUri(path))
                             .header("X-Vault-Token", token)
                             .retrieve()
                             .body(KvReadResponse.class);
@@ -78,7 +89,7 @@ public class VaultClient {
         try {
             withAuthRetry(token -> {
                 restClient.post()
-                        .uri("/v1/{path}", path)
+                        .uri(kvUri(path))
                         .header("X-Vault-Token", token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(Map.of("data", data))
