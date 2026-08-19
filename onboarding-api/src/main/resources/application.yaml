@@ -54,6 +54,27 @@ nats:
   # Absent -> connect unauthenticated (e.g. local dev NATS)
   # nkey-seed-path: /vault/secrets/nats.nk                      # NATS_NKEYSEEDPATH
 
+# Vault, holding the OSP callback registrations (VaultCallbackStore) — they carry the provider's
+# OAuth2 client secret. Access replicates the platform components' non-root path: the workload
+# token (token.file.path below) is exchanged at jwtlet for a token whose sub is auth.resource,
+# and THAT is logged in at Vault's pre-existing `participant` JWT role — the resulting client
+# token is policy-confined to participants/data/<auth.resource>/*. The "test" profile runs
+# without Vault (InMemoryCallbackStore); these keys are then unused.
+vault:
+  url: http://cx-ve-vault.edc-v.svc.cluster.local:8200          # VAULT_URL
+  auth:
+    # The platform's JWT-auth role; its policies confine the token to the partition named by
+    # the token's sub.
+    role: participant                                           # VAULT_AUTH_ROLE
+    # The jwtlet mapping (RFC 8693 `resource`) selected for the exchange = this app's vault
+    # partition. Must match the mapping the chart's jwtlet-seed job registers.
+    resource: onboarding-api                                    # VAULT_AUTH_RESOURCE
+    # Must be allowlisted in that mapping's scopes.
+    scope: "read"                                               # VAULT_AUTH_SCOPE
+  # KV v2 API path prefix of the callback registrations; one secret per client id below it.
+  # Must lie inside the partition: participants/data/<auth.resource>/...
+  secret-path: participants/data/onboarding-api/callbacks       # VAULT_SECRETPATH
+
 # Token exchange (RFC 8693): workload token file + exchange endpoint
 token:
   # user.dir = the process working directory (same as $PWD in a shell, but also resolvable in
