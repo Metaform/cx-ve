@@ -10,9 +10,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
-class InMemoryRegistrationStatusServiceTest {
+class DefaultRegistrationStatusServiceTest {
 
-    private final InMemoryRegistrationStatusService service = new InMemoryRegistrationStatusService();
+    private final DefaultRegistrationStatusService service = new DefaultRegistrationStatusService(new InMemoryCallbackStore());
     private HttpServer receiver;
 
     @AfterEach
@@ -89,7 +89,7 @@ class InMemoryRegistrationStatusServiceTest {
         // not survive the conversion.
         service.setCallbackAddress("client-1", callback("https://one.example/status"));
 
-        assertThat(new InMemoryRegistrationStatusService().getCallbackAddress("client-1")).isNull();
+        assertThat(new DefaultRegistrationStatusService(new InMemoryCallbackStore()).getCallbackAddress("client-1")).isNull();
     }
 
     @Test

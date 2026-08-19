@@ -93,6 +93,23 @@ spec:
                     "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
                 }'
 
+              # Second mapping for the SAME SA, selected per-exchange by the RFC 8693 `resource`
+              # parameter: it makes the app's vault partition. Exchanging with
+              # resource={{ .Values.vault.partition }} yields a token whose sub is that partition,
+              # which Vault's pre-existing `participant` JWT role confines to
+              # participants/data/{{ .Values.vault.partition }}/* — where the app stores the OSP
+              # callback registrations (they carry client secrets). No root token, no Vault-side
+              # seeding, no platform-chart changes. Must agree with the app's
+              # config vault.auth.resource / vault.secret-path.
+              create "vault-partition mapping for the '{{ .Values.serviceAccount.name }}' SA" \
+                "${JWTLET_MGMT_URL}/mappings" \
+                '{
+                    "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.serviceAccount.name }}",
+                    "participantContext": {{ .Values.vault.partition | quote }},
+                    "scopes": ["read"],
+                    "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
+                }'
+
       volumes:
         # RFC 8693 subject_token used to authenticate against the jwtlet management API.
         # Audience must match jwtlet's `client_audience`.

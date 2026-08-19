@@ -11,7 +11,8 @@ import com.metaform.cxve.domain.port.CredentialIssuanceService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
 import com.metaform.cxve.domain.port.WalletService;
 import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
-import com.metaform.cxve.adapter.out.callback.InMemoryRegistrationStatusService;
+import com.metaform.cxve.adapter.out.callback.DefaultRegistrationStatusService;
+import com.metaform.cxve.adapter.out.callback.InMemoryCallbackStore;
 import com.metaform.cxve.adapter.out.callback.RegistrationStatusService;
 import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
 import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
@@ -64,7 +65,7 @@ class OnboardingOrchestratorImplTest {
 
     private OnboardingOrchestratorImpl orchestratorWith(IdentityProofingService proofing) {
         return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials, repository,
-                new InMemoryRegistrationStatusService(), events, RecordingOnboardingEventPublisher.didResolver());
+                new DefaultRegistrationStatusService(new InMemoryCallbackStore()), events, RecordingOnboardingEventPublisher.didResolver());
     }
 
     private static PartnerRegistrationData registration(String bpn) {
@@ -259,7 +260,7 @@ class OnboardingOrchestratorImplTest {
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                unreachableTenantManager, credentials, repository, new InMemoryRegistrationStatusService(),
+                unreachableTenantManager, credentials, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
                 events, RecordingOnboardingEventPublisher.didResolver());
 
         var thrown = catchThrowable(() -> orchestrator.start("osp-1", registration("BPNL0000000000XY")));
@@ -299,7 +300,7 @@ class OnboardingOrchestratorImplTest {
         completedFirst.start("osp-1", registration("BPNL0000000000XY"));
         completedFirst.advanceByHolder("did:web:acme");
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                wallet, credentials, repository, new InMemoryRegistrationStatusService(),
+                wallet, credentials, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
                 throwsAfterRecording, RecordingOnboardingEventPublisher.didResolver());
 
         // Duplicate of the completed registration, so it is rejected inside start() itself.
@@ -407,7 +408,7 @@ class OnboardingOrchestratorImplTest {
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                wallet, failingCredentials, repository, new InMemoryRegistrationStatusService(),
+                wallet, failingCredentials, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
                 events, RecordingOnboardingEventPublisher.didResolver());
 
         var id = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
