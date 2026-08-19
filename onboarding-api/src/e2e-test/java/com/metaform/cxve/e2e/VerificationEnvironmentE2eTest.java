@@ -1,10 +1,7 @@
 package com.metaform.cxve.e2e;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.tomakehurst.wiremock.extension.Parameters;
-import com.github.tomakehurst.wiremock.extension.ServeEventListener;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
-import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import io.restassured.http.ContentType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,11 +47,6 @@ class VerificationEnvironmentE2eTest {
     private static final String CALLBACK_HOST =
             System.getenv().getOrDefault("E2E_CALLBACK_HOST", "host.docker.internal");
 
-    private static final long STATUS_CALLBACK_TIMEOUT_MINUTES = 1;
-
-    // Fresh latch per test (see resetLatch); the listener below always counts down the current
-    // one. Held in an AtomicReference because the listener is registered once, statically.
-    private static final AtomicReference<byte[]> lastRequestPayload = new AtomicReference<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // The external registration-status consumer: WireMock listens on a dynamic port and serves
@@ -64,24 +56,16 @@ class VerificationEnvironmentE2eTest {
     // HTTP/2, and that path fails against Jetty with "Received RST_STREAM: Stream cancelled".
     @RegisterExtension
     static WireMockExtension wiremock = WireMockExtension.newInstance()
-            .options(wireMockConfig().dynamicPort().http2PlainDisabled(true).extensions(new ServeEventListener() {
-                @Override
-                public String getName() {
-                    return "registration-status-latch";
-                }
-
-                @Override
-                public void afterComplete(ServeEvent serveEvent, Parameters parameters) {
-                    if (serveEvent.getRequest().getUrl().startsWith("/registration/status")) {
-                        lastRequestPayload.set(serveEvent.getRequest().getBody());
-                    }
-                }
-            }))
+            .options(wireMockConfig().dynamicPort().http2PlainDisabled(true))
             .build();
 
     private static final String TOKEN_EXCHANGE_URL = "http://cxve.localhost/api/auth/token";
     private static final String MANAGEMENT_API_URL = "http://cxve.localhost/api/management/v5beta";
     private static final String CERTO_API_URL = "http://cxve.localhost/api/certo/management/v1";
+    private static final String TENANT_MANAGER_API_URL = "http://cxve.localhost/api/tm";
+    // Mirror of the app's participant.did.template rule (ParticipantDidResolver): the DID a
+    // participant is provisioned under is knowable before provisioning — template + shortName.
+    private static final String DID_TEMPLATE = "did:web:identity.cxve.localhost:";
     // Transfer type of the CCM flows — must be exactly this profile URI; it keys the
     // participant's siglet transfer-type mapping (installed at provisioning from
     // participant.ccm.* config), the dataplane registration, and the transfer request.
@@ -351,27 +335,47 @@ class VerificationEnvironmentE2eTest {
     /**
      * Onboards a provider + consumer pair and waits for both completion callbacks; returns the
      * two {@link OnboardingResult}s keyed by externalId, asserted successful.
+     *
+     * <p>The callback payload is the slim OSP contract (externalId/state/message) and no longer
+     * carries the provisioned identities, so they are recovered the way any VE-side actor would
+     * get them: BPN and DID by the same deterministic rules the registration was submitted under,
+     * the participant context id from the CFM tenant manager, queried by DID through the gateway.
      */
     private Map<String, OnboardingResult> onboardProviderAndConsumer(String runId, String providerExtId, String consumerExtId) {
         onboardParticipant("Provider " + runId, "provider-" + runId, providerExtId);
         onboardParticipant("Consumer " + runId, "consumer-" + runId, consumerExtId);
 
         log("waiting for both onboardings to complete (callbacks on /registration/status)...");
-        var results = new AtomicReference<Map<String, OnboardingResult>>();
+        var callbacks = new AtomicReference<Map<String, RegistrationStatusCallback>>();
         await().atMost(Duration.ofMinutes(10)).pollInterval(Duration.ofSeconds(5)).untilAsserted(() -> {
             var byExternalId = callbackResults();
             assertThat(byExternalId.keySet()).contains(providerExtId, consumerExtId);
-            results.set(byExternalId);
+            callbacks.set(byExternalId);
         });
-        var provider = results.get().get(providerExtId);
-        var consumer = results.get().get(consumerExtId);
-        assertThat(provider.failureReason()).isNull();
-        assertThat(consumer.failureReason()).isNull();
-        assertThat(provider.participantContextId()).isNotNull();
-        assertThat(consumer.participantContextId()).isNotNull();
+        // CONFIRMED is the only state the app calls back with today, but pin it anyway: a
+        // REJECTED callback must fail here, not as an opaque timeout further down the suite.
+        var providerStatus = callbacks.get().get(providerExtId);
+        var consumerStatus = callbacks.get().get(consumerExtId);
+        assertThat(providerStatus.state())
+                .withFailMessage("provider onboarding not confirmed: %s", providerStatus)
+                .isEqualTo("CONFIRMED");
+        assertThat(consumerStatus.state())
+                .withFailMessage("consumer onboarding not confirmed: %s", consumerStatus)
+                .isEqualTo("CONFIRMED");
+
+        var tenantManager = new TenantManagerApi(TENANT_MANAGER_API_URL,
+                tokenExchange.getParticipantToken("onboarding-api", "issuer", "tenant-manager-api:read"));
+        var provider = onboardingResult(tenantManager, providerExtId, "provider-" + runId);
+        var consumer = onboardingResult(tenantManager, consumerExtId, "consumer-" + runId);
         log("provider onboarded: pcid=%s did=%s bpn=%s", provider.participantContextId(), provider.holderId(), provider.bpn());
         log("consumer onboarded: pcid=%s did=%s bpn=%s", consumer.participantContextId(), consumer.holderId(), consumer.bpn());
-        return results.get();
+        return Map.of(providerExtId, provider, consumerExtId, consumer);
+    }
+
+    private static OnboardingResult onboardingResult(TenantManagerApi tenantManager, String externalId, String shortName) {
+        var did = DID_TEMPLATE + shortName;
+        var pcid = tenantManager.awaitParticipantContextId(did, Duration.ofMinutes(2));
+        return new OnboardingResult(externalId, bpnFor(externalId), did, pcid);
     }
 
     /**
@@ -441,23 +445,31 @@ class VerificationEnvironmentE2eTest {
     }
 
     /** All registration-status callbacks recorded by WireMock, keyed by externalId. */
-    private Map<String, OnboardingResult> callbackResults() {
+    private Map<String, RegistrationStatusCallback> callbackResults() {
         return wiremock.findAll(postRequestedFor(urlPathEqualTo("/registration/status"))).stream()
                 .map(request -> {
                     try {
-                        return objectMapper.readValue(request.getBody(), OnboardingResult.class);
+                        return objectMapper.readValue(request.getBody(), RegistrationStatusCallback.class);
                     } catch (IOException e) {
                         throw new UncheckedIOException(e);
                     }
                 })
                 .filter(result -> result.externalId() != null)
-                .collect(Collectors.toMap(OnboardingResult::externalId, result -> result, (first, second) -> second));
+                .collect(Collectors.toMap(RegistrationStatusCallback::externalId, result -> result, (first, second) -> second));
+    }
+
+    /**
+     * The BPN a registration is submitted under, derived from the externalId the same way the
+     * app's BPN stub used to — deterministic and run-unique, so the suite can restate it later
+     * without the callback having to echo it.
+     */
+    private static String bpnFor(String externalId) {
+        return ("BPNL" + String.format("%08X", Math.abs(externalId.hashCode())) + "000000").substring(0, 16);
     }
 
     private static void onboardParticipant(String name, String shortName, String runId) {
-        // bpn is a required field of the registration payload; derive it from the externalId the
-        // same way the app's BPN stub used to, so BPNs stay deterministic and run-unique
-        var bpn = ("BPNL" + String.format("%08X", Math.abs(runId.hashCode())) + "000000").substring(0, 16);
+        // bpn is a required field of the registration payload (see bpnFor)
+        var bpn = bpnFor(runId);
         var newParticipant = NewParticipantData.builder()
                 .name(name)
                 .shortName(shortName)

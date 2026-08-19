@@ -1,7 +1,5 @@
 package com.metaform.cxve.domain.model;
 
-import org.springframework.security.core.parameters.P;
-
 public enum RegistrationStatus {
     SUBMITTED,
     CONFIRMED,
