@@ -1,6 +1,7 @@
 package com.metaform.cxve.application;
 
-import com.metaform.cxve.adapter.out.callback.InMemoryRegistrationStatusService;
+import com.metaform.cxve.adapter.out.callback.DefaultRegistrationStatusService;
+import com.metaform.cxve.adapter.out.callback.InMemoryCallbackStore;
 import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
 import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
 import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
@@ -58,7 +59,7 @@ class OnboardingHolderCorrelationTest {
             wallet,
             credentials,
             repository,
-            new InMemoryRegistrationStatusService(),
+            new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
             new RecordingOnboardingEventPublisher(),
             RecordingOnboardingEventPublisher.didResolver());
 

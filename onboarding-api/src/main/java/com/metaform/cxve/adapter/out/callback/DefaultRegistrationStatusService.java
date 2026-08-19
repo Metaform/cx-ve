@@ -9,9 +9,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 /**
  * Holds one callback registration per onboarding service provider, keyed on the client identity
  * it registered under — so a second provider setting its callback no longer overwrites the first.
@@ -19,13 +16,20 @@ import java.util.concurrent.ConcurrentHashMap;
  * from the payload. Status updates are routed to the callback of the client that submitted the
  * process ({@link OnboardingProcess#clientId()}); a process without a recorded submitter is
  * dropped with a warning — no provider gets to see a registration that is not its own.
+ *
+ * <p>Storage lives behind {@link CallbackStore}: Vault by default (the registration carries the
+ * provider's OAuth2 client secret), in-memory under the "test" profile.
  */
 @Service
-public class InMemoryRegistrationStatusService implements RegistrationStatusService {
+public class DefaultRegistrationStatusService implements RegistrationStatusService {
 
-    private static final Logger log = LoggerFactory.getLogger(InMemoryRegistrationStatusService.class);
+    private static final Logger log = LoggerFactory.getLogger(DefaultRegistrationStatusService.class);
 
-    private final Map<String, CallbackRequestData> callbacks = new ConcurrentHashMap<>();
+    private final CallbackStore callbacks;
+
+    public DefaultRegistrationStatusService(CallbackStore callbacks) {
+        this.callbacks = callbacks;
+    }
 
     @Override
     public CallbackRequestData getCallbackAddress(String clientId) {
@@ -39,20 +43,29 @@ public class InMemoryRegistrationStatusService implements RegistrationStatusServ
 
     @Override
     public void invokeCallback(OnboardingProcess after) {
-        if (after.clientId() != null) {
-            // The process knows its submitter: only that provider's callback is notified — other
-            // providers have no business seeing this registration's outcome.
-            var callback = callbacks.get(after.clientId());
-            if (callback == null) {
-                log.warn("No callback registered for client '{}', dropping the status update for onboarding {}",
-                        after.clientId(), after.id());
-                return;
-            }
-            var regData = new OspRegistrationCallbackData(after.externalId(), RegistrationStatus.from(after.state()), after.failureReason());
-            post(after.clientId(),callback, regData);
-        } else {
+        if (after.clientId() == null) {
             log.warn("No client-ID registered for onboarding {}, dropping the status update", after.id());
+            return;
         }
+        // The process knows its submitter: only that provider's callback is notified — other
+        // providers have no business seeing this registration's outcome. The store read shares
+        // the fire-and-forget contract of the call itself: an unreachable store must not fail
+        // the onboarding whose outcome is being announced.
+        CallbackRequestData callback;
+        try {
+            callback = callbacks.get(after.clientId());
+        } catch (Exception e) {
+            log.warn("Could not load the callback of client '{}', dropping the status update for onboarding {}",
+                    after.clientId(), after.id(), e);
+            return;
+        }
+        if (callback == null) {
+            log.warn("No callback registered for client '{}', dropping the status update for onboarding {}",
+                    after.clientId(), after.id());
+            return;
+        }
+        var regData = new OspRegistrationCallbackData(after.externalId(), RegistrationStatus.from(after.state()), after.failureReason());
+        post(after.clientId(), callback, regData);
     }
 
     /** Fire and forget: an unreachable provider is logged, never propagated. */
