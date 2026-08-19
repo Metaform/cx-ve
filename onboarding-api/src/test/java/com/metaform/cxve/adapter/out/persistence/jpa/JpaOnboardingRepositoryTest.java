@@ -52,7 +52,8 @@ class JpaOnboardingRepositoryTest {
     @Test
     void createAndFindById_roundTripsEveryProcessField() {
         var process = new OnboardingProcess("proc-1", "ext-123", OnboardingState.WALLET_PROVISIONED,
-                "BPNL0000000000XY", "profile-1", "did:web:acme", "why not", "holder-pid-1", "tenant-1", "pctx-1");
+                "BPNL0000000000XY", "profile-1", "did:web:acme", "why not", "holder-pid-1", "tenant-1", "pctx-1",
+                "client-1");
 
         repository.create(process, registration("BPNL0000000000XY", null));
 

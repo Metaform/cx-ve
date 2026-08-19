@@ -143,6 +143,7 @@ public class JpaOnboardingRepository implements OnboardingRepository {
         entity.setHolderProcessId(process.holderProcessId());
         entity.setTenantId(process.tenantId());
         entity.setParticipantContextId(process.participantContextId());
+        entity.setClientId(process.clientId());
     }
 
     private OnboardingProcess toDomain(OnboardingProcessEntity entity) {
@@ -156,7 +157,8 @@ public class JpaOnboardingRepository implements OnboardingRepository {
                 entity.getFailureReason(),
                 entity.getHolderProcessId(),
                 entity.getTenantId(),
-                entity.getParticipantContextId());
+                entity.getParticipantContextId(),
+                entity.getClientId());
     }
 
     private String writePayload(PartnerRegistrationData payload) {

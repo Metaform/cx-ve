@@ -72,6 +72,10 @@ public class OnboardingProcessEntity {
     @Column(name = "participant_context_id")
     private String participantContextId;
 
+    /** The authenticated OSP client that submitted the registration; callback-routing target. */
+    @Column(name = "client_id")
+    private String clientId;
+
     /** The registration payload as JSON ({@code text} on Postgres). Written once at create. */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload")
@@ -165,6 +169,14 @@ public class OnboardingProcessEntity {
 
     public void setParticipantContextId(String participantContextId) {
         this.participantContextId = participantContextId;
+    }
+
+    public String getClientId() {
+        return clientId;
+    }
+
+    public void setClientId(String clientId) {
+        this.clientId = clientId;
     }
 
     public String getPayload() {

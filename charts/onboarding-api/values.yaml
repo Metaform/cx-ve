@@ -159,6 +159,17 @@ config:
       url: jdbc:postgresql://cx-ve-postgresql.edc-v.svc.cluster.local:5432/onboarding
       username: onboarding
       password: onboarding
+    # Bearer-JWT validation on /api/** against the VE's OSP IdP, Ory Hydra (matches the image
+    # defaults; restated here so the deployment's trust anchor is visible and overridable). The
+    # JWKS is fetched cluster-internally; issuer-uri is the expected `iss` value — the EXTERNAL
+    # gateway URL clients obtain tokens from (host-derived: install-ve.sh overrides it for a
+    # non-default host) — and no discovery is performed against it.
+    security:
+      oauth2:
+        resourceserver:
+          jwt:
+            jwk-set-uri: http://osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
+            issuer-uri: http://cxve.localhost/auth/osp
   # Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and
   # springdoc URLs are generated with the external /onboarding prefix
   server:

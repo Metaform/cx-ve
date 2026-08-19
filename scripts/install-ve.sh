@@ -98,6 +98,9 @@ HOST_OVERRIDES=(
   --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
   --set "onboarding-api.httpRoute.hostnames={${HOST}}"
   --set-string "onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
+  # The OSP IdP's issuer is http://<host>/auth/osp (derived from global.host in the umbrella);
+  # the onboarding-api validates tokens against exactly that iss value, so it must follow too.
+  --set-string "onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "certo.gateway.hostnames={${HOST}}"
   # NOTE certo.sigletBaseUrl is deliberately NOT host-derived: certo calls siglet without a
   # bearer token, so it must use the in-cluster siglet service (the checked-in default) — the

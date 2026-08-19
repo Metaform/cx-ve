@@ -10,6 +10,9 @@ global:
   # Fixed: the CFM agents hardcode system:serviceaccount:edc-v:… client ids when registering
   # jwtlet mappings during participant provisioning; any other namespace breaks provisioning.
   namespace: edc-v
+  # The platform's Gateway resource; restated from the platform default so the umbrella's own
+  # HTTPRoutes (osp-idp) can attach to it.
+  gatewayName: edcv-gateway
 
 # ==== NATS authentication (NKey) ===============================================================
 # ON everywhere. Components authenticate to NATS with per-component NKeys: the platform's
@@ -107,11 +110,12 @@ core-platform-distribution:
           txRenewalSupport: true
   postgresql:
     # Helm replaces lists wholesale, so this list must repeat the platform defaults in full —
-    # the `certo` and `compliance` entries are the CX-VE-specific additions (certo's database and
-    # the compliance tracker's event ledger live in the platform's Postgres). The onboarding API's
-    # `onboarding` database is deliberately NOT here: the onboarding-api chart provisions it
-    # itself (its postgres-seed job), so it works against a platform release this list never
-    # touched — an option the two components deployed from THIS chart don't need.
+    # the `certo`, `event_tracker` and `hydra` entries are the CX-VE-specific additions (certo's
+    # database, the compliance tracker's event ledger and the OSP IdP's store live in the
+    # platform's Postgres). The onboarding API's `onboarding` database is deliberately NOT here:
+    # the onboarding-api chart provisions it itself (its postgres-seed job), so it works against
+    # a platform release this list never touched — an option the components deployed from THIS
+    # chart don't need.
     databases:
       - { db: controlplane,  user: cp,      password: cp }
       - { db: identityhub,   user: ih,      password: ih }
@@ -121,7 +125,8 @@ core-platform-distribution:
       - { db: sigletdb,      user: siglet,  password: siglet }
       - { db: jwtlet,        user: jwtlet,  password: jwtlet }
       - { db: certo,         user: certo,   password: certo }
-      - { db: compliance,    user: compliance, password: compliance }
+      - { db: event_tracker, user: event_tracker, password: event_tracker }
+      - { db: hydra,         user: hydra,   password: hydra }
 
 # ---- Catena-X profile seeding ----------------------------------------------------------------
 catenax-profile:
@@ -237,6 +242,31 @@ certo:
   serviceAccount:
     create: true
     name: certo
+
+# ---- OSP IdP (Ory Hydra) ---------------------------------------------------------------------
+# OAuth2 issuer for EXTERNAL callers of the Onboarding API (the onboarding service provider
+# role): client_credentials tokens, validated by the API against this IdP's JWKS. See
+# templates/osp-idp.yaml — the issuer/token URL is http://<global.host>/auth/osp, so it follows
+# the host automatically; the onboarding-api subchart's issuer-uri must be overridden alongside
+# a non-default host (install-ve.sh does).
+ospIdp:
+  enabled: true
+  image: oryd/hydra:v2.2.0
+  seedImage: curlimages/curl:latest
+  # Hydra's system secret (key encryption at rest); >= 16 chars. Dev-grade default, fine for the
+  # throwaway VE.
+  systemSecret: cxve-dev-system-secret
+  database:
+    # The `hydra` database comes from the postgresql.databases list above (its CX-VE entry)
+    dsn: postgres://hydra:hydra@cx-ve-postgresql.edc-v.svc.cluster.local:5432/hydra?sslmode=disable
+  # OSP clients seeded into the IdP (osp-idp-seed-job.yaml; upserted on upgrade). `scope` is the
+  # space-separated maximum a client may request — configure_partner_registration additionally
+  # allows registering a status callback on the Onboarding API.
+  clients:
+    - id: osp-client
+      secret: osp-secret
+      scope: "configure_partner_registration"
+  resources: {}
 
 # ---- jwtlet endpoints for the umbrella's own seed jobs and the certo agent -------------------
 jwtlet:
@@ -363,6 +393,6 @@ complianceTracker:
     subjects: []
     # The event ledger: every received event is persisted here (the stream itself is memory
     # storage with interest retention, so this database is the durable record). REQUIRED — the
-    # agent fails fast without it. The `compliance` database is provisioned by the platform's
+    # agent fails fast without it. The `event_tracker` database is provisioned by the platform's
     # postgres-init job from the postgresql.databases list above (its CX-VE-specific entry).
-    postgresDsn: postgres://compliance:compliance@cx-ve-postgresql.edc-v.svc.cluster.local:5432/compliance?sslmode=disable
+    postgresDsn: postgres://event_tracker:event_tracker@cx-ve-postgresql.edc-v.svc.cluster.local:5432/event_tracker?sslmode=disable

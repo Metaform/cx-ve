@@ -73,16 +73,19 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     }
 
     @Override
-    public String start(PartnerRegistrationData registrationData) {
+    public String start(String clientId, PartnerRegistrationData registrationData) {
         var id = UUID.randomUUID().toString();
         // The process is authoritative for both identities from here on. The DID is final at
         // submission (resolved by the same rule provisioning will use). The BPN is final only when
         // the registration supplied one (resolveOrCreate keeps it verbatim); when it did not, the
         // seed is null and the BPN step assigns one — subscribers get it via the completed event.
+        // The client id is final too: the token identity of the submitter, recorded so status
+        // callbacks route to the provider this registration belongs to.
         var did = didResolver.resolve(registrationData);
-        var process = OnboardingProcess.submitted(id, registrationData.externalId(), registrationData.bpn(), did);
+        var process = OnboardingProcess.submitted(id, registrationData.externalId(), registrationData.bpn(), did, clientId);
         repository.create(process, registrationData);
-        log.info("Starting onboarding process ID '{}' for participant \"{}\")", id, registrationData.name());
+        log.info("Starting onboarding process ID '{}' for participant \"{}\" (submitted by client '{}')",
+                id, registrationData.name(), clientId);
         // Announced BEFORE the process is driven: processOnboarding() runs the flow synchronously as
         // far as it can go, so publishing afterwards would order "started" after the work it starts.
         eventPublisher.onboardingStarted(new OnboardingStarted(

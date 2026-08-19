@@ -25,13 +25,20 @@
 #                     or the API_URL env var)
 #
 # Environment:
-#   API_URL    base URL of the Onboarding API (default: http://cxve.localhost/onboarding, the
-#              gateway route created by install-ve.sh)
-#   BPN        pre-assigned BPNL; --bpn takes precedence (default: derived from the run id)
-#   NAMESPACE  namespace of the obapi deployment, for log watching (default: edc-v)
-#   FOLLOW     "true" forces following the logs even without a terminal (default: tty only);
-#              following stops when the onboarding reaches a terminal state
-#              (completed / rejected / failed)
+#   API_URL            base URL of the Onboarding API (default: http://cxve.localhost/onboarding,
+#                      the gateway route created by install-ve.sh)
+#   AUTH_URL           base URL of the OSP IdP through the gateway
+#                      (default: http://cxve.localhost/auth/osp)
+#   ACCESS_TOKEN       bearer token for the API; when unset, one is fetched via
+#                      client_credentials from the OSP IdP — see below
+#   OSP_CLIENT_ID      OSP client for the token request (default: osp-client, the client the
+#                      umbrella chart seeds)
+#   OSP_CLIENT_SECRET  its secret (default: osp-secret)
+#   BPN                pre-assigned BPNL; --bpn takes precedence (default: derived from the run id)
+#   NAMESPACE          namespace of the obapi deployment, for log watching (default: edc-v)
+#   FOLLOW             "true" forces following the logs even without a terminal (default: tty
+#                      only); following stops when the onboarding reaches a terminal state
+#                      (completed / rejected / failed)
 #
 # Requires: curl, jq; kubectl is optional (progress watching is skipped without it)
 
@@ -103,6 +110,25 @@ if [[ -z "${KUBECONFIG:-}" && -f "$HOME/.kube/$CLUSTER_NAME.config" ]]; then
   export KUBECONFIG="$HOME/.kube/$CLUSTER_NAME.config"
 fi
 
+# The API requires a bearer token from the VE's OSP IdP (any valid token registers a partner;
+# only the configure_partner_registration scope may set status callbacks). Unless the caller
+# supplied one, fetch it exactly as an external onboarding service provider would: OAuth2
+# client_credentials against the IdP's gateway route, with the osp-client the umbrella chart
+# seeds.
+AUTH_URL="${AUTH_URL:-http://cxve.localhost/auth/osp}"
+OSP_CLIENT_ID="${OSP_CLIENT_ID:-osp-client}"
+OSP_CLIENT_SECRET="${OSP_CLIENT_SECRET:-osp-secret}"
+if [[ -z "${ACCESS_TOKEN:-}" ]]; then
+  ACCESS_TOKEN=$(curl -fsS -u "${OSP_CLIENT_ID}:${OSP_CLIENT_SECRET}" \
+    -d "grant_type=client_credentials" \
+    -d "scope=configure_partner_registration" \
+    "${AUTH_URL}/oauth2/token" | jq -r .access_token)
+  if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
+    echo "Error: client_credentials at ${AUTH_URL}/oauth2/token returned no access_token" >&2
+    exit 1
+  fi
+fi
+
 # bpn stays in the payload although the API no longer requires it: a caller-known BPN keeps
 # repeated runs deterministic, and the duplicate check only sees a submitted BPN.
 # externalId and the VAT id are unique per run: registrations whose BPN, DID or any unique id
@@ -145,6 +171,7 @@ echo "Registering partner \"$NAME\" (shortName=$SHORT_NAME, bpn=$BPN, externalId
 
 PROCESS_ID=$(curl -fsS -X POST \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   -d "$payload" \
   "${API_URL}/api/v2/administration/registration/Network/partnerRegistration")
 

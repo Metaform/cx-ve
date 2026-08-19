@@ -20,9 +20,11 @@ public interface OnboardingOrchestrator {
     /**
      * Registers a new onboarding from submitted registration data and begins processing.
      *
+     * @param clientId the authenticated client that submitted the registration; recorded on the
+     *         process as the callback-routing target for its status updates.
      * @return the id of the created {@link OnboardingProcess}, in {@link OnboardingState#SUBMITTED}.
      */
-    String start(PartnerRegistrationData registrationData);
+    String start(String clientId, PartnerRegistrationData registrationData);
 
     /**
      * Advances the process one step from its current state, if the preconditions for the next step

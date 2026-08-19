@@ -1,0 +1,67 @@
+## Seeds the OSP clients into the OSP IdP (Ory Hydra) via its cluster-internal admin API.
+## A plain Job, not a helm hook (same reasoning as the onboarding-api postgres-seed job): it
+## waits for the IdP to be ready itself, and the revision-suffixed name sidesteps Job spec
+## immutability on upgrades. Idempotent: an existing client is updated (PUT), so secret/scope
+## changes in values propagate on upgrade.
+{{- if .Values.ospIdp.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: osp-idp-seed-r{{ .Release.Revision }}
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: osp-idp-seed
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: {{ .Values.ospIdp.seedImage }}
+          command:
+            - sh
+            - -ec
+            - |
+              until curl -sf http://osp-idp:4445/health/ready > /dev/null; do
+                echo "Waiting for the OSP IdP admin API..."
+                sleep 2
+              done
+
+              # Pre-warm the signing keys: Hydra generates them lazily on the FIRST JWKS request,
+              # which can exceed the API's JWKS fetch timeout and turn the first authenticated
+              # call after an install into a 500. Generating them here moves that cost into the
+              # install.
+              curl -sf http://osp-idp:4444/.well-known/jwks.json > /dev/null || true
+
+              # POST creates; 409 = exists -> PUT to converge on the values-defined state
+              upsert() {
+                id="$1"; body="$2"
+                status=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+                  -H "Content-Type: application/json" -d "${body}" \
+                  http://osp-idp:4445/admin/clients)
+                if [ "$status" = "409" ]; then
+                  echo "Client ${id} exists, updating"
+                  curl -sf -o /dev/null -X PUT -H "Content-Type: application/json" \
+                    -d "${body}" "http://osp-idp:4445/admin/clients/${id}"
+                elif [ "$status" -ge 400 ]; then
+                  echo "ERROR: creating client ${id} failed (HTTP ${status})"
+                  exit 1
+                else
+                  echo "Client ${id} created"
+                fi
+              }
+              {{- range .Values.ospIdp.clients }}
+
+              upsert {{ .id | quote }} '{
+                  "client_id": {{ .id | quote }},
+                  "client_secret": {{ .secret | quote }},
+                  "grant_types": ["client_credentials"],
+                  "token_endpoint_auth_method": "client_secret_basic",
+                  "scope": {{ .scope | quote }}
+              }'
+              {{- end }}
+{{- end }}
