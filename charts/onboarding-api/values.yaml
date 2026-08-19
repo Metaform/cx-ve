@@ -32,6 +32,15 @@ serviceAccount:
   create: true
   name: onboarding-api
 
+# The app's Vault partition: the jwtlet-seed job registers a second mapping for the app's SA
+# under this participant context, and exchanging with resource=<partition> yields tokens Vault
+# confines to participants/data/<partition>/* (the platform's `participant` JWT role + policies —
+# nothing is seeded in Vault itself, and no root token is involved). The OSP callback
+# registrations live there. Must agree with config.vault.auth.resource and config.vault.secret-path
+# below.
+vault:
+  partition: onboarding-api
+
 # The platform's JWTlet (RFC 8693 token exchange)
 jwtlet:
   healthUrl: http://jwtlet.edc-v.svc.cluster.local:8080/health
@@ -170,6 +179,17 @@ config:
           jwt:
             jwk-set-uri: http://osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
             issuer-uri: http://cxve.localhost/auth/osp
+  # Vault, holding the OSP callback registrations (matches the image defaults; restated so the
+  # deployment's trust chain is visible: workload token -> jwtlet exchange (resource = the vault
+  # partition, see the vault block above) -> Vault `participant` JWT role -> partition-confined
+  # token). No root token anywhere.
+  vault:
+    url: http://cx-ve-vault.edc-v.svc.cluster.local:8200
+    auth:
+      role: participant
+      resource: onboarding-api
+      scope: "read"
+    secret-path: participants/data/onboarding-api/callbacks
   # Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and
   # springdoc URLs are generated with the external /onboarding prefix
   server:
