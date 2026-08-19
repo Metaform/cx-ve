@@ -126,7 +126,9 @@ public class ParticipantOnboardingService implements WalletService {
                     transferTypeMapping(ccmTransferType, ccmEndpointType, ccmEndpoint, ccmTokenSource));
         }
         if (!transferTypeMappings.isEmpty()) {
-            builder.vpaProperty("cfm.dataplane", Map.of("transferTypeMappings", transferTypeMappings));
+            builder.vpaProperty("cfm.dataplane", Map.of(
+                    "authorization", Map.of("type", "oauth2_token_exchange"),
+                    "transferTypeMappings", transferTypeMappings));
         }
         return builder.build();
     }
