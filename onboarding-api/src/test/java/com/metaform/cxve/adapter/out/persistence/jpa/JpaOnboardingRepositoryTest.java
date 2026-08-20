@@ -52,8 +52,7 @@ class JpaOnboardingRepositoryTest {
     @Test
     void createAndFindById_roundTripsEveryProcessField() {
         var process = new OnboardingProcess("proc-1", "ext-123", OnboardingState.WALLET_PROVISIONED,
-                "BPNL0000000000XY", "profile-1", "did:web:acme", "why not", "holder-pid-1", "tenant-1", "pctx-1",
-                "client-1");
+                "BPNL0000000000XY", "did:web:acme", "why not", "client-1");
 
         repository.create(process, registration("BPNL0000000000XY", null));
 
@@ -81,15 +80,6 @@ class JpaOnboardingRepositoryTest {
 
         assertThat(repository.findById("proc-1").orElseThrow().state()).isEqualTo(OnboardingState.BPN_ASSIGNED);
         assertThat(repository.findPayload("proc-1")).contains(payload);
-    }
-
-    @Test
-    void findByHolderId_findsTheLinkedProcess() {
-        repository.create(OnboardingProcess.submitted("proc-1", "ext-1", "BPNL1", null), registration("BPNL1", null));
-        repository.save(repository.findById("proc-1").orElseThrow().withHolderId("did:web:acme"));
-
-        assertThat(repository.findByHolderId("did:web:acme").orElseThrow().id()).isEqualTo("proc-1");
-        assertThat(repository.findByHolderId("did:web:other")).isEmpty();
     }
 
     @Test
@@ -139,25 +129,6 @@ class JpaOnboardingRepositoryTest {
         repository.save(process.withState(OnboardingState.VALIDATED).withHolderId("did:web:provisioned"));
         assertThat(repository.findActiveByDid("did:web:provisioned")).isPresent();
         assertThat(repository.findActiveByDid("did:web:seeded")).isEmpty();
-    }
-
-    @Test
-    void findByHolderId_prefersTheRunningOnboardingOverARejectedDuplicate() {
-        // The holder DID is seeded at submission, so a rejected duplicate registration carries the
-        // same one as the onboarding it duplicated. Issuance events must keep resolving to the one
-        // that is still running, whichever row the database returns first.
-        var running = OnboardingProcess.submitted("proc-running", "ext-1", "BPNL1", "did:web:acme")
-                .withState(OnboardingState.VALIDATED);
-        repository.create(running, registration("BPNL1", "did:web:acme"));
-        var duplicate = OnboardingProcess.submitted("proc-dup", "ext-2", "BPNL1", "did:web:acme")
-                .rejected("BPN already in flight");
-        repository.create(duplicate, registration("BPNL1", "did:web:acme"));
-
-        assertThat(repository.findByHolderId("did:web:acme").orElseThrow().id()).isEqualTo("proc-running");
-
-        // Once no onboarding is running, a terminal match still resolves (redelivered events).
-        repository.save(running.rejected("also over"));
-        assertThat(repository.findByHolderId("did:web:acme")).isPresent();
     }
 
     @Test

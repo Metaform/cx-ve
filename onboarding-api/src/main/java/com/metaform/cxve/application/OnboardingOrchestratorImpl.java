@@ -6,20 +6,17 @@ import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.OnboardingStarted;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
-import com.metaform.cxve.domain.model.ProvisionedParticipant;
 import com.metaform.cxve.domain.port.BusinessPartnerNumberService;
-import com.metaform.cxve.domain.port.CredentialIssuanceService;
+import com.metaform.cxve.domain.port.HolderRegistrationService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
 import com.metaform.cxve.domain.port.OnboardingEventPublisher;
 import com.metaform.cxve.domain.port.OnboardingRepository;
 import com.metaform.cxve.domain.port.RegistrationValidationService;
-import com.metaform.cxve.domain.port.WalletService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.NoSuchElementException;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -27,26 +24,20 @@ import java.util.UUID;
  * {@link OnboardingRepository}, so the in-memory store can be swapped for a durable one without
  * touching this business logic.
  *
- * <p>{@link #start} drives the process as far as it can go synchronously; it stops at an async gate
- * (identity proofing, participant provisioning) and is resumed by a later {@link #advance} /
- * {@link #advanceByHolder} call — e.g. from a proofing callback or a NATS issuance event.
+ * <p>{@link #start} drives the process as far as it can go synchronously; the one async gate left
+ * is identity proofing, where it stops until a later {@link #advance} call resumes it — e.g. from
+ * a proofing callback. With proofing satisfied, the drive runs straight through holder
+ * registration to completion, so the CONFIRMED status callback fires within the submitting call.
  */
 @Service
 public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(OnboardingOrchestratorImpl.class);
 
-    // Exponential backoff for polling the async participant provisioning result (context ID + holder PID):
-    // start at 1.5 s, double each attempt up to 8 s, give up after 8 polls.
-    private static final long INITIAL_BACKOFF_MILLIS = 1000;
-    private static final long MAX_BACKOFF_MILLIS = 8_000;
-    private static final int MAX_PROVISION_POLLS = 8;
-
     private final RegistrationValidationService validationService;
     private final BusinessPartnerNumberService bpnService;
     private final IdentityProofingService identityProofingService;
-    private final WalletService walletService;
-    private final CredentialIssuanceService credentialIssuanceService;
+    private final HolderRegistrationService holderRegistrationService;
     private final OnboardingRepository repository;
     private final RegistrationStatusService registrationStatusService;
     private final OnboardingEventPublisher eventPublisher;
@@ -55,8 +46,7 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     public OnboardingOrchestratorImpl(RegistrationValidationService validationService,
                                       BusinessPartnerNumberService bpnService,
                                       IdentityProofingService identityProofingService,
-                                      WalletService walletService,
-                                      CredentialIssuanceService credentialIssuanceService,
+                                      HolderRegistrationService holderRegistrationService,
                                       OnboardingRepository repository,
                                       RegistrationStatusService registrationStatusService,
                                       OnboardingEventPublisher eventPublisher,
@@ -64,8 +54,7 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         this.validationService = validationService;
         this.bpnService = bpnService;
         this.identityProofingService = identityProofingService;
-        this.walletService = walletService;
-        this.credentialIssuanceService = credentialIssuanceService;
+        this.holderRegistrationService = holderRegistrationService;
         this.repository = repository;
         this.registrationStatusService = registrationStatusService;
         this.eventPublisher = eventPublisher;
@@ -76,11 +65,11 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     public String start(String clientId, PartnerRegistrationData registrationData) {
         var id = UUID.randomUUID().toString();
         // The process is authoritative for both identities from here on. The DID is final at
-        // submission (resolved by the same rule provisioning will use). The BPN is final only when
-        // the registration supplied one (resolveOrCreate keeps it verbatim); when it did not, the
-        // seed is null and the BPN step assigns one — subscribers get it via the completed event.
-        // The client id is final too: the token identity of the submitter, recorded so status
-        // callbacks route to the provider this registration belongs to.
+        // submission (resolved by the same rule the holder registration will use). The BPN is final
+        // only when the registration supplied one (resolveOrCreate keeps it verbatim); when it did
+        // not, the seed is null and the BPN step assigns one — subscribers get it via the completed
+        // event. The client id is final too: the token identity of the submitter, recorded so
+        // status callbacks route to the provider this registration belongs to.
         var did = didResolver.resolve(registrationData);
         var process = OnboardingProcess.submitted(id, registrationData.externalId(), registrationData.bpn(), did, clientId);
         repository.create(process, registrationData);
@@ -93,13 +82,11 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         try {
             processOnboarding(id);
         } catch (RuntimeException e) {
-            // Unlike the issuance-event path — where NatsIssuanceListener naks and JetStream
-            // redelivers, so a transient error simply retries — a throw here has no second chance:
-            // nothing else drives advance(), and the holder link that advanceByHolder needs is only
-            // established once participant provisioning returns. Left alone the process would sit
-            // non-terminal forever, which isActiveRegistration() reads as in flight, so the partner
-            // could never re-register either. Record and announce the failure, then let the caller
-            // see the error.
+            // A throw here has no second chance: nothing but a proofing callback ever re-drives
+            // advance(), and only up to its own gate. Left alone the process would sit non-terminal
+            // forever, which isActiveRegistration() reads as in flight, so the partner could never
+            // re-register either. Record and announce the failure, then let the caller see the
+            // error.
             recordFailure(id, e);
             throw e;
         }
@@ -117,9 +104,10 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
             case SUBMITTED -> validate(process, payload);
             case VALIDATED -> assignBpn(process, payload);
             case BPN_ASSIGNED -> proveIdentity(process);
-            case IDENTITY_VERIFIED -> provisionParticipant(process, payload);
-            case WALLET_PROVISIONED -> issueCredentials(process);
-            case CREDENTIALS_ISSUED -> process.withState(OnboardingState.COMPLETED);
+            case IDENTITY_VERIFIED -> registerHolder(process, payload);
+            // CREDENTIALS_ISSUED is no longer entered (credentials are issued downstream, after
+            // the EDC resources exist) but remains a valid stored state that must keep advancing.
+            case WALLET_PROVISIONED, CREDENTIALS_ISSUED -> process.withState(OnboardingState.COMPLETED);
             case COMPLETED, REJECTED, FAILED -> process;
         };
         repository.save(next);
@@ -131,23 +119,6 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     public OnboardingProcess get(String processId) {
         return repository.findById(processId)
                 .orElseThrow(() -> new NoSuchElementException("No onboarding process with id " + processId));
-    }
-
-    @Override
-    public void linkHolder(String processId, String holderId) {
-        var process = get(processId).withHolderId(holderId);
-        repository.save(process);
-        log.info("Linked holder '{}' to onboarding [{}]", holderId, processId);
-    }
-
-    @Override
-    public Optional<OnboardingProcess> advanceByHolder(String holderId) {
-        var process = repository.findByHolderId(holderId);
-        if (process.isEmpty()) {
-            log.warn("Received issuance event for unknown holder {} — no linked onboarding", holderId);
-            return Optional.empty();
-        }
-        return Optional.of(processOnboarding(process.get().id()));
     }
 
     /**
@@ -205,15 +176,15 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
             return;
         }
         switch (after.state()) {
-            case COMPLETED -> log.info("Onboarding {} completed (bpn={}, participant context ID={})",
-                    after.id(), after.bpn(), after.participantContextId());
+            case COMPLETED -> log.info("Onboarding {} completed (bpn={}, holder DID={})",
+                    after.id(), after.bpn(), after.holderId());
             case REJECTED -> log.warn("Onboarding {} rejected: {}", after.id(), after.failureReason());
             default -> log.error("Onboarding {} failed: {}", after.id(), after.failureReason());
         }
         // Announced ahead of the status callback: that callback is an outbound call to a third party,
         // and the outcome must reach subscribers whether or not that party is reachable.
         eventPublisher.onboardingCompleted(new OnboardingCompleted(after.id(), after.externalId(),
-                after.bpn(), after.holderId(), after.participantContextId(), after.state(), after.failureReason()));
+                after.bpn(), after.holderId(), after.state(), after.failureReason()));
         if (after.state() == OnboardingState.COMPLETED) {
             registrationStatusService.invokeCallback(after);
         }
@@ -238,65 +209,11 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
                 : process;
     }
 
-    private OnboardingProcess provisionParticipant(OnboardingProcess process, PartnerRegistrationData payload) {
-        ProvisionedParticipant participant;
-        if (process.participantProfileId() != null) { // participant deployment already in process, only need to check status
-            participant = walletService.checkProvisionStatus(process);
-
-            // Poll for the async provisioning result with exponential backoff — capped delay, bounded
-            // attempts — instead of a fixed-interval wait. If it isn't ready within the budget, leave
-            // the process at this gate so a later advance (e.g. an issuance event) retries from scratch.
-            var backoffMillis = INITIAL_BACKOFF_MILLIS;
-            var attempt = 0;
-            while (participant.participantContextId() == null || participant.holderProcessId() == null) {
-                if (++attempt > MAX_PROVISION_POLLS) {
-                    log.warn("Onboarding {}: participant context ID / holder PID still unassigned after {} polls; will retry later",
-                            process.id(), MAX_PROVISION_POLLS);
-                    return process;
-                }
-                log.debug("Onboarding {}: participant not ready, retrying in {} ms (attempt {}/{})",
-                        process.id(), backoffMillis, attempt, MAX_PROVISION_POLLS);
-                sleep(backoffMillis);
-                backoffMillis = Math.min(backoffMillis * 2, MAX_BACKOFF_MILLIS);
-                participant = walletService.checkProvisionStatus(process);
-            }
-
-            var participantContextId = participant.participantContextId();
-            var holderPid = participant.holderProcessId();
-            process = process.withParticipantContextId(participantContextId)
-                    .withHolderProcessId(holderPid);
-        } else {
-            participant = walletService.provisionWallet(process, payload);
-            linkHolder(process.id(), participant.identifier());
-        }
-
-        if (participant.error()) {
-            return process.failed("Failed to deploy participant profile with ID '%s'".formatted(participant.id()));
-        }
-        return process.withParticipantProfile(participant.id())
-                .withHolderId(participant.identifier())
-                .withTenantId(participant.tenantId());
-    }
-
-    private OnboardingProcess issueCredentials(OnboardingProcess process) {
-        if (!credentialIssuanceService.issueBpnCredential(process)) {
-            return process.failed("BPN Credential issuance failed");
-        }
-        if (!credentialIssuanceService.issueFrameworkAgreementCredential(process)) {
-            return process.failed("Framework Agreement Credential issuance failed");
-        }
-        if (!credentialIssuanceService.issueMembershipCredential(process)) {
-            return process.failed("Membership Credential issuance failed");
-        }
-        return process.withState(OnboardingState.CREDENTIALS_ISSUED);
-    }
-
-    private static void sleep(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while awaiting participant provisioning", e);
-        }
+    private OnboardingProcess registerHolder(OnboardingProcess process, PartnerRegistrationData payload) {
+        holderRegistrationService.registerHolder(process, payload);
+        // The state name predates the split: what exists at this point is the holder entry in the
+        // IssuerService, not a provisioned wallet. Kept because the enum is part of the stored and
+        // announced contract.
+        return process.withState(OnboardingState.WALLET_PROVISIONED);
     }
 }

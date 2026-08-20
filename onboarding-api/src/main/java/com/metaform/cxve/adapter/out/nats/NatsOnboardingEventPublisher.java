@@ -21,10 +21,9 @@ import java.util.UUID;
  * Publishes onboarding lifecycle events onto the platform's shared {@code edc-events} JetStream
  * stream as structured-mode CloudEvents.
  *
- * <p>Deliberately symmetric with what this app already CONSUMES from that stream (see
- * {@link IssuanceCloudEventParser}): same JSON structured mode, same content type, and the envelope
- * is written with the same CloudEvents SDK that parses the inbound ones — so a subscriber needs no
- * special handling to read both.
+ * <p>Deliberately symmetric with the platform's own events on that stream (the EDC
+ * {@code events-nats} bridge): same JSON structured mode, same content type, written with the same
+ * CloudEvents SDK — so a subscriber needs no special handling to read both.
  *
  * <p>Failures are logged, never rethrown. The onboarding has already been accepted and is running
  * by the time an event is raised; failing the caller because a broker was unreachable would report

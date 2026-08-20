@@ -6,10 +6,8 @@ import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.CallbackRequestData;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
-import com.metaform.cxve.domain.model.ProvisionedParticipant;
-import com.metaform.cxve.domain.port.CredentialIssuanceService;
+import com.metaform.cxve.domain.port.HolderRegistrationService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
-import com.metaform.cxve.domain.port.WalletService;
 import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
 import com.metaform.cxve.adapter.out.callback.DefaultRegistrationStatusService;
 import com.metaform.cxve.adapter.out.callback.InMemoryCallbackStore;
@@ -17,6 +15,7 @@ import com.metaform.cxve.adapter.out.callback.RegistrationStatusService;
 import com.metaform.cxve.adapter.out.persistence.InMemoryOnboardingRepository;
 import com.metaform.cxve.adapter.out.stub.IdentityProofingServiceStub;
 import com.metaform.cxve.adapter.out.validation.RegistrationValidationServiceImpl;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,42 +28,23 @@ class OnboardingOrchestratorImplTest {
     private final RegistrationValidationServiceImpl validation = new RegistrationValidationServiceImpl(repository);
     private final BusinessPartnerNumberServiceStub bpn = new BusinessPartnerNumberServiceStub();
 
-    // Test doubles: the real services call the tenant manager / IdentityHub. Here we return
-    // deterministic values so the orchestrator's state machine can be exercised in isolation.
-    private final WalletService wallet = new WalletService() {
-        @Override
-        public ProvisionedParticipant provisionWallet(OnboardingProcess process, PartnerRegistrationData registrationData) {
-            return new ProvisionedParticipant("wallet-" + process.id(), "did:web:acme", null, null, null, false);
-        }
+    // Test double: the real service calls the IssuerService Admin API. Recording the processes it
+    // was handed lets tests assert the holder registration happened, and under which identity.
+    private static class RecordingHolderRegistration implements HolderRegistrationService {
+        final List<OnboardingProcess> registered = new ArrayList<>();
 
         @Override
-        public ProvisionedParticipant checkProvisionStatus(OnboardingProcess process) {
-            // "Ready": context id + holder PID are present, so provisioning polling completes at once.
-            return new ProvisionedParticipant("wallet-" + process.id(), "did:web:acme", null, "ctx-1", "holder-pid-1", false);
+        public void registerHolder(OnboardingProcess process, PartnerRegistrationData registrationData) {
+            registered.add(process);
         }
-    };
+    }
 
-    private final CredentialIssuanceService credentials = new CredentialIssuanceService() {
-        @Override
-        public boolean issueBpnCredential(OnboardingProcess process) {
-            return true;
-        }
-
-        @Override
-        public boolean issueFrameworkAgreementCredential(OnboardingProcess process) {
-            return true;
-        }
-
-        @Override
-        public boolean issueMembershipCredential(OnboardingProcess process) {
-            return true;
-        }
-    };
+    private final RecordingHolderRegistration holderRegistration = new RecordingHolderRegistration();
 
     private final RecordingOnboardingEventPublisher events = new RecordingOnboardingEventPublisher();
 
     private OnboardingOrchestratorImpl orchestratorWith(IdentityProofingService proofing) {
-        return new OnboardingOrchestratorImpl(validation, bpn, proofing, wallet, credentials, repository,
+        return new OnboardingOrchestratorImpl(validation, bpn, proofing, holderRegistration, repository,
                 new DefaultRegistrationStatusService(new InMemoryCallbackStore()), events, RecordingOnboardingEventPublisher.didResolver());
     }
 
@@ -75,28 +55,26 @@ class OnboardingOrchestratorImplTest {
                 List.of(CompanyRoleId.ACTIVE_PARTICIPANT), null, null, null, null);
     }
 
+    /** The DID the resolver derives for {@link #registration}'s short name. */
+    private static final String ACME_DID = RecordingOnboardingEventPublisher.DID_TEMPLATE + "Acme";
+
     @Test
     void happyPath_runsToCompletion() {
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
 
         var id = orchestrator.start("osp-1", registration(null));
 
-        // Provisioning is two-phase: the first drive deploys the participant and pauses awaiting the
-        // async provisioning result (participant context id + holder PID).
-        assertThat(orchestrator.get(id).state()).isEqualTo(OnboardingState.IDENTITY_VERIFIED);
-        assertThat(orchestrator.get(id).participantProfileId()).isEqualTo("wallet-" + id);
-        // The submitting client is recorded from the start — it is what status callbacks route by.
-        assertThat(orchestrator.get(id).clientId()).isEqualTo("osp-1");
-
-        // A later drive — as an issuance event would trigger — finds provisioning ready and completes.
-        var result = orchestrator.advanceByHolder("did:web:acme");
-
-        assertThat(result).isPresent();
-        var process = result.get();
+        // With identity proofing satisfied there is no async gate left: the holder is registered
+        // and the process completes within the submitting call.
+        var process = orchestrator.get(id);
         assertThat(process.state()).isEqualTo(OnboardingState.COMPLETED);
-        assertThat(process.bpn()).isNotBlank();
-        assertThat(process.participantProfileId()).isEqualTo("wallet-" + id);
         assertThat(process.isTerminal()).isTrue();
+        assertThat(process.bpn()).isNotBlank();
+        // The submitting client is recorded from the start — it is what status callbacks route by.
+        assertThat(process.clientId()).isEqualTo("osp-1");
+        // Exactly one holder registration, under the DID seeded at submission.
+        assertThat(holderRegistration.registered).hasSize(1);
+        assertThat(holderRegistration.registered.get(0).holderId()).isEqualTo(ACME_DID);
     }
 
     @Test
@@ -110,8 +88,8 @@ class OnboardingOrchestratorImplTest {
         assertThat(event.processId()).isEqualTo(id);
         assertThat(event.externalId()).isEqualTo("ext-123");
         assertThat(event.bpn()).isEqualTo("BPNL0000000000XY");
-        // No DID supplied, so it follows the template — the same value provisioning will use.
-        assertThat(event.did()).isEqualTo(RecordingOnboardingEventPublisher.DID_TEMPLATE + "Acme");
+        // No DID supplied, so it follows the template — the same value the holder registration uses.
+        assertThat(event.did()).isEqualTo(ACME_DID);
     }
 
     @Test
@@ -122,7 +100,6 @@ class OnboardingOrchestratorImplTest {
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
 
         var id = orchestrator.start("osp-1", registration(null));
-        orchestrator.advanceByHolder("did:web:acme");
 
         assertThat(events.started().get(0).bpn()).isNull();
         var assigned = orchestrator.get(id).bpn();
@@ -141,50 +118,21 @@ class OnboardingOrchestratorImplTest {
     }
 
     @Test
-    void completion_announcesTheProvisionedIdentities() {
+    void completion_announcesTheRegisteredIdentities() {
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
 
         var id = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
-        var process = orchestrator.advanceByHolder("did:web:acme").orElseThrow();
 
-        assertThat(process.state()).isEqualTo(OnboardingState.COMPLETED);
+        assertThat(orchestrator.get(id).state()).isEqualTo(OnboardingState.COMPLETED);
         assertThat(events.completed()).hasSize(1);
         var event = events.completed().get(0);
         assertThat(event.processId()).isEqualTo(id);
         assertThat(event.externalId()).isEqualTo("ext-123");
         assertThat(event.bpn()).isEqualTo("BPNL0000000000XY");
-        // The DID actually provisioned (the linked holder), not the one predicted at start.
-        assertThat(event.did()).isEqualTo("did:web:acme");
-        assertThat(event.participantContextId()).isEqualTo(process.participantContextId());
+        // The DID the holder was registered under.
+        assertThat(event.did()).isEqualTo(ACME_DID);
         assertThat(event.state()).isEqualTo(OnboardingState.COMPLETED);
         assertThat(event.failureMessage()).isNull();
-    }
-
-    @Test
-    void aRejectedDuplicate_doesNotStealTheHolderCorrelation() {
-        // The holder DID is seeded at submission, so a rejected duplicate carries the same one as
-        // the onboarding it duplicated. An issuance event for that DID must still reach the
-        // onboarding that is running, not the rejected attempt.
-        var pending = new IdentityProofingService() {
-            @Override
-            public String initiateProofing(OnboardingProcess process) {
-                return "proof-pending";
-            }
-
-            @Override
-            public boolean isVerified(String proofingReference) {
-                return false;
-            }
-        };
-        var orchestrator = orchestratorWith(pending);
-        var id = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
-        var duplicateId = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
-        assertThat(orchestrator.get(duplicateId).state()).isEqualTo(OnboardingState.REJECTED);
-
-        var advanced = orchestrator.advanceByHolder(RecordingOnboardingEventPublisher.DID_TEMPLATE + "Acme");
-
-        assertThat(advanced).isPresent();
-        assertThat(advanced.get().id()).isEqualTo(id);
     }
 
     @Test
@@ -193,7 +141,6 @@ class OnboardingOrchestratorImplTest {
         // saw the started event has no other way to learn it is over.
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
         orchestrator.start("osp-1", registration("BPNL0000000000XY"));
-        orchestrator.advanceByHolder("did:web:acme");
 
         var rejectedId = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
 
@@ -231,12 +178,13 @@ class OnboardingOrchestratorImplTest {
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                wallet, credentials, repository, failingCallback, events,
+                holderRegistration, repository, failingCallback, events,
                 RecordingOnboardingEventPublisher.didResolver());
 
-        var id = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
-        catchThrowable(() -> orchestrator.advanceByHolder("did:web:acme"));
+        var thrown = catchThrowable(() -> orchestrator.start("osp-1", registration("BPNL0000000000XY")));
 
+        assertThat(thrown).hasMessage("callback endpoint unreachable");
+        var id = events.completed().get(0).processId();
         assertThat(repository.findById(id).orElseThrow().state()).isEqualTo(OnboardingState.COMPLETED);
         assertThat(events.completed()).hasSize(1);
         assertThat(events.completed().get(0).state()).isEqualTo(OnboardingState.COMPLETED);
@@ -244,29 +192,23 @@ class OnboardingOrchestratorImplTest {
 
     @Test
     void aThrowingStep_failsTheProcessAndAnnouncesTheOutcome() {
-        // start() is the one drive with nothing behind it: the issuance path gets its message nak'd
-        // and redelivered, but here nothing re-drives advance(), and the holder link advanceByHolder
-        // would need is only established once provisioning returns. So an exception must not leave
-        // the process suspended between states.
-        var unreachableTenantManager = new WalletService() {
+        // start() is the one drive with nothing behind it: only a proofing callback ever re-drives
+        // advance(), and only up to its own gate. So an exception must not leave the process
+        // suspended between states.
+        var unreachableIssuerService = new HolderRegistrationService() {
             @Override
-            public ProvisionedParticipant provisionWallet(OnboardingProcess process, PartnerRegistrationData registrationData) {
-                throw new RuntimeException("No cell found in CFM Tenant Manager");
-            }
-
-            @Override
-            public ProvisionedParticipant checkProvisionStatus(OnboardingProcess process) {
-                throw new UnsupportedOperationException("not reached");
+            public void registerHolder(OnboardingProcess process, PartnerRegistrationData registrationData) {
+                throw new RuntimeException("IssuerService unreachable");
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                unreachableTenantManager, credentials, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
+                unreachableIssuerService, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
                 events, RecordingOnboardingEventPublisher.didResolver());
 
         var thrown = catchThrowable(() -> orchestrator.start("osp-1", registration("BPNL0000000000XY")));
 
         // The caller still sees the error — it says the synchronous part did not get through.
-        assertThat(thrown).hasMessage("No cell found in CFM Tenant Manager");
+        assertThat(thrown).hasMessage("IssuerService unreachable");
 
         assertThat(events.started()).hasSize(1);
         var processId = events.started().get(0).processId();
@@ -281,7 +223,7 @@ class OnboardingOrchestratorImplTest {
         assertThat(event.state()).isEqualTo(OnboardingState.FAILED);
         // The step it died at, and why: without both, a subscriber sees only that it ended.
         assertThat(event.failureMessage())
-                .contains("IDENTITY_VERIFIED", "No cell found in CFM Tenant Manager");
+                .contains("IDENTITY_VERIFIED", "IssuerService unreachable");
     }
 
     @Test
@@ -298,9 +240,8 @@ class OnboardingOrchestratorImplTest {
         };
         var completedFirst = orchestratorWith(new IdentityProofingServiceStub());
         completedFirst.start("osp-1", registration("BPNL0000000000XY"));
-        completedFirst.advanceByHolder("did:web:acme");
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                wallet, credentials, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
+                holderRegistration, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
                 throwsAfterRecording, RecordingOnboardingEventPublisher.didResolver());
 
         // Duplicate of the completed registration, so it is rejected inside start() itself.
@@ -316,16 +257,16 @@ class OnboardingOrchestratorImplTest {
 
     @Test
     void completion_isAnnouncedOnlyOnceEvenWhenReDriven() {
-        // advance() is re-driven by callbacks and issuance events; a terminal process must not
-        // re-announce, or a subscriber would see the same onboarding complete repeatedly.
+        // advance() is re-driven by callbacks; a terminal process must not re-announce, or a
+        // subscriber would see the same onboarding complete repeatedly.
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
 
         var id = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
-        orchestrator.advanceByHolder("did:web:acme");
         orchestrator.advance(id);
         orchestrator.advance(id);
 
         assertThat(events.completed()).hasSize(1);
+        assertThat(holderRegistration.registered).hasSize(1);
     }
 
     @Test
@@ -333,11 +274,11 @@ class OnboardingOrchestratorImplTest {
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
 
         var id = orchestrator.start("osp-1", registration(null));
-        var process = orchestrator.advanceByHolder("did:web:acme").orElseThrow();
 
+        var process = orchestrator.get(id);
         assertThat(process.state()).isEqualTo(OnboardingState.COMPLETED);
         // The active-registration view carries the BPN and DID assigned during onboarding.
-        var persisted = repository.findActiveByDid("did:web:acme");
+        var persisted = repository.findActiveByDid(ACME_DID);
         assertThat(persisted).isPresent();
         assertThat(persisted.get().processId()).isEqualTo(id);
         assertThat(persisted.get().state()).isEqualTo(OnboardingState.COMPLETED);
@@ -350,7 +291,6 @@ class OnboardingOrchestratorImplTest {
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
 
         orchestrator.start("osp-1", registration("BPNL0000000000XY"));
-        orchestrator.advanceByHolder("did:web:acme");
 
         var secondId = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
 
@@ -391,30 +331,21 @@ class OnboardingOrchestratorImplTest {
 
     @Test
     void failedOnboarding_doesNotBlockReRegistration() {
-        var failingCredentials = new CredentialIssuanceService() {
+        var failingRegistration = new HolderRegistrationService() {
             @Override
-            public boolean issueBpnCredential(OnboardingProcess process) {
-                return false;
-            }
-
-            @Override
-            public boolean issueFrameworkAgreementCredential(OnboardingProcess process) {
-                return true;
-            }
-
-            @Override
-            public boolean issueMembershipCredential(OnboardingProcess process) {
-                return true;
+            public void registerHolder(OnboardingProcess process, PartnerRegistrationData registrationData) {
+                throw new RuntimeException("holder rejected by the IssuerService");
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                wallet, failingCredentials, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
+                failingRegistration, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
                 events, RecordingOnboardingEventPublisher.didResolver());
 
-        var id = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
-        orchestrator.advanceByHolder("did:web:acme");
+        var thrown = catchThrowable(() -> orchestrator.start("osp-1", registration("BPNL0000000000XY")));
+        assertThat(thrown).isNotNull();
+        var id = events.started().get(0).processId();
 
-        // Credential issuance failed — the process remains stored for audit, but no longer counts
+        // Holder registration failed — the process remains stored for audit, but no longer counts
         // as an active registration, so the partner can re-register.
         assertThat(orchestrator.get(id).state()).isEqualTo(OnboardingState.FAILED);
         assertThat(repository.findById(id)).isPresent();
@@ -450,7 +381,7 @@ class OnboardingOrchestratorImplTest {
         var id = orchestrator.start("osp-1", missingRoles);
 
         var process = orchestrator.get(id);
-        assertThat(process.state()).isEqualTo(OnboardingState.IDENTITY_VERIFIED);
+        assertThat(process.state()).isEqualTo(OnboardingState.COMPLETED);
         assertThat(process.failureReason()).isNull();
     }
 
@@ -474,5 +405,6 @@ class OnboardingOrchestratorImplTest {
 
         assertThat(orchestrator.get(id).state()).isEqualTo(OnboardingState.BPN_ASSIGNED);
         assertThat(orchestrator.get(id).isTerminal()).isFalse();
+        assertThat(holderRegistration.registered).isEmpty();
     }
 }

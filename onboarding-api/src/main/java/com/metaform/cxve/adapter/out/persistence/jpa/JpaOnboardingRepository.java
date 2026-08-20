@@ -76,18 +76,6 @@ public class JpaOnboardingRepository implements OnboardingRepository {
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<OnboardingProcess> findByHolderId(String holderId) {
-        // The holder id is seeded at submission, so a REJECTED duplicate of a running onboarding
-        // carries the same one. Prefer the non-terminal match so issuance events keep flowing to
-        // the onboarding that is still running; fall back to a terminal one so redelivered events
-        // for a finished onboarding still resolve (a harmless no-op for the caller).
-        var matches = repository.findByHolderId(holderId).stream().map(this::toDomain).toList();
-        return matches.stream().filter(p -> !p.isTerminal()).findFirst()
-                .or(() -> first(matches));
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public Optional<PartnerRegistrationData> findPayload(String processId) {
         return repository.findById(processId)
                 .map(OnboardingProcessEntity::getPayload)
@@ -137,12 +125,8 @@ public class JpaOnboardingRepository implements OnboardingRepository {
         entity.setExternalId(process.externalId());
         entity.setState(process.state());
         entity.setBpn(process.bpn());
-        entity.setParticipantProfileId(process.participantProfileId());
         entity.setHolderId(process.holderId());
         entity.setFailureReason(process.failureReason());
-        entity.setHolderProcessId(process.holderProcessId());
-        entity.setTenantId(process.tenantId());
-        entity.setParticipantContextId(process.participantContextId());
         entity.setClientId(process.clientId());
     }
 
@@ -152,12 +136,8 @@ public class JpaOnboardingRepository implements OnboardingRepository {
                 entity.getExternalId(),
                 entity.getState(),
                 entity.getBpn(),
-                entity.getParticipantProfileId(),
                 entity.getHolderId(),
                 entity.getFailureReason(),
-                entity.getHolderProcessId(),
-                entity.getTenantId(),
-                entity.getParticipantContextId(),
                 entity.getClientId());
     }
 

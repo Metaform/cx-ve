@@ -20,14 +20,14 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
 @Configuration
-public class TenantManagerConfig {
-    @Value("${tenant-manager.url:http://cxve.localhost/api/tm}")
-    private String tenantManagerUrl;
+public class IssuerServiceConfig {
+    @Value("${issuer-service.url:http://cxve.localhost/api/issuer/admin}")
+    private String issuerServiceUrl;
 
     @Bean
-    public RestClient tenantManagerClient() {
+    public RestClient issuerServiceClient() {
         return RestClient.builder()
-                .baseUrl(tenantManagerUrl)
+                .baseUrl(issuerServiceUrl)
                 .build();
     }
 }
