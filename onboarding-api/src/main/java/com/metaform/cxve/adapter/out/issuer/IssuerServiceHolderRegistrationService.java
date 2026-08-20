@@ -1,10 +1,14 @@
 package com.metaform.cxve.adapter.out.issuer;
 
 import com.metaform.cxve.adapter.out.auth.TokenProvider;
+import com.metaform.cxve.domain.model.AgreementConsentData;
+import com.metaform.cxve.domain.model.ConsentStatusId;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.port.HolderRegistrationService;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -13,11 +17,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
+import static java.util.Optional.ofNullable;
+
 /**
  * Registers holders through the IssuerService Admin API, replacing what the CFM registration agent
  * used to do inside the provisioning orchestration: {@code POST
  * /v1beta/participants/{issuerContextId}/holders} with the participant's DID as both {@code did}
  * and {@code holderId}.
+ *
+ * <p>The holder {@code properties} are the attestation data of the issuer's holder attestation:
+ * the seeded credential definitions map {@code bpn}, {@code memberOf}, {@code contractVersion}
+ * and {@code id} from them into the credential subjects, and every mapping is required — a holder
+ * missing them makes credential generation fail ("Failed to apply mapping definition") and leaves
+ * issuance stuck. Shape and content mirror the {@code cfm.issuer} VPA properties the registration
+ * agent used to pass.
  *
  * <p>Auth mirrors that agent, too: the workload token is exchanged (resource {@code sudo}, scope
  * {@code issuer-admin-api:admin}). The admin scope is required — the exchanged token's {@code sub}
@@ -56,7 +69,8 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
                     .body(Map.of(
                             "did", did,
                             "holderId", did,
-                            "name", registrationData.name()))
+                            "name", registrationData.name(),
+                            "properties", holderProperties(process, registrationData)))
                     .retrieve()
                     .toBodilessEntity();
             log.info("Registered holder '{}' with the IssuerService for onboarding {}", did, process.id());
@@ -65,5 +79,19 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
             // The entry exists, which is all this step is for.
             log.info("Holder '{}' already registered with the IssuerService, continuing onboarding {}", did, process.id());
         }
+    }
+
+    private Map<String, Object> holderProperties(OnboardingProcess process, PartnerRegistrationData registrationData) {
+        var memberOf = ofNullable(registrationData.agreements()).orElse(List.of()).stream()
+                .filter(acd -> acd.consentStatus() == ConsentStatusId.ACTIVE)
+                .map(AgreementConsentData::agreementId)
+                .collect(Collectors.joining(", "));
+        // The BPN is assigned before the holder registration runs (the BPN step precedes it);
+        // contractVersion is the fixed value the registration agent used to send.
+        return Map.of(
+                "id", process.holderId(),
+                "contractVersion", "1.0.0",
+                "memberOf", memberOf,
+                "bpn", process.bpn());
     }
 }
