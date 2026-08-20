@@ -9,6 +9,7 @@ import com.metaform.cxve.hub.domain.port.TenantManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,7 +32,10 @@ class MembershipServiceTest {
 
     private final TrackingRepository repository = new TrackingRepository();
 
-    /** Records calls; can be told to fail, and to run a hook mid-submit (the callback race). */
+    /**
+     * Records calls; can be told to fail, and runs a hook while the "HTTP call" is in flight —
+     * which is where the Onboarding API's synchronous status callback lands in production.
+     */
     private static class RecordingOnboardingApi implements OnboardingApi {
         final List<String> submittedExternalIds = new ArrayList<>();
         final List<String> submittedDids = new ArrayList<>();
@@ -49,7 +53,6 @@ class MembershipServiceTest {
             if (failSubmission) {
                 throw new RuntimeException("Onboarding API unreachable");
             }
-            // Runs while the "HTTP call" is still in flight — the synchronous-callback race.
             onSubmit.accept(externalId);
             submittedExternalIds.add(externalId);
             submittedDids.add(did);
@@ -57,12 +60,13 @@ class MembershipServiceTest {
         }
     }
 
-    /** Deploys with a configurable context id; records what it was handed. */
+    /** Deploys with a configurable context id; records what it was handed and how often refreshed. */
     private static class RecordingTenantManager implements TenantManager {
         final List<List<String>> deployedAgreements = new ArrayList<>();
         final List<Membership> deployed = new ArrayList<>();
         String contextIdOnDeploy;
         String contextIdOnRefresh;
+        int refreshCount;
         boolean error;
         boolean failDeployment;
 
@@ -78,6 +82,7 @@ class MembershipServiceTest {
 
         @Override
         public ProvisionedProfile refresh(Membership membership) {
+            refreshCount++;
             return new ProvisionedProfile(membership.tenantId(), membership.participantProfileId(),
                     contextIdOnRefresh, error);
         }
@@ -88,6 +93,14 @@ class MembershipServiceTest {
     private final MembershipService service =
             new MembershipService(repository, onboardingApi, tenantManager, DID_TEMPLATE);
 
+    @BeforeEach
+    void confirmSynchronously() {
+        // The production Onboarding API runs the registration to completion inside the submitting
+        // call and delivers the CONFIRMED callback before it returns — the default here mirrors
+        // that. Tests for the other outcomes override the hook.
+        onboardingApi.onSubmit = externalId -> service.onRegistrationStatus(externalId, "CONFIRMED", null);
+    }
+
     private static MemberData request(String did) {
         return new MemberData("Acme Corp", "Acme", "BPNL0000000000XY", did,
                 List.of(new MemberData.UniqueId("VAT_ID", "DE123456789")),
@@ -96,19 +109,38 @@ class MembershipServiceTest {
                         new MemberData.AgreementConsent("agreement-2", "INACTIVE")));
     }
 
+    /** The DID the resolver derives for {@link #request}'s short name. */
+    private static final String ACME_DID = DID_TEMPLATE + "Acme";
+
     @Test
-    void onboard_registersCallbackAndSubmitsUnderTheResolvedDid() {
+    void onboard_registersSubmitsAndProvisionsInOneCall() {
         var membership = service.onboard(request(null));
 
-        assertThat(membership.state()).isEqualTo(MembershipState.REGISTERING);
-        // No DID supplied -> template + short name, the same rule the Onboarding API applies.
-        assertThat(membership.did()).isEqualTo(DID_TEMPLATE + "Acme");
+        // Registration confirmed within the call, so the profile is deployed right away; the
+        // context id is not there yet — GET picks it up later.
+        assertThat(membership.state()).isEqualTo(MembershipState.PROVISIONING);
+        assertThat(membership.did()).isEqualTo(ACME_DID);
         assertThat(membership.onboardingProcessId()).isEqualTo("process-" + membership.externalId());
+        assertThat(membership.tenantId()).isEqualTo("tenant-1");
+        assertThat(membership.participantProfileId()).isEqualTo("profile-1");
+        assertThat(membership.participantContextId()).isNull();
         assertThat(onboardingApi.callbackRegistrations).isEqualTo(1);
         assertThat(onboardingApi.submittedExternalIds).containsExactly(membership.externalId());
-        assertThat(onboardingApi.submittedDids).containsExactly(DID_TEMPLATE + "Acme");
-        // The record is persisted and readable back.
-        assertThat(service.get(membership.externalId())).isEqualTo(membership);
+        assertThat(onboardingApi.submittedDids).containsExactly(ACME_DID);
+        // Only ACTIVE consents make it into the cfm.issuer memberOf property, deployed under the
+        // resolved DID.
+        assertThat(tenantManager.deployedAgreements).containsExactly(List.of("agreement-1"));
+        assertThat(tenantManager.deployed.get(0).did()).isEqualTo(ACME_DID);
+    }
+
+    @Test
+    void onboard_completesImmediatelyWhenTheDeployResponseCarriesTheContextId() {
+        tenantManager.contextIdOnDeploy = "pctx-1";
+
+        var membership = service.onboard(request(null));
+
+        assertThat(membership.state()).isEqualTo(MembershipState.PROVISIONED);
+        assertThat(membership.participantContextId()).isEqualTo("pctx-1");
     }
 
     @Test
@@ -130,106 +162,95 @@ class MembershipServiceTest {
         var stored = repository.findByExternalId(repository.lastCreatedExternalId).orElseThrow();
         assertThat(stored.state()).isEqualTo(MembershipState.FAILED);
         assertThat(stored.failureReason()).contains("Onboarding API unreachable");
-    }
-
-    @Test
-    void confirmedCallback_provisionsWithOnlyTheActiveAgreements() {
-        var membership = service.onboard(request(null));
-
-        var updated = service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
-
-        assertThat(updated.state()).isEqualTo(MembershipState.PROVISIONING);
-        assertThat(updated.tenantId()).isEqualTo("tenant-1");
-        assertThat(updated.participantProfileId()).isEqualTo("profile-1");
-        assertThat(updated.participantContextId()).isNull();
-        // Only ACTIVE consents make it into the cfm.issuer memberOf property.
-        assertThat(tenantManager.deployedAgreements).containsExactly(List.of("agreement-1"));
-        assertThat(tenantManager.deployed.get(0).did()).isEqualTo(DID_TEMPLATE + "Acme");
-    }
-
-    @Test
-    void confirmedCallback_completesImmediatelyWhenTheContextIdIsAlreadyThere() {
-        tenantManager.contextIdOnDeploy = "pctx-1";
-        var membership = service.onboard(request(null));
-
-        var updated = service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
-
-        assertThat(updated.state()).isEqualTo(MembershipState.PROVISIONED);
-        assertThat(updated.participantContextId()).isEqualTo("pctx-1");
-    }
-
-    @Test
-    void confirmedCallback_marksTheMembershipFailedWhenProvisioningFails() {
-        tenantManager.failDeployment = true;
-        var membership = service.onboard(request(null));
-
-        var updated = service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
-
-        assertThat(updated.state()).isEqualTo(MembershipState.FAILED);
-        assertThat(updated.failureReason()).contains("Tenant Manager unreachable");
-    }
-
-    @Test
-    void rejectedCallback_marksTheMembershipRejected() {
-        var membership = service.onboard(request(null));
-
-        var updated = service.onRegistrationStatus(membership.externalId(), "REJECTED", "duplicate BPN");
-
-        assertThat(updated.state()).isEqualTo(MembershipState.REJECTED);
-        assertThat(updated.failureReason()).isEqualTo("duplicate BPN");
-        // No provisioning for a rejected registration.
         assertThat(tenantManager.deployed).isEmpty();
     }
 
     @Test
-    void aCallbackArrivingMidSubmit_isNotRolledBack() {
-        // The Onboarding API completes synchronously when nothing gates its flow, so the
-        // CONFIRMED callback can arrive BEFORE the submitting HTTP call returns. The post-submit
-        // bookkeeping must keep that progress (and still record the process id).
-        tenantManager.contextIdOnDeploy = "pctx-race";
+    void onboard_doesNotProvisionARejectedRegistration() {
+        // The Onboarding API answers a rejected registration with a normal 200 too — the callback
+        // is what carries the outcome, and no EDC resources may be provisioned on a rejection.
         onboardingApi.onSubmit = externalId ->
-                service.onRegistrationStatus(externalId, "CONFIRMED", null);
+                service.onRegistrationStatus(externalId, "REJECTED", "duplicate BPN");
 
         var membership = service.onboard(request(null));
 
-        assertThat(membership.state()).isEqualTo(MembershipState.PROVISIONED);
-        assertThat(membership.participantContextId()).isEqualTo("pctx-race");
+        assertThat(membership.state()).isEqualTo(MembershipState.REJECTED);
+        assertThat(membership.failureReason()).isEqualTo("duplicate BPN");
+        // The process id of the rejected onboarding is still recorded for audit.
         assertThat(membership.onboardingProcessId()).isEqualTo("process-" + membership.externalId());
+        assertThat(tenantManager.deployed).isEmpty();
     }
 
     @Test
-    void get_refreshesAProvisioningMembership() {
+    void onboard_doesNotProvisionWithoutAConfirmation() {
+        // No callback within the submitting call (registration gated on something asynchronous,
+        // or callbacks broken): the membership surfaces as REGISTERING and nothing is deployed.
+        onboardingApi.onSubmit = externalId -> { };
+
         var membership = service.onboard(request(null));
-        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
 
-        // Context id not there yet: still PROVISIONING.
+        assertThat(membership.state()).isEqualTo(MembershipState.REGISTERING);
+        assertThat(tenantManager.deployed).isEmpty();
+    }
+
+    @Test
+    void onboard_marksTheMembershipFailedWhenProvisioningFails() {
+        tenantManager.failDeployment = true;
+
+        var membership = service.onboard(request(null));
+
+        // The registration side is done — the provisioning failure is recorded terminally on the
+        // record rather than thrown, so the caller still receives the membership.
+        assertThat(membership.state()).isEqualTo(MembershipState.FAILED);
+        assertThat(membership.failureReason()).contains("Tenant Manager unreachable");
+    }
+
+    @Test
+    void get_readsTheProfileThroughTheStoredIdUntilTheContextIdAppears() {
+        var membership = service.onboard(request(null));
+        assertThat(membership.state()).isEqualTo(MembershipState.PROVISIONING);
+
+        // Context id not there yet: still PROVISIONING, read through the stored profile id.
         assertThat(service.get(membership.externalId()).state()).isEqualTo(MembershipState.PROVISIONING);
+        assertThat(tenantManager.refreshCount).isEqualTo(1);
 
-        // Once the platform assigns it, the next read completes the membership.
+        // Once the platform assigns it, the next read completes the membership — persisted, not
+        // just returned.
         tenantManager.contextIdOnRefresh = "pctx-9";
         var refreshed = service.get(membership.externalId());
         assertThat(refreshed.state()).isEqualTo(MembershipState.PROVISIONED);
         assertThat(refreshed.participantContextId()).isEqualTo("pctx-9");
-        // The refreshed state is persisted, not just returned.
         assertThat(repository.findByExternalId(membership.externalId()).orElseThrow().state())
                 .isEqualTo(MembershipState.PROVISIONED);
+
+        // A terminal membership is no longer read through the Tenant Manager.
+        var countAfterCompletion = tenantManager.refreshCount;
+        service.get(membership.externalId());
+        assertThat(tenantManager.refreshCount).isEqualTo(countAfterCompletion);
     }
 
     @Test
-    void get_failsAProvisioningMembershipWhoseProfileReportsAnError() {
+    void get_failsAMembershipWhoseProfileReportsAnError() {
         var membership = service.onboard(request(null));
-        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
         tenantManager.error = true;
 
         assertThat(service.get(membership.externalId()).state()).isEqualTo(MembershipState.FAILED);
     }
 
     @Test
+    void get_returnsAMembershipWithoutAProfileAsStored() {
+        onboardingApi.onSubmit = externalId -> { };
+        var membership = service.onboard(request(null));
+
+        assertThat(service.get(membership.externalId()).state()).isEqualTo(MembershipState.REGISTERING);
+        assertThat(tenantManager.refreshCount).isZero();
+    }
+
+    @Test
     void aLateCallback_doesNotDisturbATerminalMembership() {
         tenantManager.contextIdOnDeploy = "pctx-1";
         var membership = service.onboard(request(null));
-        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
-        assertThat(service.get(membership.externalId()).state()).isEqualTo(MembershipState.PROVISIONED);
+        assertThat(membership.state()).isEqualTo(MembershipState.PROVISIONED);
 
         // A redelivered/late callback must not re-provision or overwrite the outcome.
         var after = service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
@@ -240,11 +261,12 @@ class MembershipServiceTest {
 
     @Test
     void anUnknownStatus_changesNothing() {
+        onboardingApi.onSubmit = externalId ->
+                service.onRegistrationStatus(externalId, "SUBMITTED", null);
+
         var membership = service.onboard(request(null));
 
-        var after = service.onRegistrationStatus(membership.externalId(), "SUBMITTED", null);
-
-        assertThat(after.state()).isEqualTo(MembershipState.REGISTERING);
+        assertThat(membership.state()).isEqualTo(MembershipState.REGISTERING);
         assertThat(tenantManager.deployed).isEmpty();
     }
 }

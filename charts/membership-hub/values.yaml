@@ -74,12 +74,12 @@ database:
     user: membershiphub
     password: membershiphub
 
-# Gateway API exposure (there is deliberately no Ingress template). The hub's API is an
-# OPERATOR surface with no authentication yet — enable the route only where that is acceptable;
-# without it the API stays cluster-internal (kubectl port-forward for ad-hoc access). The
-# Onboarding API's status callback arrives cluster-internally either way.
+# Gateway API exposure (there is deliberately no Ingress template). NOTE the hub's API is an
+# OPERATOR surface with no authentication yet — the route publishes it as-is; disable it where
+# that is not acceptable (the API then stays cluster-internal, kubectl port-forward for ad-hoc
+# access). The Onboarding API's status callback arrives cluster-internally either way.
 httpRoute:
-  enabled: false
+  enabled: true
   parentRefs:
     - name: edcv-gateway
       # namespace: gateway-system

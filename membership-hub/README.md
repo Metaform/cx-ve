@@ -7,9 +7,12 @@ keeps apart:
    onboarding service provider (OAuth2 client-credentials against the VE's OSP IdP). The
    Onboarding API validates, assigns the BPN, proves identity and registers the credential
    holder with the IssuerService; its CONFIRMED status callback lands on this app.
-2. **Provisioning** — on CONFIRMED, creates a tenant and deploys the participant profile via the
-   CFM Tenant Manager, which runs the VPA orchestration (connector, IdentityHub, Siglet, Certo —
-   the registration agent is no longer part of it).
+2. **Provisioning** — once the submission returns with the registration CONFIRMED, creates a
+   tenant and deploys the participant profile via the CFM Tenant Manager, which runs the VPA
+   orchestration (connector, IdentityHub, Siglet, Certo — the registration agent is no longer
+   part of it). The returned participant profile id is stored on the record; reading the member
+   resolves it and fetches the profile's current state from the Tenant Manager — that is where
+   the `participantContextId` appears and deployment errors surface.
 
 The membership record correlates the two id spaces: the `externalId` this app mints (the key the
 status callbacks carry) and the `participantContextId` provisioning assigns.
@@ -19,12 +22,14 @@ status callbacks carry) and the `participantContextId` provisioning assigns.
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/members` | Submit a member (name, shortName, bpn, optional did, uniqueIds, companyRoles, agreements). Returns the membership record incl. its `externalId`. |
-| `GET /api/members/{externalId}` | The correlated view. Reading a PROVISIONING member refreshes it against the Tenant Manager (lazy poll — no background loop). |
+| `GET /api/members/{externalId}` | The correlated view. For a member with a deployed profile, resolves the stored profile id and reads its current state from the Tenant Manager. |
 | `POST /api/callbacks/registration-status` | The status-callback endpoint registered with the Onboarding API. Not meant for humans. |
 
-States: `SUBMITTED → REGISTERING → PROVISIONING → PROVISIONED`, with `REJECTED`/`FAILED` as
-terminal off-ramps. The BPN is required on ingress: the status callback does not carry an
-assigned BPN back, and provisioning (the certo activity) needs it.
+States: `SUBMITTED → CONFIRMED → PROVISIONING → PROVISIONED` (the happy path runs through within
+the `POST`), with `REJECTED`/`FAILED` as terminal off-ramps and `REGISTERING` marking a
+registration that did not confirm within the submitting call (such a record is never
+provisioned). The BPN is required on ingress: the status callback does not carry an assigned BPN
+back, and provisioning (the certo activity) needs it.
 
 ## Building and testing
 

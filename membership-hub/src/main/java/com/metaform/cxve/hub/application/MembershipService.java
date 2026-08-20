@@ -16,17 +16,18 @@ import org.springframework.stereotype.Service;
 import static java.util.Optional.ofNullable;
 
 /**
- * Sequences a membership's two legs and maintains the correlation record between them.
+ * Sequences a membership's two legs INSIDE the submitting call: the registration is submitted to
+ * the Onboarding API (which runs its flow synchronously and delivers the CONFIRMED status
+ * callback before the submission returns), and once it is back, the participant profile is
+ * deployed to the Tenant Manager — its id is stored on the membership record. There is no
+ * polling: {@link #get} resolves the stored profile id and reads the profile's current state from
+ * the Tenant Manager on every call, until the membership is terminal.
  *
- * <p>{@link #onboard} persists the record FIRST and only then submits the registration: the
- * Onboarding API fires its CONFIRMED callback synchronously when nothing gates its flow, so
- * {@link #onRegistrationStatus} may run (on the callback thread) before the submitting call
- * returns — it must find the record. For the same reason the post-submit save goes through
- * {@link Membership#registering()}, which never rolls back progress the callback has already made.
- *
- * <p>Provisioning happens only on the CONFIRMED callback — there is deliberately no polling of
- * the Onboarding API. The Tenant Manager side IS polled, but lazily: {@link #get} refreshes a
- * PROVISIONING membership on read instead of running a background loop.
+ * <p>The record is persisted BEFORE the submission because the callback arrives on another thread
+ * while the submitting call is still on the wire — the handler must find the record. After the
+ * submission returns, the record is reloaded to pick up what the callback recorded: provisioning
+ * proceeds only on a CONFIRMED registration — the Onboarding API answers a rejected registration
+ * with a normal 200 as well, so the submission returning is deliberately not treated as consent.
  */
 @Service
 public class MembershipService {
@@ -49,10 +50,11 @@ public class MembershipService {
     }
 
     /**
-     * Creates the membership and submits its registration to the Onboarding API. The DID is
-     * resolved here — caller-supplied or template-derived, the SAME rule the Onboarding API
-     * applies — and passed explicitly with the registration, so the identity the holder is
-     * registered under and the identity the profile is later deployed as cannot drift.
+     * Creates the membership, submits its registration and — once the registration is confirmed —
+     * deploys the participant profile. The DID is resolved here — caller-supplied or
+     * template-derived, the SAME rule the Onboarding API applies — and passed explicitly with the
+     * registration, so the identity the holder is registered under and the identity the profile
+     * is deployed as cannot drift.
      */
     public Membership onboard(MemberData data) {
         var externalId = UUID.randomUUID().toString();
@@ -72,18 +74,30 @@ public class MembershipService {
             repository.save(current(externalId).failed("Registration submission failed: " + e.getMessage()));
             throw e;
         }
-        // Reload before transitioning: the CONFIRMED callback may have advanced the record while
-        // submitRegistration was still on the wire. registering() only moves SUBMITTED forward,
-        // so that progress is kept; the onboarding process id is recorded either way.
-        var next = current(externalId).withOnboardingProcessId(processId).registering();
+        // Reload: the status callback has recorded the registration's outcome on this record
+        // while submitRegistration was on the wire.
+        var current = current(externalId).withOnboardingProcessId(processId);
+        var next = switch (current.state()) {
+            case CONFIRMED -> provision(current, data);
+            case REJECTED -> current;
+            case SUBMITTED -> {
+                // No callback arrived: the registration did not complete within the submitting
+                // call (or the callback never reached this app). Nothing provisions this record
+                // later — surfaced as REGISTERING so it is distinguishable from a confirmed one.
+                log.warn("Membership '{}': no CONFIRMED callback within the submission — EDC resources are NOT provisioned",
+                        externalId);
+                yield current.withState(MembershipState.REGISTERING);
+            }
+            default -> current;
+        };
         repository.save(next);
         return next;
     }
 
     /**
-     * Reacts to an Onboarding API status callback. CONFIRMED is the gate this app exists for: the
-     * partner is registered and its credential holder exists, so the EDC resources may now be
-     * provisioned.
+     * Records an Onboarding API status callback on the membership: CONFIRMED marks the
+     * registration confirmed (provisioning itself is driven by {@link #onboard}, which picks the
+     * marker up after the submission returns), REJECTED terminally rejects it.
      */
     public Membership onRegistrationStatus(String externalId, String status, String message) {
         var membership = current(externalId);
@@ -92,7 +106,11 @@ public class MembershipService {
             return membership;
         }
         return switch (status == null ? "" : status.toUpperCase()) {
-            case "CONFIRMED" -> provision(membership);
+            case "CONFIRMED" -> {
+                var confirmed = membership.withState(MembershipState.CONFIRMED);
+                repository.save(confirmed);
+                yield confirmed;
+            }
             case "REJECTED" -> {
                 log.warn("Membership '{}' was rejected by the Onboarding API: {}", externalId, message);
                 var rejected = membership.rejected(message);
@@ -107,13 +125,13 @@ public class MembershipService {
     }
 
     /**
-     * The membership by its external id — with a lazy provisioning refresh: a PROVISIONING record
-     * is re-checked against the Tenant Manager on read, so the participant context id appears
-     * without a background poller.
+     * The membership by its external id. When a participant profile has been deployed for it, its
+     * current state is read from the Tenant Manager (resolved via the stored profile id) — that
+     * is where the participant context id appears and deployment errors surface.
      */
     public Membership get(String externalId) {
         var membership = current(externalId);
-        if (membership.state() != MembershipState.PROVISIONING) {
+        if (membership.participantProfileId() == null || membership.isTerminal()) {
             return membership;
         }
         var refreshed = applyProfile(membership, tenantManager.refresh(membership));
@@ -121,25 +139,24 @@ public class MembershipService {
         return refreshed;
     }
 
-    private Membership provision(Membership membership) {
-        var payload = repository.findPayload(membership.externalId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "No stored payload for membership " + membership.externalId()));
+    /**
+     * Deploys the tenant + participant profile and stores the returned ids on the record. A
+     * failure is recorded as a terminal FAILED — the registration side is done at this point, so
+     * there is nothing to roll back to.
+     */
+    private Membership provision(Membership membership, MemberData payload) {
         var activeAgreements = payload.agreements().stream()
                 .filter(MemberData.AgreementConsent::hasActiveConsent)
                 .map(MemberData.AgreementConsent::agreementId)
                 .toList();
         log.info("Membership '{}' confirmed — provisioning EDC resources for did={}", membership.externalId(), membership.did());
-        Membership next;
         try {
             var profile = tenantManager.deployParticipant(membership, activeAgreements);
-            next = applyProfile(membership.provisioning(profile.tenantId(), profile.participantProfileId()), profile);
+            return applyProfile(membership.provisioning(profile.tenantId(), profile.participantProfileId()), profile);
         } catch (RuntimeException e) {
             log.error("Membership '{}' failed to provision", membership.externalId(), e);
-            next = membership.failed("Provisioning failed: " + e.getMessage());
+            return membership.failed("Provisioning failed: " + e.getMessage());
         }
-        repository.save(next);
-        return next;
     }
 
     private Membership applyProfile(Membership membership, TenantManager.ProvisionedProfile profile) {

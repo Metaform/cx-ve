@@ -63,10 +63,9 @@ public class CfmTenantManager implements TenantManager {
 
         var profile = toParticipantProfile(membership, activeAgreementIds);
         log.info("Deploying participant profile for DID = {} (tenant {})", membership.did(), tenant.id());
+        // The deploy response predates any provisioning progress — its id is what gets stored;
+        // the profile's state is read through refresh() from then on.
         profile = client.deployParticipantProfile(tenant.id(), profile);
-        // Re-read immediately: the deploy response predates any provisioning progress, the GET
-        // may already carry the participant context id.
-        profile = client.getParticipantProfile(tenant.id(), profile.getId());
         return toResult(tenant.id(), profile);
     }
 

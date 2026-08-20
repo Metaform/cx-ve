@@ -64,10 +64,10 @@ class JpaMembershipRepositoryTest {
         var membership = Membership.submitted("ext-1", data.name(), "did:web:acme", data.bpn());
         repository.create(membership, data);
 
-        repository.save(membership.withOnboardingProcessId("process-1").registering());
+        repository.save(membership.withOnboardingProcessId("process-1").withState(MembershipState.CONFIRMED));
 
         var stored = repository.findByExternalId("ext-1").orElseThrow();
-        assertThat(stored.state()).isEqualTo(MembershipState.REGISTERING);
+        assertThat(stored.state()).isEqualTo(MembershipState.CONFIRMED);
         assertThat(stored.onboardingProcessId()).isEqualTo("process-1");
         assertThat(repository.findPayload("ext-1")).contains(data);
     }

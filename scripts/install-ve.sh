@@ -100,6 +100,7 @@ HOST_OVERRIDES=(
   --set-string "onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
   # The hub resolves member DIDs by the same rule the onboarding-api does; both must follow the host.
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
+  --set "membership-hub.httpRoute.hostnames={${HOST}}"
   # The OSP IdP's issuer is http://<host>/auth/osp (derived from global.host in the umbrella);
   # the onboarding-api validates tokens against exactly that iss value, so it must follow too.
   --set-string "onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"

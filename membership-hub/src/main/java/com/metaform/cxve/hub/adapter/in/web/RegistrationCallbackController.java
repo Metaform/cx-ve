@@ -17,8 +17,9 @@ import org.springframework.web.bind.annotation.RestController;
  * the API's {@code OspRegistrationCallbackData}: the {@code externalId} the hub minted at
  * submission, the registration status (SUBMITTED/CONFIRMED/REJECTED) and an optional message.
  *
- * <p>CONFIRMED is the trigger for the provisioning leg — handled synchronously in this request so
- * the Onboarding API's (fire-and-forget) call carries the outcome in its log at least. Unknown
+ * <p>The callback only RECORDS the registration's outcome on the membership — the Onboarding API
+ * delivers it synchronously while the hub's own submission is still on the wire, and the
+ * submitting thread picks the recorded outcome up and drives provisioning from there. Unknown
  * external ids are answered with 404: the callback is not for this hub instance's records.
  *
  * <p>Deliberately unauthenticated for now: the Onboarding API does not (yet) use the credentials

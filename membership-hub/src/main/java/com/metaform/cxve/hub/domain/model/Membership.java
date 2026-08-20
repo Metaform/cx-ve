@@ -1,5 +1,7 @@
 package com.metaform.cxve.hub.domain.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /**
  * One partner's membership as it moves through {@link MembershipState} — and the correlation
  * record between the two id spaces this app bridges: {@code externalId} is minted here and is the
@@ -38,16 +40,6 @@ public record Membership(
     public Membership withOnboardingProcessId(String processId) {
         return new Membership(externalId, name, did, bpn, state, processId, tenantId,
                 participantProfileId, participantContextId, failureReason);
-    }
-
-    /**
-     * Records the registration submission. Deliberately does NOT force the state: the Onboarding
-     * API completes synchronously when it can, so the CONFIRMED callback may have advanced this
-     * record past REGISTERING before the submitting call even returned — that progress must not be
-     * rolled back.
-     */
-    public Membership registering() {
-        return state == MembershipState.SUBMITTED ? withState(MembershipState.REGISTERING) : this;
     }
 
     public Membership provisioning(String tenantId, String participantProfileId) {
