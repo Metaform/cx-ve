@@ -1,0 +1,75 @@
+## Creates the `membershiphub` database and its user on the platform's Postgres — the platform's
+## own postgres-init hook provisions databases from a hardcoded list that does not know about the
+## hub, so this chart provisions its own (same idempotent ensure-if-missing logic).
+##
+## Plain Job, NOT a Helm hook, for the same reason as the platform's: the app pod simply
+## crash-restarts on a failed DataSource until the database exists, so ordering is unnecessary —
+## and under `helm install --wait` a pre-install hook would race the platform's Postgres coming up.
+## The revision suffix lets `helm upgrade` re-run it (Job specs are immutable).
+##
+## NOTE the admin password is read via secretKeyRef, so this release must be installed into the
+## same namespace as the platform's Postgres (the umbrella installs everything into one).
+{{- if .Values.database.seed.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "membership-hub.fullname" . }}-postgres-seed-r{{ .Release.Revision }}
+  labels:
+    {{- include "membership-hub.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: {{ include "membership-hub.fullname" . }}-postgres-seed
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: postgres-seed
+          image: {{ .Values.database.seed.image }}
+          env:
+            - name: PGHOST
+              value: {{ .Values.database.seed.host | quote }}
+            - name: PGPORT
+              value: {{ .Values.database.seed.port | quote }}
+            - name: PGUSER
+              value: {{ .Values.database.seed.adminUser | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.database.seed.adminDatabase | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.seed.adminPasswordSecret.name }}
+                  key: {{ .Values.database.seed.adminPasswordSecret.key }}
+            - name: APP_DB
+              value: {{ .Values.database.seed.db | quote }}
+            - name: APP_USER
+              value: {{ .Values.database.seed.user | quote }}
+            - name: APP_PASSWORD
+              value: {{ .Values.database.seed.password | quote }}
+          command: [ "sh", "-ec" ]
+          args:
+            # Mirrors ensure_db_and_user from the platform's postgres-init hook: plain statements
+            # (no DO/$$ or \gexec) so it runs on the busybox-style /bin/sh in the postgres image,
+            # and create-if-missing throughout so re-runs are no-ops.
+            - |
+              echo "Waiting for Postgres at $PGHOST:$PGPORT ..."
+              until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" > /dev/null 2>&1; do
+                echo "Postgres not ready yet, retrying in 2 seconds..."
+                sleep 2
+              done
+              echo "Postgres is ready!"
+
+              echo "Ensuring database '$APP_DB' and user '$APP_USER' exist..."
+              if [ "$(psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$APP_USER'")" != "1" ]; then
+                psql -c "CREATE ROLE \"$APP_USER\" LOGIN PASSWORD '$APP_PASSWORD'"
+              fi
+              if [ "$(psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$APP_DB'")" != "1" ]; then
+                psql -c "CREATE DATABASE \"$APP_DB\" OWNER \"$APP_USER\""
+              fi
+              psql -c "GRANT ALL PRIVILEGES ON DATABASE \"$APP_DB\" TO \"$APP_USER\""
+              psql -d "$APP_DB" -c "GRANT ALL ON SCHEMA public TO \"$APP_USER\""
+
+              echo "membershiphub database bootstrap completed!"
+{{- end }}

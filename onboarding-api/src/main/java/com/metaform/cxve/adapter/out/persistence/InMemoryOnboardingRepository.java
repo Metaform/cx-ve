@@ -42,20 +42,6 @@ public class InMemoryOnboardingRepository implements OnboardingRepository {
     }
 
     @Override
-    public Optional<OnboardingProcess> findByHolderId(String holderId) {
-        // A scan, not an index: the holder id is seeded at submission, so a REJECTED duplicate of a
-        // running onboarding carries the same one — an index keyed on it would let whichever saved
-        // last shadow the other. Preferring the non-terminal match keeps issuance events flowing to
-        // the onboarding that is still running; the terminal fallback keeps redelivered events for
-        // a finished one resolvable (a harmless no-op for the caller).
-        var matches = processes.values().stream()
-                .filter(p -> holderId.equals(p.holderId()))
-                .toList();
-        return matches.stream().filter(p -> !p.isTerminal()).findFirst()
-                .or(() -> matches.stream().findFirst());
-    }
-
-    @Override
     public Optional<PartnerRegistrationData> findPayload(String processId) {
         return Optional.ofNullable(payloads.get(processId));
     }

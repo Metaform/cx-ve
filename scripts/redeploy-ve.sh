@@ -1,10 +1,11 @@
 #!/bin/bash
 
 # Rebuilds everything the VE runs from this checkout and upgrades the running umbrella release in
-# place: builds the Onboarding API and Compliance Tracker images, loads them into the kind
-# cluster, re-vendors the umbrella's chart dependencies (the onboarding-api chart is pulled from
-# ../onboarding-api via file://, so local chart changes propagate) and runs `helm upgrade` with
-# the same host overrides install-ve.sh applies.
+# place: builds the Onboarding API, Compliance Tracker and Membership Hub images, loads them into
+# the kind cluster, re-vendors the umbrella's chart dependencies (the onboarding-api and
+# membership-hub charts are pulled from ../onboarding-api / ../membership-hub via file://, so
+# local chart changes propagate) and runs `helm upgrade` with the same host overrides
+# install-ve.sh applies.
 #
 # Use this for the edit-build-verify loop on an EXISTING cluster; it does not create or delete
 # anything — for a cluster from scratch use install-ve.sh. The release's seed hooks re-run on
@@ -76,6 +77,8 @@ HOST_OVERRIDES=(
   --set "onboarding-api.httpRoute.hostnames={${HOST}}"
   --set-string "onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
   --set-string "onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
+  --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
+  --set "membership-hub.httpRoute.hostnames={${HOST}}"
   --set "certo.gateway.hostnames={${HOST}}"
 )
 
@@ -84,11 +87,12 @@ HOST_OVERRIDES=(
 IMAGES=(
   "ghcr.io/metaform/cx-ve/onboardingapi:latest onboarding-api"
   "ghcr.io/metaform/cx-ve/compliance-tracker:latest compliance-tracker"
+  "ghcr.io/metaform/cx-ve/membership-hub:latest membership-hub"
 )
 
 # Deployments running the images built above; restarted after the upgrade because a rebuilt
 # image under an unchanged tag does not change the pod spec, so helm will not roll them.
-DEPLOYMENTS=(cx-ve-onboarding-api compliance-tracker)
+DEPLOYMENTS=(cx-ve-onboarding-api compliance-tracker cx-ve-membership-hub)
 
 set -x
 

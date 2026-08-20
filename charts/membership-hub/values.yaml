@@ -1,0 +1,157 @@
+# Membership state is durable in Postgres, so a restart no longer loses in-flight memberships.
+# Single replica by default: the CONFIRMED-callback handling is not guarded by a database
+# constraint, so concurrent replicas could double-provision.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/metaform/cx-ve/membership-hub
+  # Defaults to the chart's appVersion
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+
+# Remote JVM debugging (JDWP). When enabled the container starts the debug agent (via
+# JAVA_TOOL_OPTIONS, honored by any JVM launcher) and exposes the port on the pod only —
+# deliberately not on the Service. Attach with
+#   kubectl port-forward deploy/<fullname> 5005:5005
+# and an IDE "Remote JVM Debug" run configuration pointed at localhost:5005.
+debug:
+  enabled: true
+  port: 5005
+  # Suspend the JVM until a debugger attaches (to step through startup code). While suspended the
+  # app cannot answer health probes, so enabling this also disables liveness/readiness probes.
+  suspend: false
+
+# The app's workload identity: the jwtlet seed job registers
+# "system:serviceaccount:<namespace>:membership-hub".
+serviceAccount:
+  create: true
+  name: membership-hub
+
+# The platform's JWTlet (RFC 8693 token exchange)
+jwtlet:
+  healthUrl: http://jwtlet.edc-v.svc.cluster.local:8080/health
+  mgmtUrl: http://jwtlet.edc-v.svc.cluster.local:8081/api/v1
+  # Audience of the projected SA token; must match jwtlet's `client_audience`
+  # (the Kubernetes cluster issuer)
+  subjectTokenAudience: https://kubernetes.default.svc.cluster.local
+  subjectTokenExpirationSeconds: 3600
+  # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet
+  seed:
+    enabled: true
+    # The mapping the Tenant Manager tokens are exchanged under. Must agree with the app's
+    # config tenant-manager.token-resource; the scopes cover exactly what TenantManagerClient
+    # requests.
+    participantContext: issuer
+    scopes:
+      - tenant-manager-api:read
+      - tenant-manager-api:write
+    # jwtlet participant-token audience (client_audience / bound_audiences)
+    audiences:
+      - edcv
+    image: curlimages/curl:latest
+    hookDeletePolicy: before-hook-creation,hook-succeeded
+    ttlSecondsAfterFinished: 600
+
+# Creates the app's database on the platform's Postgres (see postgres-seed-job.yaml)
+database:
+  seed:
+    enabled: true
+    # Same image family as the platform's postgres-init hook
+    image: postgres:17.7-alpine
+    host: cx-ve-postgresql.edc-v.svc.cluster.local
+    port: 5432
+    adminUser: postgres
+    adminDatabase: postgres
+    # Secret created by the platform's postgresql template (<release>-postgresql); requires this
+    # release to live in the same namespace as the platform.
+    adminPasswordSecret:
+      name: cx-ve-postgresql
+      key: postgres-password
+    db: membershiphub
+    user: membershiphub
+    password: membershiphub
+
+# Gateway API exposure (there is deliberately no Ingress template). NOTE the hub's API is an
+# OPERATOR surface with no authentication yet — the route publishes it as-is; disable it where
+# that is not acceptable (the API then stays cluster-internal, kubectl port-forward for ad-hoc
+# access). The Onboarding API's status callback arrives cluster-internally either way.
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: edcv-gateway
+      # namespace: gateway-system
+  hostnames:
+    - cxve.localhost
+  pathPrefix: /hub
+
+resources: {}
+
+# Complete application configuration. Rendered 1:1 into the ConfigMap as application.yaml and
+# mounted over the image's packaged defaults (SPRING_CONFIG_ADDITIONALLOCATION), so every key
+# below overrides the corresponding baked-in value — property names are exactly Spring's.
+config:
+  spring:
+    application:
+      name: membership-hub
+    # Postgres persistence (JpaMembershipRepository) is the app's default — this only points it
+    # at the platform's Postgres. Must agree with the database.seed block above.
+    datasource:
+      url: jdbc:postgresql://cx-ve-postgresql.edc-v.svc.cluster.local:5432/membershiphub
+      username: membershiphub
+      password: membershiphub
+  # Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and
+  # springdoc URLs are generated with the external prefix when the route is enabled
+  server:
+    forward-headers-strategy: framework
+  springdoc:
+    swagger-ui:
+      path: /swagger
+  logging:
+    level:
+      com.metaform.cxve.hub: INFO
+  # The Onboarding API, called as an onboarding service provider. The token comes from the OSP
+  # IdP's cluster-internal public port; its `iss` is the IdP's external issuer URL regardless of
+  # which host the request hit, so validation on the API side is unaffected. The client must be
+  # seeded in the IdP (umbrella: ospIdp.clients) with the configure_partner_registration scope.
+  # callback-url is this app's own in-cluster address, as the Onboarding API must reach it.
+  onboarding-api:
+    url: http://cx-ve-onboarding-api.edc-v.svc.cluster.local:8080
+    callback-url: http://cx-ve-membership-hub.edc-v.svc.cluster.local:8080/api/callbacks/registration-status
+    auth:
+      token-url: http://osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+      client-id: membership-hub
+      client-secret: membership-hub-secret
+      scope: configure_partner_registration
+  # The CFM Tenant Manager. token-resource must agree with jwtlet.seed.participantContext above.
+  tenant-manager:
+    url: http://tenant-manager.edc-v.svc.cluster.local:8080/api/v1alpha1
+    token-resource: issuer
+  # Token exchange (RFC 8693): workload token file + exchange endpoint
+  token:
+    file:
+      path: /var/run/secrets/jwtlet/token
+    exchange:
+      url: http://jwtlet.edc-v.svc.cluster.local:8080
+      audience: edcv
+  # Prefix for member DIDs when the membership request doesn't supply one; the member's short
+  # name is appended. Must match the platform's IdentityHub did:web hostname (identity.<host>)
+  # and the Onboarding API's template.
+  participant:
+    did:
+      template: "did:web:identity.cxve.localhost:"
+    # The member's transfer-type mapping, installed on its data plane (Siglet) at provisioning
+    # via the cfm.dataplane VPA properties; the mapping key (transfer-type) becomes the catalog
+    # distribution format of the member's assets. It serves the CCM certificate exchanges
+    # (CX-0135): the endpoint is Certo's protocol API, which lives at the server root of the
+    # in-cluster service (release-derived name, <release>-certo) — NOT the gateway path, since
+    # the flow counterparty calls it with a Siglet flow token, not a jwtlet management token.
+    # (The generic `participant.dataplane` mapping stays disabled — its app default has an empty
+    # endpoint — so this is the only mapping.)
+    ccm:
+      transfer-type: "HttpData-PULL"
+      endpoint-type: HTTP
+      endpoint: http://cx-ve-certo.edc-v.svc.cluster.local:8080
+      token-source: provider

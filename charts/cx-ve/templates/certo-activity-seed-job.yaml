@@ -4,10 +4,14 @@
 ##
 ## CAVEAT: the provision manager upserts orchestration definitions by orchestration type, so the
 ## template POSTed below REPLACES the platform-seeded VPA deploy/dispose definitions. Its DAG must
-## therefore repeat the platform's activities (see the platform's provision-manager-seed-job)
-## verbatim, plus the certo steps. A PLATFORM upgrade re-runs the platform's seed job and
-## overwrites this definition again — re-run `helm upgrade` on this release to re-apply it
-## (the job re-runs on every revision).
+## therefore repeat the platform's activities (see the platform's provision-manager-seed-job),
+## plus the certo steps — with ONE deliberate divergence: the registration activities
+## (registration-agent/registration-rollback) are left out, because in this VE the Onboarding API
+## registers the credential holder with the IssuerService itself, before provisioning starts.
+## (The cfm.issuer VPA properties still travel with the profile: the certo activity reads the BPN
+## from them.) A PLATFORM upgrade re-runs the platform's seed job and overwrites this definition
+## again — re-run `helm upgrade` on this release to re-apply it (the job re-runs on every
+## revision).
 {{- if and .Values.certoAgent.enabled .Values.certoAgent.seed.enabled }}
 apiVersion: batch/v1
 kind: Job
@@ -134,8 +138,9 @@ spec:
 
               echo "Step 2: Re-create the VPA orchestration definition with the certo steps"
               # The platform's DAG (keep in sync with its provision-manager-seed-job!) plus
-              # certo-provisioner/certo-rollback. certo-provisioner depends on the jwtlet agent
-              # because that activity generates the participantContextId the certo agent reads.
+              # certo-provisioner/certo-rollback, minus the registration activities (see the
+              # header comment). certo-provisioner depends on the jwtlet agent because that
+              # activity generates the participantContextId the certo agent reads.
               do_curl -X POST "${PM_BASE_URL}/api/v1alpha1/orchestration-definitions" \
                 -H "Authorization: Bearer ${EXCHANGED_TOKEN}" \
                 -H "Content-Type: application/json" \
@@ -144,11 +149,6 @@ spec:
                     "cfm.orchestration.vpa.dispose": [{
                       "id": "offboarding-agent",
                       "type": "onboarding-activity",
-                      "dependsOn": []
-                    },
-                    {
-                      "id": "registration-rollback",
-                      "type": "registration-activity",
                       "dependsOn": []
                     },
                     {
@@ -170,13 +170,6 @@ spec:
                     {
                       "id": "jwtlet-tokenexchange-agent",
                       "type": "jwtlet-activity"
-                    },
-                    {
-                      "id": "registration-agent",
-                      "type": "registration-activity",
-                      "dependsOn": [
-                        "jwtlet-tokenexchange-agent"
-                      ]
                     },
                     {
                       "id": "connector-provisioner",
@@ -213,8 +206,7 @@ spec:
                       "dependsOn": [
                         "jwtlet-tokenexchange-agent",
                         "connector-provisioner",
-                        "identityhub-provisioner",
-                        "registration-agent"
+                        "identityhub-provisioner"
                       ]
                     }]
                   },

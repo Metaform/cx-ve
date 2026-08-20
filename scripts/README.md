@@ -7,16 +7,27 @@ supports `--help`.
 
 Stands up the complete Verification Environment on a single kind cluster (default `cxve`, gateway hostname
 `cxve.localhost`) as ONE umbrella helm release (`charts/cx-ve`, release name `cx-ve`): Core Platform Distribution,
-Catena-X profile, Onboarding API, Certo and the Certo agent. Runs `setup-did-dns.sh --pre` before the release (its
-seed hooks need in-cluster DNS mid-install) and again in discovery mode after it.
+Catena-X profile, Onboarding API, Membership Hub, Certo and the Certo agent. The three apps of this repo
+(Onboarding API, Membership Hub, Compliance Tracker) are built from source and kind-loaded, so the VE runs the
+local code. Runs `setup-did-dns.sh --pre` before the release (its seed hooks need in-cluster DNS mid-install) and
+again in discovery mode after it.
+
+## `redeploy-ve.sh`
+
+The edit-build-verify loop on an EXISTING cluster: rebuilds the three app images from this checkout, kind-loads
+them, re-vendors the umbrella's chart dependencies (the local `onboarding-api` and `membership-hub` charts
+propagate via `file://`) and runs `helm upgrade` with the same host overrides `install-ve.sh` applies — then
+explicitly restarts the deployments running the locally built `:latest` images (a rebuilt image under an unchanged
+tag is invisible to helm).
 
 ## `install-ve-vps.sh`
 
 VPS variant of `install-ve.sh`: installs the same umbrella release on an **existing** cluster reached through a
 kubeconfig, with **no DNS magic** — the hostname must be a real, publicly resolvable DNS name pointing at the VPS
 (wildcard record recommended: `<host>`, `issuer.<host>` and `identity.<host>` must all resolve), so the CoreDNS
-rewrites of `setup-did-dns.sh` are not needed. Nothing is built from source; all images are pulled from their
-registries (`onboarding-api.image.pullPolicy=Never` is overridden). Both parameters are required:
+rewrites of `setup-did-dns.sh` are not needed. Nothing is built from source; all images — including the three apps
+of this repo — are pulled from their registries (the published images from `.github/workflows/publish.yml`). Both
+parameters are required:
 
 ```bash
 ./scripts/install-ve-vps.sh -H ve.example.com -k ~/.kube/vps.config
@@ -50,8 +61,14 @@ CoreDNS is not authoritative for silently NXDOMAINs.
 
 ## `onboard-participant.sh`
 
-Registers a partner with the Onboarding API and follows the onboarding progress in the application logs until a
-terminal state. `--short-name` pins the participant's DID (`did:web:identity.<host>:<short-name>`).
+Onboards a member through the Membership Hub (`POST /hub/api/members` — the full journey: CX-0006 registration via
+the Onboarding API, then EDC resource provisioning via the CFM Tenant Manager) and polls
+`GET /hub/api/members/<externalId>` until the membership reaches a terminal state; `PROVISIONED` is success and
+prints the correlated record incl. the participant context id. `--short-name` pins the participant's DID
+(`did:web:identity.<host>:<short-name>`). No credentials needed — the hub's API is unauthenticated and the hub
+itself authenticates to the Onboarding API. Registering directly with the Onboarding API in the OSP role
+(registration + credential holder only, no provisioning) remains possible via its API with an `osp-client` token;
+see [registration-api.yaml](../registration-api.yaml).
 
 ## `e2e.sh`
 

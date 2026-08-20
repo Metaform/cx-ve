@@ -27,16 +27,10 @@ public interface OnboardingRepository {
      */
     void create(OnboardingProcess process, PartnerRegistrationData payload);
 
-    /**
-     * Upserts the process after a state transition. Implementations must keep any holder-id lookup
-     * consistent with {@link OnboardingProcess#holderId()}.
-     */
+    /** Upserts the process after a state transition. */
     void save(OnboardingProcess process);
 
     Optional<OnboardingProcess> findById(String processId);
-
-    /** The process linked to the given holder id (the DID issuance events correlate on), if any. */
-    Optional<OnboardingProcess> findByHolderId(String holderId);
 
     /** The registration payload the onboarding was created from. */
     Optional<PartnerRegistrationData> findPayload(String processId);

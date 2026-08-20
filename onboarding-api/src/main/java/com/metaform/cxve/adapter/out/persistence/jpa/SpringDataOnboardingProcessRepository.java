@@ -17,8 +17,6 @@ import java.util.List;
  */
 public interface SpringDataOnboardingProcessRepository extends JpaRepository<OnboardingProcessEntity, String> {
 
-    List<OnboardingProcessEntity> findByHolderId(String holderId);
-
     @Query("""
             select e from OnboardingProcessEntity e
             where e.bpn = :bpn

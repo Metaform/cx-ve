@@ -26,7 +26,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
-import static java.util.Optional.ofNullable;
 
 /**
  * This provider reads a workload token from a file share, provided by Kubernetes, and exchanges it for a scoped token
@@ -36,16 +35,13 @@ import static java.util.Optional.ofNullable;
 public class WorkloadTokenProvider implements TokenProvider {
     private final String tokenFilePath;
     private final String tokenExchangeAudience;
-    private final String defaultResource;
     private final RestClient restClient;
 
     public WorkloadTokenProvider(@Value("${token.file.path:/var/run/secrets/jwtlet/token}") String tokenFilePath,
                                  @Value("${token.exchange.audience:edcv}") String tokenExchangeAudience,
-                                 @Value("${token.exchange.resource:redline}") String defaultResource,
                                  @Qualifier("tokenExchangeClient") RestClient restClient) {
         this.tokenFilePath = tokenFilePath;
         this.tokenExchangeAudience = tokenExchangeAudience;
-        this.defaultResource = defaultResource;
         this.restClient = restClient;
     }
 
@@ -59,7 +55,7 @@ public class WorkloadTokenProvider implements TokenProvider {
             formData.add("subject_token", tokenContent);
             formData.add("subject_token_type", "urn:ietf:params:oauth:token-type:jwt");
             formData.add("audience", tokenExchangeAudience);
-            formData.add("resource", ofNullable(resource).orElse(defaultResource));
+            formData.add("resource", Objects.requireNonNull(resource, "resource (the jwtlet mapping to exchange under) must be given"));
             formData.add("scope", scopes);
 
             var response = restClient.post()

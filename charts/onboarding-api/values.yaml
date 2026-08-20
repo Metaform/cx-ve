@@ -52,17 +52,13 @@ jwtlet:
   # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet
   seed:
     enabled: true
-    participantContext: issuer
-    # Must cover the scopes the app exchanges for: cfm-read/cfm-write (Tenant Manager)
-    # and admin (IdentityHub)
+    # The app's one downstream call is registering credential holders with the IssuerService, and
+    # that (like the CFM agents) goes through the "sudo" mapping: the admin scope is what passes
+    # the IssuerService's caller resolution. Must agree with the app's
+    # config issuer-service.token-resource.
+    participantContext: sudo
     scopes:
-      - identity-api:read
-      - identity-api:write
-      - identity-api:admin
-      - issuer-admin-api:read
-      - issuer-admin-api:write
-      - tenant-manager-api:read
-      - tenant-manager-api:write
+      - issuer-admin-api:admin
     # jwtlet participant-token audience (client_audience / bound_audiences)
     audiences:
       - edcv
@@ -83,8 +79,8 @@ natsAuth:
   enabled: true
   vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200
   # REUSES the platform's shared `edc-events` identity rather than minting one of its own. The
-  # onboarding API consumes events.issuance.> from the edc-events stream, which is exactly that
-  # identity's profile. Requires this chart's ServiceAccount to appear in the platform's
+  # onboarding API publishes its lifecycle events onto the edc-events stream, which is exactly
+  # that identity's profile. Requires this chart's ServiceAccount to appear in the platform's
   # nats.auth.users.edc-events.serviceAccounts list (the umbrella sets it).
   vaultRole: nats-edc-events
   vaultSecretPath: secret/nats/edc-events
@@ -200,13 +196,10 @@ config:
   logging:
     level:
       com.metaform.cxve: INFO
-  # NATS/JetStream issuance-event subscriber (drives onboarding completion)
+  # NATS/JetStream connection the onboarding lifecycle events are published over
   nats:
     enabled: true
     url: nats://cx-ve-nats.edc-v.svc.cluster.local:4222
-    stream: edc-events
-    durable-name: onboarding-api
-    subject-filter: "events.issuance.>"
     # Blank -> connect unauthenticated (e.g. local dev NATS)
     nkey-seed-path: /vault/secrets/nats.nk
   # Token exchange (RFC 8693): workload token file + exchange endpoint
@@ -216,12 +209,13 @@ config:
     exchange:
       url: http://jwtlet.edc-v.svc.cluster.local:8080
       audience: edcv
-      resource: issuer
-  # Downstream services
-  tenant-manager:
-    url: http://tenant-manager.edc-v.svc.cluster.local:8080/api/v1alpha1
-  identityhub:
-    url: http://identityhub.edc-v.svc.cluster.local:7081/api/identity/v1beta
+  # The IssuerService Admin API, where the app registers each onboarded participant as a
+  # credential holder. token-resource selects the jwtlet mapping the exchange runs under and must
+  # agree with jwtlet.seed.participantContext above.
+  issuer-service:
+    url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
+    issuer-context-id: issuer
+    token-resource: sudo
   # Prefix for participant DIDs when the registration doesn't supply one; the participant's
   # short name is appended. Must match the platform's IdentityHub did:web hostname
   # (identity.<host>): IdentityHub reconstructs the DID from the request URL and looks it up by
@@ -231,16 +225,3 @@ config:
   participant:
     did:
       template: "did:web:identity.cxve.localhost:"
-    # The participant's transfer-type mapping, installed on its data plane (Siglet) at
-    # provisioning; the mapping key (transfer-type) becomes the catalog distribution format of
-    # the participant's assets. It serves the CCM certificate exchanges (CX-0135): the endpoint
-    # is Certo's protocol API, which lives at the server root of the in-cluster service
-    # (release-derived name, <release>-certo) — NOT the gateway path, since the flow
-    # counterparty calls it with a Siglet flow token, not a jwtlet management token.
-    # (The app's generic `participant.dataplane` mapping stays disabled — its app default has an
-    # empty endpoint — so this is the only mapping.)
-    ccm:
-      transfer-type:  "HttpData-PULL"
-      endpoint-type: HTTP
-      endpoint: http://cx-ve-certo.edc-v.svc.cluster.local:8080
-      token-source: provider

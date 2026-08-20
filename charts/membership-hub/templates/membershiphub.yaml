@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "membership-hub.fullname" . }}
+  labels:
+    {{- include "membership-hub.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "membership-hub.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "membership-hub.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the pods whenever the rendered config changes
+        checksum/config: {{ include (print $.Template.BasePath "/membershiphub-config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            {{- if .Values.debug.enabled }}
+            - name: debug
+              containerPort: {{ .Values.debug.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            - name: SPRING_CONFIG_ADDITIONALLOCATION
+              value: /etc/membership-hub/application.yaml
+            {{- if .Values.debug.enabled }}
+            - name: JAVA_TOOL_OPTIONS
+              value: "-agentlib:jdwp=transport=dt_socket,server=y,suspend={{ ternary "y" "n" .Values.debug.suspend }},address=*:{{ .Values.debug.port }}"
+            {{- end }}
+          {{- if not (and .Values.debug.enabled .Values.debug.suspend) }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/membership-hub
+              readOnly: true
+            # RFC 8693 subject token exchanged at jwtlet for tenant-manager-scoped tokens
+            # (config token.file.path points here)
+            - name: jwtlet-subject-token
+              mountPath: /var/run/secrets/jwtlet
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "membership-hub.fullname" . }}-config
+        # Audience must match jwtlet's `client_audience` (the Kubernetes cluster issuer)
+        - name: jwtlet-subject-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ .Values.jwtlet.subjectTokenAudience | quote }}
+                  expirationSeconds: {{ .Values.jwtlet.subjectTokenExpirationSeconds }}

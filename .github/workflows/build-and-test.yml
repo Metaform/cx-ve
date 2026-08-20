@@ -27,3 +27,7 @@ jobs:
       - name: Build and test
         working-directory: onboarding-api
         run: ./gradlew build
+
+      - name: Build and test membership-hub
+        working-directory: membership-hub
+        run: ./gradlew build

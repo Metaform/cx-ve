@@ -6,12 +6,11 @@ package com.metaform.cxve.domain.model;
  *
  * <p>{@code bpn} and {@code holderId} are AUTHORITATIVE on this record and seeded at submission:
  * the BPN with the payload's value (null when the registration did not supply one), the holder id
- * with the participant DID resolved by the same rule provisioning will use. The corresponding
- * steps later confirm, assign or overwrite them ({@code withBpn} with the resolved/created BPN,
- * {@code withHolderId} with the provisioned participant's identifier) — queries and events read
- * them from here, never from the payload.
- * {@code holderId} is also the identifier that correlates downstream IdentityHub issuance events
- * back to this process.
+ * with the participant DID resolved by the same rule the holder registration will use. The
+ * corresponding steps later confirm or assign them ({@code withBpn} with the resolved/created
+ * BPN) — queries and events read them from here, never from the payload.
+ * {@code holderId} is also the id the participant is registered under as a credential holder with
+ * the IssuerService.
  *
  * <p>{@code clientId} is the authenticated OSP client that submitted the registration, seeded at
  * submission from the caller's token — never from the payload. It is what status callbacks are
@@ -25,23 +24,13 @@ public record OnboardingProcess(
         String externalId,
         OnboardingState state,
         String bpn,
-        String participantProfileId,
         String holderId,
         String failureReason,
-        String holderProcessId,
-        String tenantId,
-        String participantContextId,
         String clientId
 ) {
 
-
-    public OnboardingProcess(String id, String externalId, OnboardingState state, String bpn, String participantProfileId, String holderId, String failureReason) {
-        this(id, externalId, state, bpn, participantProfileId, holderId, failureReason, null, null, null, null);
-    }
-
-
     public static OnboardingProcess submitted(String id, String externalId, String bpn, String did, String clientId) {
-        return new OnboardingProcess(id, externalId, OnboardingState.SUBMITTED, bpn, null, did, null, null, null, null, clientId);
+        return new OnboardingProcess(id, externalId, OnboardingState.SUBMITTED, bpn, did, null, clientId);
     }
 
     /** A submission without a recorded submitting client — tests and pre-authentication data. */
@@ -50,27 +39,23 @@ public record OnboardingProcess(
     }
 
     public OnboardingProcess withState(OnboardingState newState) {
-        return new OnboardingProcess(id, externalId, newState, bpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId, clientId);
+        return new OnboardingProcess(id, externalId, newState, bpn, holderId, failureReason, clientId);
     }
 
     public OnboardingProcess withBpn(String assignedBpn) {
-        return new OnboardingProcess(id, externalId, OnboardingState.BPN_ASSIGNED, assignedBpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId, clientId);
-    }
-
-    public OnboardingProcess withParticipantProfile(String provisionedWalletId) {
-        return new OnboardingProcess(id, externalId, state, bpn, provisionedWalletId, holderId, failureReason, holderProcessId, tenantId, participantContextId, clientId);
+        return new OnboardingProcess(id, externalId, OnboardingState.BPN_ASSIGNED, assignedBpn, holderId, failureReason, clientId);
     }
 
     public OnboardingProcess withHolderId(String assignedHolderId) {
-        return new OnboardingProcess(id, externalId, state, bpn, participantProfileId, assignedHolderId, failureReason, holderProcessId, tenantId, participantContextId, clientId);
+        return new OnboardingProcess(id, externalId, state, bpn, assignedHolderId, failureReason, clientId);
     }
 
     public OnboardingProcess rejected(String reason) {
-        return new OnboardingProcess(id, externalId, OnboardingState.REJECTED, bpn, participantProfileId, holderId, reason, holderProcessId, tenantId, participantContextId, clientId);
+        return new OnboardingProcess(id, externalId, OnboardingState.REJECTED, bpn, holderId, reason, clientId);
     }
 
     public OnboardingProcess failed(String reason) {
-        return new OnboardingProcess(id, externalId, OnboardingState.FAILED, bpn, participantProfileId, holderId, reason, holderProcessId, tenantId, participantContextId, clientId);
+        return new OnboardingProcess(id, externalId, OnboardingState.FAILED, bpn, holderId, reason, clientId);
     }
 
     public boolean isTerminal() {
@@ -88,18 +73,4 @@ public record OnboardingProcess(
                 && state != OnboardingState.REJECTED
                 && state != OnboardingState.FAILED;
     }
-
-    public OnboardingProcess withHolderProcessId(String holderProcessId) {
-        return new OnboardingProcess(id, externalId, OnboardingState.WALLET_PROVISIONED, bpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId, clientId);
-    }
-
-    public OnboardingProcess withTenantId(String tenantId) {
-        return new OnboardingProcess(id, externalId, state, bpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId, clientId);
-    }
-
-    public OnboardingProcess withParticipantContextId(String participantContextId) {
-        return new OnboardingProcess(id, externalId, state, bpn, participantProfileId, holderId, failureReason, holderProcessId, tenantId, participantContextId, clientId);
-    }
-
-
 }

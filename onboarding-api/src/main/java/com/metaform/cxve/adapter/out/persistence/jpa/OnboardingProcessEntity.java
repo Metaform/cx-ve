@@ -23,15 +23,15 @@ import java.util.List;
  * onboarding, mirroring the two maps of the in-memory store.
  *
  * <p>The payload is stored as opaque JSON: no query decomposes it, and it must round-trip exactly
- * (it is replayed into the CFM provisioning call). The process columns are authoritative for the
+ * (it is replayed into the later onboarding steps). The process columns are authoritative for the
  * BPN and holder DID — seeded from the submission, so the lookups never fall back into the
  * payload. The one thing queries DO need from the payload, the unique ids, is denormalized into
  * the element collection below (matched on type + value).
  */
 @Entity
 @Table(name = "onboarding_process", indexes = {
-        // Each queried identity has its column indexed: the holder id serves both the NATS
-        // issuance-event correlation and the active-DID lookup, the BPN the active-BPN lookup.
+        // Each queried identity has its column indexed: the holder id serves the active-DID
+        // lookup, the BPN the active-BPN lookup.
         @Index(name = "idx_onboarding_process_holder", columnList = "holder_id"),
         @Index(name = "idx_onboarding_process_bpn", columnList = "bpn"),
         @Index(name = "idx_onboarding_process_state", columnList = "state")
@@ -52,9 +52,6 @@ public class OnboardingProcessEntity {
     @Column(name = "bpn")
     private String bpn;
 
-    @Column(name = "participant_profile_id")
-    private String participantProfileId;
-
     @Column(name = "holder_id")
     private String holderId;
 
@@ -62,15 +59,6 @@ public class OnboardingProcessEntity {
     @JdbcTypeCode(SqlTypes.LONG32VARCHAR)
     @Column(name = "failure_reason")
     private String failureReason;
-
-    @Column(name = "holder_process_id")
-    private String holderProcessId;
-
-    @Column(name = "tenant_id")
-    private String tenantId;
-
-    @Column(name = "participant_context_id")
-    private String participantContextId;
 
     /** The authenticated OSP client that submitted the registration; callback-routing target. */
     @Column(name = "client_id")
@@ -123,14 +111,6 @@ public class OnboardingProcessEntity {
         this.bpn = bpn;
     }
 
-    public String getParticipantProfileId() {
-        return participantProfileId;
-    }
-
-    public void setParticipantProfileId(String participantProfileId) {
-        this.participantProfileId = participantProfileId;
-    }
-
     public String getHolderId() {
         return holderId;
     }
@@ -145,30 +125,6 @@ public class OnboardingProcessEntity {
 
     public void setFailureReason(String failureReason) {
         this.failureReason = failureReason;
-    }
-
-    public String getHolderProcessId() {
-        return holderProcessId;
-    }
-
-    public void setHolderProcessId(String holderProcessId) {
-        this.holderProcessId = holderProcessId;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public void setTenantId(String tenantId) {
-        this.tenantId = tenantId;
-    }
-
-    public String getParticipantContextId() {
-        return participantContextId;
-    }
-
-    public void setParticipantContextId(String participantContextId) {
-        this.participantContextId = participantContextId;
     }
 
     public String getClientId() {

@@ -44,9 +44,9 @@ class NatsOnboardingEventPublisherTest {
     }
 
     @Test
-    void completedEnvelopeCarriesTheProvisionedIdentitiesAndContext() throws Exception {
+    void completedEnvelopeCarriesTheRegisteredIdentities() throws Exception {
         var event = new OnboardingCompleted("proc-1", "ext-123", "BPNL0000000001AB",
-                "did:web:identity.test:acme", "pctx-9", OnboardingState.COMPLETED, null);
+                "did:web:identity.test:acme", OnboardingState.COMPLETED, null);
         var envelope = publisher.envelope(NatsOnboardingEventPublisher.ONBOARDING_COMPLETED_TYPE,
                 event.processId(), event.bpn(), event.did(), event);
 
@@ -57,7 +57,6 @@ class NatsOnboardingEventPublisherTest {
 
         var data = mapper.readTree(envelope.getData().toBytes());
         assertThat(data.path("did").asText()).isEqualTo("did:web:identity.test:acme");
-        assertThat(data.path("participantContextId").asText()).isEqualTo("pctx-9");
         // The terminal state is on the wire: the subject is shared with the failure outcomes, so it
         // is what tells a subscriber which of them it received.
         assertThat(data.path("state").asText()).isEqualTo("COMPLETED");
@@ -68,17 +67,17 @@ class NatsOnboardingEventPublisherTest {
         // The CloudEvents builder rejects a null extension value; losing the whole event over one
         // absent field would be worse than shipping it with the field only in the payload.
         var envelope = publisher.envelope(NatsOnboardingEventPublisher.ONBOARDING_COMPLETED_TYPE,
-                "proc-3", null, null, new OnboardingCompleted("proc-3", "ext-3", null, null, null,
-                        OnboardingState.FAILED, "participant provisioning timed out"));
+                "proc-3", null, null, new OnboardingCompleted("proc-3", "ext-3", null, null,
+                        OnboardingState.FAILED, "holder registration timed out"));
 
         assertThat(envelope.getExtension("sourcebpn")).isNull();
         assertThat(envelope.getExtension("participantdid")).isNull();
         var data = mapper.readTree(envelope.getData().toBytes());
         assertThat(data.path("processId").asText()).isEqualTo("proc-3");
-        // A failed onboarding never gets a DID or a context, so the outcome fields are the only
-        // thing a subscriber can act on — they must survive even when the identities are absent.
+        // A failed onboarding may never get its identities assigned, so the outcome fields are the
+        // only thing a subscriber can act on — they must survive even when the identities are absent.
         assertThat(data.path("state").asText()).isEqualTo("FAILED");
-        assertThat(data.path("failureMessage").asText()).isEqualTo("participant provisioning timed out");
+        assertThat(data.path("failureMessage").asText()).isEqualTo("holder registration timed out");
     }
 
     @Test

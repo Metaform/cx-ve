@@ -1,0 +1,39 @@
+{{- if .Values.httpRoute.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "membership-hub.fullname" . }}
+  labels:
+    {{- include "membership-hub.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    {{- toYaml .Values.httpRoute.parentRefs | nindent 4 }}
+  {{- with .Values.httpRoute.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.httpRoute.pathPrefix | quote }}
+      {{- if ne .Values.httpRoute.pathPrefix "/" }}
+      filters:
+        # The app serves at / — strip the prefix like the platform routes do, and advertise it
+        # via X-Forwarded-Prefix so Spring (server.forward-headers-strategy: framework) keeps
+        # redirects and springdoc's Swagger UI links under the prefix.
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - name: X-Forwarded-Prefix
+                value: {{ .Values.httpRoute.pathPrefix | quote }}
+      {{- end }}
+      backendRefs:
+        - name: {{ include "membership-hub.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}

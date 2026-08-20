@@ -95,8 +95,8 @@ DataExchangeGovernance — the demo policy requires all three:
 
 Credential *signature* verification uses the issuer DID documents from layer 1. Credentials
 carrying a `credentialStatus` reference would additionally cause the verifier to fetch the
-issuer's status-list credential cross-VE; the Onboarding API's issuance flow does not
-configure status lists, so no such fetches occur here.
+issuer's status-list credential cross-VE; the VE's issuance flow (the seeded credential
+definitions) does not configure status lists, so no such fetches occur here.
 
 ## Layer 3 — DSP (catalog → negotiation → transfer)
 
@@ -126,8 +126,9 @@ request — the consumer's own `/api/dsp/<cons-ctx>/cx-neptune` base). Both dire
 
 ## What does *not* cross the VE boundary
 
-NATS, Vault, PostgreSQL, jwtlet, clearglass/Traefik, the Tenant Manager/CFM agents and the
-Onboarding API only ever talk within their own VE. Credential **issuance** is also intra-VE
+NATS, Vault, PostgreSQL, jwtlet, clearglass/Traefik, the Tenant Manager/CFM agents, the
+Onboarding API and the Membership Hub only ever talk within their own VE. Credential
+**issuance** is also intra-VE
 (each participant's IdentityHub talks to its own VE's IssuerService); only issuer DID
 *resolution* crosses over (layer 1). Management-API traffic (as driven by `dsp-tests.sh`)
 enters each VE from the host through that VE's own gateway and never hops between VEs.

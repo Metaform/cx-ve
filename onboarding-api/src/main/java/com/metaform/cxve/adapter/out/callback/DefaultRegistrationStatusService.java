@@ -38,6 +38,7 @@ public class DefaultRegistrationStatusService implements RegistrationStatusServi
 
     @Override
     public void setCallbackAddress(String clientId, CallbackRequestData callbackData) {
+        log.debug("Setting callback address for client ID '{}' to URL '{}'", clientId, callbackData.callbackUrl());
         callbacks.put(clientId, callbackData);
     }
 

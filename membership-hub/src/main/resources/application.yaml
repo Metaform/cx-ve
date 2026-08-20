@@ -1,0 +1,103 @@
+# Runtime configuration for the Catena-X Membership Hub. Values here are the defaults baked into
+# the image; the local-development defaults point at a VE exposed on cxve.localhost.
+#
+# Every key can be overridden from outside without rebuilding, e.g. from a Kubernetes ConfigMap:
+#   - as environment variables (env/envFrom): the exact variable name is noted next to each key
+#   - or by mounting a yaml file and pointing SPRING_CONFIG_ADDITIONALLOCATION at it
+#     (spring.config.additional-location=/path/to/dir/)
+
+spring:
+  application:
+    name: membership-hub                                        # SPRING_APPLICATION_NAME
+  # Postgres persistence for membership records (JpaMembershipRepository) is the DEFAULT.
+  # Startup requires a reachable database; run with SPRING_PROFILES_ACTIVE=test (the profile
+  # document at the bottom of this file) to fall back to the in-memory store instead — no
+  # database needed, state lost on restart.
+  datasource:
+    url: jdbc:postgresql://localhost:5432/membershiphub         # SPRING_DATASOURCE_URL
+    username: membershiphub                                     # SPRING_DATASOURCE_USERNAME
+    password: membershiphub                                     # SPRING_DATASOURCE_PASSWORD
+  jpa:
+    hibernate:
+      # Hibernate manages the schema; move to `validate` once it is migration-managed.
+      ddl-auto: update                                          # SPRING_JPA_HIBERNATE_DDLAUTO
+    open-in-view: false
+
+springdoc:
+  swagger-ui:
+    path: /swagger                                              # SPRINGDOC_SWAGGERUI_PATH
+
+logging:
+  level:
+    com.metaform.cxve.hub: INFO                                 # LOGGING_LEVEL_COM_METAFORM_CXVE_HUB
+
+# The Onboarding API, called in the onboarding-service-provider role: OAuth2 client-credentials
+# against the VE's OSP IdP (Ory Hydra). The client must be seeded there (see the umbrella chart's
+# ospIdp.clients) with the configure_partner_registration scope. callback-url is what the hub
+# registers as its status-callback address — it must be reachable FROM the Onboarding API.
+onboarding-api:
+  url: http://cxve.localhost/onboarding                          # ONBOARDING_API_URL
+  callback-url: http://localhost:8080/api/callbacks/registration-status   # ONBOARDING_API_CALLBACK_URL
+  auth:
+    token-url: http://cxve.localhost/auth/osp/oauth2/token       # ONBOARDING_API_AUTH_TOKEN_URL
+    client-id: membership-hub                                   # ONBOARDING_API_AUTH_CLIENT_ID
+    client-secret: ""                                           # ONBOARDING_API_AUTH_CLIENT_SECRET
+    scope: configure_partner_registration                       # ONBOARDING_API_AUTH_SCOPE
+
+# The CFM Tenant Manager, where the member's EDC resources are provisioned. token-resource is the
+# jwtlet mapping (RFC 8693 `resource`) the workload token is exchanged under; its scopes must
+# include tenant-manager-api:read/write (the chart's jwtlet-seed job registers it).
+tenant-manager:
+  url: http://cxve.localhost/api/tm                              # TENANT_MANAGER_URL
+  token-resource: issuer                                        # TENANT_MANAGER_TOKEN_RESOURCE
+
+# Token exchange (RFC 8693): workload token file + exchange endpoint
+token:
+  # user.dir = the process working directory (same as $PWD in a shell, but also resolvable in
+  # containers, where no shell sets PWD). In Kubernetes point this at the projected token,
+  # e.g. /var/run/secrets/jwtlet/token.
+  file:
+    path: "${user.dir}/token"                                   # TOKEN_FILE_PATH
+  exchange:
+    url: http://cxve.localhost/api/auth                          # TOKEN_EXCHANGE_URL
+    audience: edcv                                              # TOKEN_EXCHANGE_AUDIENCE
+
+# Prefix for participant DIDs when the membership request doesn't supply one; the member's short
+# name is appended. Must match the platform's IdentityHub did:web hostname (identity.<host>) AND
+# the Onboarding API's template — the hub always sends the resolved DID explicitly, so the two
+# sides cannot drift, but a template pointing at the wrong authority would still mint a DID that
+# does not resolve.
+participant:
+  did:
+    template: "did:web:identity.cxve.localhost:"   # PARTICIPANT_DID_TEMPLATE
+  # Transfer-type mapping configured on the member's data plane (Siglet) at provisioning time,
+  # via the cfm.dataplane VPA properties. The CFM siglet agent installs the mapping and registers
+  # the data-plane instance with the control plane; the mapping key (transfer-type) becomes the
+  # catalog distribution format of the member's assets. An empty endpoint disables data-plane
+  # registration entirely (provisioning still succeeds, but no transfers are possible).
+  dataplane:
+    transfer-type: HttpData-PULL                                # PARTICIPANT_DATAPLANE_TRANSFERTYPE
+    endpoint-type: HTTP                                         # PARTICIPANT_DATAPLANE_ENDPOINTTYPE
+    endpoint: ""                                                # PARTICIPANT_DATAPLANE_ENDPOINT
+    token-source: provider                                      # PARTICIPANT_DATAPLANE_TOKENSOURCE
+  # Second transfer-type mapping, pointing at Certo's CCM protocol API (CX-0135 certificate
+  # exchange). Same semantics as `dataplane` above: an empty endpoint leaves the mapping out.
+  ccm:
+    transfer-type: HttpData-PULL                                # PARTICIPANT_CCM_TRANSFERTYPE
+    endpoint-type: HTTP                                         # PARTICIPANT_CCM_ENDPOINTTYPE
+    endpoint: ""                                                # PARTICIPANT_CCM_ENDPOINT
+    token-source: provider                                      # PARTICIPANT_CCM_TOKENSOURCE
+
+# Profile "test": the in-memory MembershipRepository instead of Postgres, with the whole
+# DataSource/JPA machinery excluded so no database is required at startup. For tests and
+# storage-free local runs.
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
+      - org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration
