@@ -138,7 +138,10 @@ public class ParticipantOnboardingService implements WalletService {
                 "transferType", transferType,
                 "endpointType", endpointType,
                 "endpoint", endpoint,
-                "tokenSource", tokenSource);
+                "tokenSource", tokenSource,
+                "claimMappings", List.of(
+                        Map.of("from", "flow.claims.vc.withType('BpnCredential').claim('bpn')", "to", "bpn")
+                ));
     }
 
     private Map<String, Object> holderProperties(String holderId, String bpn, List<AgreementConsentData> agreements) {
