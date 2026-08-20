@@ -24,7 +24,7 @@ public class OnboardingApiClient implements OnboardingApi {
     private final OspTokenProvider tokenProvider;
     private final String callbackUrl;
 
-    public OnboardingApiClient(@Qualifier("onboardingApiClient") RestClient restClient,
+    public OnboardingApiClient(@Qualifier("onboardingApiRestClient") RestClient restClient,
                                OspTokenProvider tokenProvider,
                                @Value("${onboarding-api.callback-url:http://localhost:8080/api/callbacks/registration-status}") String callbackUrl) {
         this.restClient = restClient;

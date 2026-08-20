@@ -42,3 +42,6 @@ charts/cx-ve/charts/
 
 ### Go ###
 compliance-tracker/bin/
+
+### macOS ###
+.DS_Store

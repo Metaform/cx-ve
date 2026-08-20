@@ -21,8 +21,10 @@ public class HttpClientsConfig {
     @Value("${token.exchange.url:http://cxve.localhost/api/auth}")
     private String tokenExchangeUrl;
 
+    // "...RestClient", not "onboardingApiClient": that name belongs to the @Service consuming
+    // this bean, and Spring refuses two definitions under one name.
     @Bean
-    public RestClient onboardingApiClient() {
+    public RestClient onboardingApiRestClient() {
         return RestClient.builder()
                 .baseUrl(onboardingApiUrl)
                 .build();

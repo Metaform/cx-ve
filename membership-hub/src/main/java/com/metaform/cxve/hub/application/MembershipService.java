@@ -62,7 +62,7 @@ public class MembershipService {
         log.info("Starting membership '{}' for participant \"{}\" (did={})", externalId, data.name(), did);
         String processId;
         try {
-            // Re-registered before every submit rather than once at startup: idempotent, and it
+            // Re-registered before every submission rather than once at startup: idempotent, and it
             // survives the callback store being reseeded underneath a long-running hub.
             onboardingApi.registerCallback();
             processId = onboardingApi.submitRegistration(externalId, did, data);
