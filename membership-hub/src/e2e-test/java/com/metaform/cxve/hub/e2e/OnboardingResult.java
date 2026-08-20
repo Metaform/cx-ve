@@ -1,4 +1,4 @@
-package com.metaform.cxve.e2e;
+package com.metaform.cxve.hub.e2e;
 
 /**
  * The identities an onboarded participant is driven by for the rest of the suite: {@code holderId}

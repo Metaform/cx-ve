@@ -1,4 +1,4 @@
-package com.metaform.cxve.e2e;
+package com.metaform.cxve.hub.e2e;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,7 +12,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.metaform.cxve.e2e.TestLog.log;
+import static com.metaform.cxve.hub.e2e.TestLog.log;
 import static io.restassured.RestAssured.given;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;

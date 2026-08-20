@@ -1,4 +1,4 @@
-package com.metaform.cxve.e2e;
+package com.metaform.cxve.hub.e2e;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.metaform.cxve.e2e.TestLog.log;
+import static com.metaform.cxve.hub.e2e.TestLog.log;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;

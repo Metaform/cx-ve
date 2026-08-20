@@ -12,7 +12,7 @@
  *
  */
 
-package com.metaform.cxve.e2e;
+package com.metaform.cxve.hub.e2e;
 
 import java.io.BufferedReader;
 import java.io.IOException;

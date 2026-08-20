@@ -1,4 +1,4 @@
-package com.metaform.cxve.e2e;
+package com.metaform.cxve.hub.e2e;
 
 public record SetCallbackRequest(
         String callbackUrl,

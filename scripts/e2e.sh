@@ -11,7 +11,7 @@
 #                             (plain HTTP from this host through the gateway), proving the VE's
 #                             identity surface is reachable the way an external dataspace
 #                             solution will reach it
-#   4. gradle e2e suite     — the black-box tests in onboarding-api/src/e2e-test against the VE:
+#   4. gradle e2e suite     — the black-box tests in membership-hub/src/e2e-test against the VE:
 #                             onboarding callback, credential-gated data exchange, and the
 #                             CX-0135 Flow B certificate exchange
 #
@@ -130,7 +130,7 @@ if [[ "$(uname -s)" == "Linux" ]]; then
 fi
 # --rerun defeats Gradle's up-to-date check: the task's inputs don't change between runs, but
 # the cluster state does. KUBECONFIG pins the suite's kubectl calls to this run's cluster.
-KUBECONFIG="$HOME/.kube/${CLUSTER_NAME}.config" ./onboarding-api/gradlew -p onboarding-api e2eTest --rerun
+KUBECONFIG="$HOME/.kube/${CLUSTER_NAME}.config" ./membership-hub/gradlew -p membership-hub e2eTest --rerun
 
 step "RESULT"
 echo "E2E PASSED in $(( ($(date +%s) - START) / 60 ))m $(( ($(date +%s) - START) % 60 ))s"

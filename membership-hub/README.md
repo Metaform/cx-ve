@@ -35,6 +35,7 @@ back, and provisioning (the certo activity) needs it.
 
 ```shell
 ./gradlew build            # unit tests included; no cluster needed
+./gradlew e2eTest          # the VE's black-box e2e suite (src/e2e-test) — needs a RUNNING VE
 docker build -t membership-hub .
 ```
 

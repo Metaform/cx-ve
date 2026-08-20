@@ -1,4 +1,4 @@
-package com.metaform.cxve.e2e;
+package com.metaform.cxve.hub.e2e;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
