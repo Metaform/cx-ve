@@ -9,7 +9,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * and the EDC resource provisioning (CFM Tenant Manager). It submits the registration as an
  * onboarding service provider, waits for the CONFIRMED status callback, and only then provisions
  * the participant's EDC resources; the membership record correlates the registration's
- * {@code externalId} with the {@code edcParticipantContextId} the provisioning yields.
+ * {@code externalId} with the {@code participantContextId} the provisioning yields.
  */
 @SpringBootApplication
 public class MembershipHubApplication {

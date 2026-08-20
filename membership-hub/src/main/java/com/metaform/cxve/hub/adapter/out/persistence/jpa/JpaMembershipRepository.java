@@ -67,9 +67,9 @@ public class JpaMembershipRepository implements MembershipRepository {
         entity.setBpn(membership.bpn());
         entity.setState(membership.state());
         entity.setOnboardingProcessId(membership.onboardingProcessId());
-        entity.setTenantId(membership.cfmTenantId());
-        entity.setParticipantProfileId(membership.cfmParticipantProfileId());
-        entity.setParticipantContextId(membership.edcParticipantContextId());
+        entity.setTenantId(membership.tenantId());
+        entity.setParticipantProfileId(membership.participantProfileId());
+        entity.setParticipantContextId(membership.participantContextId());
         entity.setFailureReason(membership.failureReason());
     }
 

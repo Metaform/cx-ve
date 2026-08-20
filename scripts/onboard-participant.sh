@@ -145,7 +145,7 @@ fi
 case "$STATE" in
   PROVISIONED)
     echo "Member provisioned:"
-    jq '{externalId, did, bpn, onboardingProcessId, cfmTenantId, cfmParticipantProfileId, edcParticipantContextId}' <<<"$MEMBERSHIP"
+    jq '{externalId, did, bpn, onboardingProcessId, tenantId, participantProfileId, participantContextId}' <<<"$MEMBERSHIP"
     ;;
   REJECTED|FAILED)
     echo "Onboarding ended as ${STATE}: $(jq -r '.failureReason // "no reason recorded"' <<<"$MEMBERSHIP")" >&2
