@@ -166,8 +166,8 @@ class VerificationEnvironmentE2eTest {
         // context mints the flow token, and its claims must describe the caller
         var providerAssetId = "ccm-api-" + runId;
         var consumerAssetId = "ccm-inbox-" + runId;
-        seedCcmOffer(mgmt, providerPcid, providerAssetId, "p-" + runId, consumer.bpn());
-        seedCcmOffer(mgmt, consumerPcid, consumerAssetId, "c-" + runId, provider.bpn());
+        seedCcmOffer(mgmt, providerPcid, providerAssetId, "p-" + runId);
+        seedCcmOffer(mgmt, consumerPcid, consumerAssetId, "c-" + runId);
 
         // "pull" flow: cert-consumer -> cert-provider (used for retrieve + acceptance report)
         var flowIdPull = establishCcmFlow(mgmt, consumerPcid, providerPcid, provider.holderId(), providerAssetId);
@@ -258,8 +258,8 @@ class VerificationEnvironmentE2eTest {
 
         var providerAssetId = "ccm-api-" + runId;
         var consumerAssetId = "ccm-inbox-" + runId;
-        seedCcmOffer(mgmt, providerPcid, providerAssetId, "p-" + runId, consumer.bpn());
-        seedCcmOffer(mgmt, consumerPcid, consumerAssetId, "c-" + runId, provider.bpn());
+        seedCcmOffer(mgmt, providerPcid, providerAssetId, "p-" + runId);
+        seedCcmOffer(mgmt, consumerPcid, consumerAssetId, "c-" + runId);
 
         // pull: cert-consumer -> cert-provider (the request itself, then retrieve + verdict)
         var flowIdPull = establishCcmFlow(mgmt, consumerPcid, providerPcid, provider.holderId(), providerAssetId);
@@ -385,11 +385,11 @@ class VerificationEnvironmentE2eTest {
      * contract definition. Ids are run-scoped; policy/definition ids may repeat across the two
      * participant contexts (resources are context-scoped).
      */
-    private void seedCcmOffer(ManagementApi mgmt, String pcid, String assetId, String uniqueId, String counterpartyBpn) {
+    private void seedCcmOffer(ManagementApi mgmt, String pcid, String assetId, String uniqueId) {
         var accessPolicyId = "e2e-ccm-access-policy-" + uniqueId;
         var contractPolicyId = "e2e-ccm-contract-policy-" + uniqueId;
         var allThreeCredentials = Set.of(MEMBERSHIP_OPERAND, BPN_OPERAND, GOV_OPERAND);
-        mgmt.createAsset(pcid, assetId, "http://cx-ve-certo.edc-v.svc.cluster.local:8080", Map.of("bpn", counterpartyBpn));
+        mgmt.createAsset(pcid, assetId, "http://cx-ve-certo.edc-v.svc.cluster.local:8080", Map.of());
         mgmt.createPolicy(pcid, accessPolicyId, allThreeCredentials);
         mgmt.createPolicy(pcid, contractPolicyId, allThreeCredentials);
         mgmt.createContractDefinition(pcid, "e2e-ccm-cd-" + uniqueId, accessPolicyId, contractPolicyId);
