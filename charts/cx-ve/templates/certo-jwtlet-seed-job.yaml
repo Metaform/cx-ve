@@ -96,13 +96,15 @@ spec:
 {{- if .Values.certoAgent.enabled }}
 
               # authorizes the certo agent (running under the platform's cfm-agents SA) to
-              # exchange its token for a certo-mgmt-api-scoped one (resource = sudo)
+              # exchange its token for certo-mgmt-api- and issuer-admin-api-scoped ones
+              # (resource = sudo). The issuer-admin-api:admin scope mapping itself is seeded
+              # by the platform chart.
               create "certo mapping entry for the 'cfm-agents' SA" \
                 "${JWTLET_MGMT_URL}/mappings" \
                 '{
                     "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:cfm-agents",
                     "participantContext": "sudo",
-                    "scopes": ["certo-mgmt-api:read", "certo-mgmt-api:write"],
+                    "scopes": ["certo-mgmt-api:read", "certo-mgmt-api:write", "issuer-admin-api:admin"],
                     "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
                 }'
 {{- end }}

@@ -12,4 +12,4 @@ dependencies:
   repository: oci://ghcr.io/metaform/charts
   version: 0.0.4
 digest: sha256:cb0998eb575ba9cb3f9d41941e4cd0869a982cef2099e5e5aa2a6069028ab597
-generated: "2026-08-19T16:31:38.079559909+02:00"
+generated: "2026-08-20T10:51:09.415839+02:00"
