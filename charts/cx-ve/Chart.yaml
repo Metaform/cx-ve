@@ -27,6 +27,10 @@ dependencies:
   - name: onboarding-api
     repository: file://../onboarding-api
     version: ">=0.0.0-0"
+  # The Catena-X Membership Hub application chart from this repository
+  - name: membership-hub
+    repository: file://../membership-hub
+    version: ">=0.0.0-0"
   # Certo (CX-0135 certificate exchange service)
   - name: certo
     repository: oci://ghcr.io/metaform/charts

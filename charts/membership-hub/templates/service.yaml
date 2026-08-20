@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "membership-hub.fullname" . }}
+  labels:
+    {{- include "membership-hub.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "membership-hub.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP

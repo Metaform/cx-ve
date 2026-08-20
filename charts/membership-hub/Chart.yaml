@@ -1,0 +1,6 @@
+apiVersion: v2
+name: membership-hub
+description: Catena-X Membership Hub — drives partner registration (Onboarding API) and, on its CONFIRMED callback, EDC resource provisioning (CFM Tenant Manager)
+type: application
+version: 0.1.0
+appVersion: "latest"

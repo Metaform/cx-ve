@@ -30,6 +30,8 @@ jobs:
             context: onboarding-api
           - name: compliance-tracker
             context: compliance-tracker
+          - name: membership-hub
+            context: membership-hub
     steps:
       - uses: actions/checkout@v4
 
@@ -105,11 +107,14 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           version="${tag#v}"
-          # App chart first, then the umbrella: helm dependency update vendors the local
-          # onboarding-api chart (file://) plus the OCI dependencies into the umbrella package.
+          # App charts first, then the umbrella: helm dependency update vendors the local
+          # app charts (file://) plus the OCI dependencies into the umbrella package.
           helm lint charts/onboarding-api
           helm template charts/onboarding-api > /dev/null
           helm package charts/onboarding-api --destination dist --version "$version" --app-version "$version"
+          helm lint charts/membership-hub
+          helm template charts/membership-hub > /dev/null
+          helm package charts/membership-hub --destination dist --version "$version" --app-version "$version"
           helm dependency update charts/cx-ve
           helm lint charts/cx-ve
           helm template charts/cx-ve > /dev/null

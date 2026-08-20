@@ -167,6 +167,16 @@ onboarding-api:
   #     nkey-seed-path: ""
 
 
+# ---- Catena-X Membership Hub ------------------------------------------------------------------
+# Drives the full member journey: registration via the Onboarding API (as OSP client
+# membership-hub, seeded under ospIdp.clients below), then — on the CONFIRMED status callback —
+# EDC resource provisioning via the CFM Tenant Manager. All URLs in the subchart's defaults
+# already point at the umbrella's in-cluster services.
+membership-hub:
+  image:
+    pullPolicy: IfNotPresent
+
+
 # ---- Certo (CX-0135 certificate exchange) ----------------------------------------------------
 certo:
   enabled: true
@@ -265,6 +275,12 @@ ospIdp:
   clients:
     - id: osp-client
       secret: osp-secret
+      scope: "configure_partner_registration"
+    # The Membership Hub's own OSP identity — a separate client, so its callback registration
+    # cannot collide with osp-client's (e.g. the e2e suite's). Must agree with the
+    # membership-hub chart's config onboarding-api.auth.*
+    - id: membership-hub
+      secret: membership-hub-secret
       scope: "configure_partner_registration"
   resources: {}
 

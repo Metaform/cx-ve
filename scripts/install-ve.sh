@@ -98,6 +98,8 @@ HOST_OVERRIDES=(
   --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
   --set "onboarding-api.httpRoute.hostnames={${HOST}}"
   --set-string "onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
+  # The hub resolves member DIDs by the same rule the onboarding-api does; both must follow the host.
+  --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   # The OSP IdP's issuer is http://<host>/auth/osp (derived from global.host in the umbrella);
   # the onboarding-api validates tokens against exactly that iss value, so it must follow too.
   --set-string "onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
@@ -169,9 +171,14 @@ kind load docker-image ghcr.io/metaform/cx-ve/onboardingapi:latest -n $CLUSTER_N
 docker buildx build -t ghcr.io/metaform/cx-ve/compliance-tracker:latest compliance-tracker
 kind load docker-image ghcr.io/metaform/cx-ve/compliance-tracker:latest -n $CLUSTER_NAME
 
+# Build and load the latest version of the Membership Hub.
+docker buildx build -t ghcr.io/metaform/cx-ve/membership-hub:latest membership-hub
+kind load docker-image ghcr.io/metaform/cx-ve/membership-hub:latest -n $CLUSTER_NAME
+
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
 # space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> onboarding-api jwtlet
-# mapping (200) -> certo jwtlet mappings (210) -> certo activity/orchestration (220).
+# mapping (200) -> certo jwtlet mappings (210) -> certo activity/orchestration (220) ->
+# membership-hub jwtlet mapping (230).
 helm upgrade --install "$RELEASE" "$UMBRELLA_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
   "${HOST_OVERRIDES[@]}" \

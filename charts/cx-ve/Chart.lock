@@ -8,8 +8,11 @@ dependencies:
 - name: onboarding-api
   repository: file://../onboarding-api
   version: 0.1.0
+- name: membership-hub
+  repository: file://../membership-hub
+  version: 0.1.0
 - name: certo
   repository: oci://ghcr.io/metaform/charts
   version: 0.0.4
-digest: sha256:cb0998eb575ba9cb3f9d41941e4cd0869a982cef2099e5e5aa2a6069028ab597
-generated: "2026-08-20T10:51:09.415839+02:00"
+digest: sha256:59d1fc94d4e9872e9d98f2f25d4f0c19b73b67d6c66067b34e51e4bc26491a5a
+generated: "2026-08-20T11:57:26.007385+02:00"
