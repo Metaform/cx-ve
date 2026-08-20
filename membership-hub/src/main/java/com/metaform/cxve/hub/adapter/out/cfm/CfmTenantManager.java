@@ -108,7 +108,12 @@ public class CfmTenantManager implements TenantManager {
                 "transferType", transferType,
                 "endpointType", endpointType,
                 "endpoint", endpoint,
-                "tokenSource", tokenSource);
+                "tokenSource", tokenSource,
+                // Siglet stamps the caller's BPN into the flow token from its BpnCredential —
+                // certo's inbound verification requires the claim; no static asset property needed.
+                "claimMappings", List.of(
+                        Map.of("from", "flow.claims.vc.withType('BpnCredential').claim('bpn')", "to", "bpn")
+                ));
     }
 
     private Map<String, Object> holderProperties(Membership membership, List<String> activeAgreementIds) {
