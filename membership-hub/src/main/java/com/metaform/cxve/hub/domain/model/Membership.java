@@ -1,12 +1,10 @@
 package com.metaform.cxve.hub.domain.model;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-
 /**
  * One partner's membership as it moves through {@link MembershipState} — and the correlation
  * record between the two id spaces this app bridges: {@code externalId} is minted here and is the
- * key the Onboarding API's status callbacks carry; {@code participantContextId} (with
- * {@code tenantId}/{@code participantProfileId}) is what the Tenant Manager's provisioning
+ * key the Onboarding API's status callbacks carry; {@code edcParticipantContextId} (with
+ * {@code cfmTenantId}/{@code cfmParticipantProfileId}) is what the Tenant Manager's provisioning
  * assigns. Both live on this one record, keyed by the {@code externalId}.
  *
  * <p>The DID is resolved at submission (caller-supplied or template-derived) and is what the
@@ -22,9 +20,9 @@ public record Membership(
         String bpn,
         MembershipState state,
         String onboardingProcessId,
-        String tenantId,
-        String participantProfileId,
-        String participantContextId,
+        String cfmTenantId,
+        String cfmParticipantProfileId,
+        String edcParticipantContextId,
         String failureReason
 ) {
 
@@ -33,23 +31,23 @@ public record Membership(
     }
 
     public Membership withState(MembershipState newState) {
-        return new Membership(externalId, name, did, bpn, newState, onboardingProcessId, tenantId,
-                participantProfileId, participantContextId, failureReason);
+        return new Membership(externalId, name, did, bpn, newState, onboardingProcessId, cfmTenantId,
+                cfmParticipantProfileId, edcParticipantContextId, failureReason);
     }
 
     public Membership withOnboardingProcessId(String processId) {
-        return new Membership(externalId, name, did, bpn, state, processId, tenantId,
-                participantProfileId, participantContextId, failureReason);
+        return new Membership(externalId, name, did, bpn, state, processId, cfmTenantId,
+                cfmParticipantProfileId, edcParticipantContextId, failureReason);
     }
 
     public Membership provisioning(String tenantId, String participantProfileId) {
         return new Membership(externalId, name, did, bpn, MembershipState.PROVISIONING,
-                onboardingProcessId, tenantId, participantProfileId, participantContextId, failureReason);
+                onboardingProcessId, tenantId, participantProfileId, edcParticipantContextId, failureReason);
     }
 
     public Membership withParticipantContextId(String participantContextId) {
-        return new Membership(externalId, name, did, bpn, state, onboardingProcessId, tenantId,
-                participantProfileId, participantContextId, failureReason);
+        return new Membership(externalId, name, did, bpn, state, onboardingProcessId, cfmTenantId,
+                cfmParticipantProfileId, participantContextId, failureReason);
     }
 
     public Membership provisioned() {
@@ -58,12 +56,12 @@ public record Membership(
 
     public Membership rejected(String reason) {
         return new Membership(externalId, name, did, bpn, MembershipState.REJECTED,
-                onboardingProcessId, tenantId, participantProfileId, participantContextId, reason);
+                onboardingProcessId, cfmTenantId, cfmParticipantProfileId, edcParticipantContextId, reason);
     }
 
     public Membership failed(String reason) {
         return new Membership(externalId, name, did, bpn, MembershipState.FAILED,
-                onboardingProcessId, tenantId, participantProfileId, participantContextId, reason);
+                onboardingProcessId, cfmTenantId, cfmParticipantProfileId, edcParticipantContextId, reason);
     }
 
     public boolean isTerminal() {

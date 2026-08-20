@@ -131,7 +131,7 @@ public class MembershipService {
      */
     public Membership get(String externalId) {
         var membership = current(externalId);
-        if (membership.participantProfileId() == null || membership.isTerminal()) {
+        if (membership.cfmParticipantProfileId() == null || membership.isTerminal()) {
             return membership;
         }
         var refreshed = applyProfile(membership, tenantManager.refresh(membership));

@@ -22,7 +22,7 @@ public interface TenantManager {
     ProvisionedProfile refresh(Membership membership);
 
     /**
-     * The provisioning state of a deployed participant profile. {@code participantContextId} is
+     * The provisioning state of a deployed participant profile. {@code edcParticipantContextId} is
      * assigned asynchronously and null until the platform's provisioning has progressed far
      * enough; {@code error} reports a failed deployment.
      */

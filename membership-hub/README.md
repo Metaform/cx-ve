@@ -12,10 +12,10 @@ keeps apart:
    orchestration (connector, IdentityHub, Siglet, Certo — the registration agent is no longer
    part of it). The returned participant profile id is stored on the record; reading the member
    resolves it and fetches the profile's current state from the Tenant Manager — that is where
-   the `participantContextId` appears and deployment errors surface.
+   the `edcParticipantContextId` appears and deployment errors surface.
 
 The membership record correlates the two id spaces: the `externalId` this app mints (the key the
-status callbacks carry) and the `participantContextId` provisioning assigns.
+status callbacks carry) and the `edcParticipantContextId` provisioning assigns.
 
 ## API
 

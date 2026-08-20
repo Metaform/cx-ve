@@ -83,7 +83,7 @@ class MembershipServiceTest {
         @Override
         public ProvisionedProfile refresh(Membership membership) {
             refreshCount++;
-            return new ProvisionedProfile(membership.tenantId(), membership.participantProfileId(),
+            return new ProvisionedProfile(membership.cfmTenantId(), membership.cfmParticipantProfileId(),
                     contextIdOnRefresh, error);
         }
     }
@@ -121,9 +121,9 @@ class MembershipServiceTest {
         assertThat(membership.state()).isEqualTo(MembershipState.PROVISIONING);
         assertThat(membership.did()).isEqualTo(ACME_DID);
         assertThat(membership.onboardingProcessId()).isEqualTo("process-" + membership.externalId());
-        assertThat(membership.tenantId()).isEqualTo("tenant-1");
-        assertThat(membership.participantProfileId()).isEqualTo("profile-1");
-        assertThat(membership.participantContextId()).isNull();
+        assertThat(membership.cfmTenantId()).isEqualTo("tenant-1");
+        assertThat(membership.cfmParticipantProfileId()).isEqualTo("profile-1");
+        assertThat(membership.edcParticipantContextId()).isNull();
         assertThat(onboardingApi.callbackRegistrations).isEqualTo(1);
         assertThat(onboardingApi.submittedExternalIds).containsExactly(membership.externalId());
         assertThat(onboardingApi.submittedDids).containsExactly(ACME_DID);
@@ -140,7 +140,7 @@ class MembershipServiceTest {
         var membership = service.onboard(request(null));
 
         assertThat(membership.state()).isEqualTo(MembershipState.PROVISIONED);
-        assertThat(membership.participantContextId()).isEqualTo("pctx-1");
+        assertThat(membership.edcParticipantContextId()).isEqualTo("pctx-1");
     }
 
     @Test
@@ -219,7 +219,7 @@ class MembershipServiceTest {
         tenantManager.contextIdOnRefresh = "pctx-9";
         var refreshed = service.get(membership.externalId());
         assertThat(refreshed.state()).isEqualTo(MembershipState.PROVISIONED);
-        assertThat(refreshed.participantContextId()).isEqualTo("pctx-9");
+        assertThat(refreshed.edcParticipantContextId()).isEqualTo("pctx-9");
         assertThat(repository.findByExternalId(membership.externalId()).orElseThrow().state())
                 .isEqualTo(MembershipState.PROVISIONED);
 

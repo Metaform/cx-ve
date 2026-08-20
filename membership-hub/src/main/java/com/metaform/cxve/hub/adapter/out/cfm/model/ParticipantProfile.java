@@ -102,7 +102,7 @@ public class ParticipantProfile {
         }
 
         if(vpaState instanceof Map stateMap){
-            return ofNullable(stateMap.get("participantContextId")).map(Object::toString).orElse(null);
+            return ofNullable(stateMap.get("edcParticipantContextId")).map(Object::toString).orElse(null);
         }
         return null;
     }

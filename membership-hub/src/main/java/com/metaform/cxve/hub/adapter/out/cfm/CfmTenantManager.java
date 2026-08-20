@@ -71,8 +71,8 @@ public class CfmTenantManager implements TenantManager {
 
     @Override
     public ProvisionedProfile refresh(Membership membership) {
-        var profile = client.getParticipantProfile(membership.tenantId(), membership.participantProfileId());
-        return toResult(membership.tenantId(), profile);
+        var profile = client.getParticipantProfile(membership.cfmTenantId(), membership.cfmParticipantProfileId());
+        return toResult(membership.cfmTenantId(), profile);
     }
 
     private ProvisionedProfile toResult(String tenantId, ParticipantProfile profile) {
