@@ -3,7 +3,6 @@ package com.metaform.cxve.e2e;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import io.restassured.http.ContentType;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
@@ -17,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
@@ -32,12 +30,16 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * End-to-end tests against a running VE (stood up by scripts/install-ve.sh) through its
- * gateway — black box, no dependency on the app module's classes; wire payloads are mirrored
- * locally (see {@link NewParticipantData}). The suite is not part of {@code check}/{@code build};
- * run it with {@code ./gradlew e2eTest}.
+ * gateway — black box, no dependency on the app modules' classes; wire payloads are mirrored
+ * locally (see {@link NewParticipantData}). Participants are onboarded through the Membership
+ * Hub — the full journey: CX-0006 registration via the Onboarding API, then EDC resource
+ * provisioning via the CFM Tenant Manager (see {@link MembershipHubApi}); the direct OSP-facing
+ * surface of the Onboarding API keeps its own contract test. The suite is not part of
+ * {@code check}/{@code build}; run it with {@code ./gradlew e2eTest}.
  */
 class VerificationEnvironmentE2eTest {
     private static final String ONBOARDING_API_URL = "http://cxve.localhost/onboarding";
+    private static final String MEMBERSHIP_HUB_URL = "http://cxve.localhost/hub";
     // Hostname under which the in-cluster Onboarding API can reach THIS test process: the
     // callback receiver (WireMock) runs on the host. Docker Desktop (macOS/Windows) resolves
     // host.docker.internal to it from inside pods; on plain Linux Docker (e.g. a CI runner)
@@ -62,10 +64,6 @@ class VerificationEnvironmentE2eTest {
     private static final String TOKEN_EXCHANGE_URL = "http://cxve.localhost/api/auth/token";
     private static final String MANAGEMENT_API_URL = "http://cxve.localhost/api/management/v5beta";
     private static final String CERTO_API_URL = "http://cxve.localhost/api/certo/management/v1";
-    private static final String TENANT_MANAGER_API_URL = "http://cxve.localhost/api/tm";
-    // Mirror of the app's participant.did.template rule (ParticipantDidResolver): the DID a
-    // participant is provisioned under is knowable before provisioning — template + shortName.
-    private static final String DID_TEMPLATE = "did:web:identity.cxve.localhost:";
     // Transfer type of the CCM flows — must be exactly this profile URI; it keys the
     // participant's siglet transfer-type mapping (installed at provisioning from
     // participant.ccm.* config), the dataplane registration, and the transfer request.
@@ -87,23 +85,7 @@ class VerificationEnvironmentE2eTest {
     private static final String GOV_OPERAND = "https://w3id.org/cxve/e2e/policy/DataExchangeGovernanceCredential";
 
     private final TokenExchange tokenExchange = new TokenExchange(TOKEN_EXCHANGE_URL, KUBECONFIG);
-
-    @BeforeEach
-    void stubRegistrationStatus() {
-        wiremock.stubFor(post(urlPathEqualTo("/registration/status"))
-                .willReturn(okJson("{}")));
-
-        // set callback url: status updates land on the WireMock stub above. Registering the
-        // callback is the one call gated on the configure_partner_registration scope.
-        var callbackUrl = "http://%s:%d/registration/status".formatted(CALLBACK_HOST, wiremock.getPort());
-        given()
-                .baseUri(ONBOARDING_API_URL)
-                .header("Authorization", "Bearer " + ospAccessToken())
-                .contentType(ContentType.JSON)
-                .body(new SetCallbackRequest(callbackUrl, null, null, null))
-                .post("/api/administration/RegistrationStatus/callback")
-                .then().statusCode(204);
-    }
+    private final MembershipHubApi hub = new MembershipHubApi(MEMBERSHIP_HUB_URL);
 
     /**
      * Bearer token of the OSP caller, obtained exactly as an external onboarding service
@@ -141,12 +123,10 @@ class VerificationEnvironmentE2eTest {
     @Test
     void certificateExchange() {
         var runId = UUID.randomUUID().toString().substring(0, 8);
-        var providerExtId = "cert-provider-" + runId;
-        var consumerExtId = "cert-consumer-" + runId;
 
-        var results = onboardProviderAndConsumer(runId, providerExtId, consumerExtId);
-        var provider = results.get(providerExtId);
-        var consumer = results.get(consumerExtId);
+        var pair = onboardProviderAndConsumer(runId);
+        var provider = pair.provider();
+        var consumer = pair.consumer();
         var providerPcid = provider.participantContextId();
         var consumerPcid = consumer.participantContextId();
 
@@ -236,12 +216,10 @@ class VerificationEnvironmentE2eTest {
     @Test
     void consumerInitiatedCertificateRequest() {
         var runId = UUID.randomUUID().toString().substring(0, 8);
-        var providerExtId = "pull-provider-" + runId;
-        var consumerExtId = "pull-consumer-" + runId;
 
-        var results = onboardProviderAndConsumer(runId, providerExtId, consumerExtId);
-        var provider = results.get(providerExtId);
-        var consumer = results.get(consumerExtId);
+        var pair = onboardProviderAndConsumer(runId);
+        var provider = pair.provider();
+        var consumer = pair.consumer();
         var providerPcid = provider.participantContextId();
         var consumerPcid = consumer.participantContextId();
 
@@ -333,49 +311,76 @@ class VerificationEnvironmentE2eTest {
     }
 
     /**
-     * Onboards a provider + consumer pair and waits for both completion callbacks; returns the
-     * two {@link OnboardingResult}s keyed by externalId, asserted successful.
-     *
-     * <p>The callback payload is the slim OSP contract (externalId/state/message) and no longer
-     * carries the provisioned identities, so they are recovered the way any VE-side actor would
-     * get them: BPN and DID by the same deterministic rules the registration was submitted under,
-     * the participant context id from the CFM tenant manager, queried by DID through the gateway.
+     * The regression test for the OSP-facing surface of the Onboarding API itself, exercised the
+     * way an external onboarding service provider uses it: register a status callback (the one
+     * call gated on the {@code configure_partner_registration} scope), submit a registration, and
+     * receive the CONFIRMED callback carrying the caller-supplied externalId. This path covers
+     * the registration leg only — no EDC resources are provisioned (that is the Membership Hub's
+     * job, exercised by the certificate-exchange tests).
      */
-    private Map<String, OnboardingResult> onboardProviderAndConsumer(String runId, String providerExtId, String consumerExtId) {
-        onboardParticipant("Provider " + runId, "provider-" + runId, providerExtId);
-        onboardParticipant("Consumer " + runId, "consumer-" + runId, consumerExtId);
+    @Test
+    void ospRegistrationStatusContract() {
+        wiremock.stubFor(post(urlPathEqualTo("/registration/status"))
+                .willReturn(okJson("{}")));
 
-        log("waiting for both onboardings to complete (callbacks on /registration/status)...");
-        var callbacks = new AtomicReference<Map<String, RegistrationStatusCallback>>();
-        await().atMost(Duration.ofMinutes(10)).pollInterval(Duration.ofSeconds(5)).untilAsserted(() -> {
+        // set callback url: status updates land on the WireMock stub above
+        var callbackUrl = "http://%s:%d/registration/status".formatted(CALLBACK_HOST, wiremock.getPort());
+        given()
+                .baseUri(ONBOARDING_API_URL)
+                .header("Authorization", "Bearer " + ospAccessToken())
+                .contentType(ContentType.JSON)
+                .body(new SetCallbackRequest(callbackUrl, null, null, null))
+                .post("/api/administration/RegistrationStatus/callback")
+                .then().statusCode(204);
+
+        var externalId = "osp-contract-" + UUID.randomUUID().toString().substring(0, 8);
+        submitOspRegistration("OSP Contract Corp " + externalId, "ospcontract-" + externalId.substring(13), externalId);
+
+        log("waiting for the CONFIRMED status callback (externalId=%s)...", externalId);
+        await().atMost(Duration.ofMinutes(2)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
             var byExternalId = callbackResults();
-            assertThat(byExternalId.keySet()).contains(providerExtId, consumerExtId);
-            callbacks.set(byExternalId);
+            assertThat(byExternalId).containsKey(externalId);
+            // pin the state: a REJECTED callback must fail here, not as an opaque mismatch later
+            assertThat(byExternalId.get(externalId).state())
+                    .withFailMessage("registration not confirmed: %s", byExternalId.get(externalId))
+                    .isEqualTo("CONFIRMED");
         });
-        // CONFIRMED is the only state the app calls back with today, but pin it anyway: a
-        // REJECTED callback must fail here, not as an opaque timeout further down the suite.
-        var providerStatus = callbacks.get().get(providerExtId);
-        var consumerStatus = callbacks.get().get(consumerExtId);
-        assertThat(providerStatus.state())
-                .withFailMessage("provider onboarding not confirmed: %s", providerStatus)
-                .isEqualTo("CONFIRMED");
-        assertThat(consumerStatus.state())
-                .withFailMessage("consumer onboarding not confirmed: %s", consumerStatus)
-                .isEqualTo("CONFIRMED");
-
-        var tenantManager = new TenantManagerApi(TENANT_MANAGER_API_URL,
-                tokenExchange.getParticipantToken("onboarding-api", "issuer", "tenant-manager-api:read"));
-        var provider = onboardingResult(tenantManager, providerExtId, "provider-" + runId);
-        var consumer = onboardingResult(tenantManager, consumerExtId, "consumer-" + runId);
-        log("provider onboarded: pcid=%s did=%s bpn=%s", provider.participantContextId(), provider.holderId(), provider.bpn());
-        log("consumer onboarded: pcid=%s did=%s bpn=%s", consumer.participantContextId(), consumer.holderId(), consumer.bpn());
-        return Map.of(providerExtId, provider, consumerExtId, consumer);
+        log("CONFIRMED callback received for %s", externalId);
     }
 
-    private static OnboardingResult onboardingResult(TenantManagerApi tenantManager, String externalId, String shortName) {
-        var did = DID_TEMPLATE + shortName;
-        var pcid = tenantManager.awaitParticipantContextId(did, Duration.ofMinutes(2));
-        return new OnboardingResult(externalId, bpnFor(externalId), did, pcid);
+    /**
+     * Onboards a provider + consumer pair through the Membership Hub and waits until both are
+     * PROVISIONED; the returned {@link OnboardingResult}s carry the provisioned identities
+     * straight from the hub's correlated record — participant context id included, so nothing
+     * needs to be recovered from the Tenant Manager here.
+     */
+    private OnboardedPair onboardProviderAndConsumer(String runId) {
+        var provider = onboardMember("Provider " + runId, "provider-" + runId);
+        var consumer = onboardMember("Consumer " + runId, "consumer-" + runId);
+        log("provider onboarded: pcid=%s did=%s bpn=%s", provider.participantContextId(), provider.holderId(), provider.bpn());
+        log("consumer onboarded: pcid=%s did=%s bpn=%s", consumer.participantContextId(), consumer.holderId(), consumer.bpn());
+        return new OnboardedPair(provider, consumer);
+    }
+
+    private OnboardingResult onboardMember(String name, String shortName) {
+        // the BPN is required by the hub's API; derived deterministically from the run-unique
+        // short name, like the VAT id (duplicates of active registrations are rejected)
+        var bpn = bpnFor(shortName);
+        var submitted = hub.onboard(name, shortName, bpn, "DE" + String.format("%08X", Math.abs(shortName.hashCode())));
+        var externalId = submitted.path("externalId").asText();
+        var provisioned = hub.awaitProvisioned(externalId, Duration.ofMinutes(10));
+        var pcid = provisioned.path("participantContextId").asText();
+        // Guard against wire-contract skew: a PROVISIONED membership always carries the context
+        // id, so an empty value means the deployed hub serves a different field name than this
+        // suite mirrors — fail here, not as an opaque 4xx three steps later.
+        assertThat(pcid)
+                .withFailMessage("PROVISIONED membership %s carries no participantContextId — "
+                        + "is the deployed hub older than this suite? Response: %s", externalId, provisioned)
+                .isNotBlank();
+        return new OnboardingResult(externalId, bpn, provisioned.path("did").asText(), pcid);
+    }
+
+    private record OnboardedPair(OnboardingResult provider, OnboardingResult consumer) {
     }
 
     /**
@@ -459,15 +464,15 @@ class VerificationEnvironmentE2eTest {
     }
 
     /**
-     * The BPN a registration is submitted under, derived from the externalId the same way the
-     * app's BPN stub used to — deterministic and run-unique, so the suite can restate it later
-     * without the callback having to echo it.
+     * The BPN a registration is submitted under, derived deterministically from a run-unique
+     * seed — so the suite can restate it later without any response having to echo it.
      */
-    private static String bpnFor(String externalId) {
-        return ("BPNL" + String.format("%08X", Math.abs(externalId.hashCode())) + "000000").substring(0, 16);
+    private static String bpnFor(String seed) {
+        return ("BPNL" + String.format("%08X", Math.abs(seed.hashCode())) + "000000").substring(0, 16);
     }
 
-    private static void onboardParticipant(String name, String shortName, String runId) {
+    /** Submits a registration DIRECTLY to the Onboarding API, in the OSP role (osp-client). */
+    private static void submitOspRegistration(String name, String shortName, String runId) {
         // bpn is a required field of the registration payload (see bpnFor)
         var bpn = bpnFor(runId);
         var newParticipant = NewParticipantData.builder()
@@ -487,7 +492,7 @@ class VerificationEnvironmentE2eTest {
                 .autoSubmit(true)
                 .build();
 
-        // kick off the onboarding, then wait for the async callback
+        // kick off the registration; the caller observes the outcome via the status callback
         given()
                 .baseUri(VerificationEnvironmentE2eTest.ONBOARDING_API_URL)
                 .header("Authorization", "Bearer " + ospAccessToken())
