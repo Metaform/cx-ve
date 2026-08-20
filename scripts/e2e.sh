@@ -4,8 +4,9 @@
 # the first broken step.
 #
 #   1. install-ve.sh        — the VE on a single kind cluster (cxve / cxve.localhost on 80/443)
-#   2. onboard-participant  — onboards the "Verification Participant", gated on the onboarding
-#                             reaching COMPLETED (exits non-zero on rejected/failed/stalled)
+#   2. onboard-participant  — onboards the "Verification Participant" through the Membership
+#                             Hub, gated on the membership reaching PROVISIONED (exits non-zero
+#                             on rejected/failed/stalled)
 #   3. external DID check   — resolves the participant's DID document from OUTSIDE the cluster
 #                             (plain HTTP from this host through the gateway), proving the VE's
 #                             identity surface is reachable the way an external dataspace
@@ -82,14 +83,14 @@ fi
 RUN_TS=$(date +%s)
 SHORT_NAME="verification-participant-${RUN_TS}"
 PARTICIPANT_DID="did:web:identity.${HOST}:${SHORT_NAME}"
-# bpn is a required field of the registration payload; derive a run-unique BPNL from the same
+# bpn is a required field of the membership payload; derive a run-unique BPNL from the same
 # timestamp (duplicate BPNs are rejected, so it must differ between runs on a reused cluster)
 BPN="BPNL$(printf '%012d' "$RUN_TS")"
 
 step "Onboard the Verification Participant ($PARTICIPANT_DID)"
 FOLLOW=true ./scripts/onboard-participant.sh --name "Verification Participant" \
   --short-name "$SHORT_NAME" --bpn "$BPN" \
-  --cluster "$CLUSTER_NAME" --namespace edc-v --api-url "http://${HOST}/onboarding"
+  --api-url "http://${HOST}/hub"
 
 step "Verify the participant DID resolves from OUTSIDE the cluster"
 # Resolution exactly as an external dataspace solution performs it: did:web -> plain HTTP GET

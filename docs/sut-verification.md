@@ -117,8 +117,9 @@ from the picture once ve2 is replaced by a real SUT.
 ## Where the harness stands today
 
 `dsp-tests.sh` implements Checkpoint 2+3 with ve2 as a compliant pseudo-SUT: ve2's
-obligations are fulfilled by the platform's own tooling (`onboard-participant.sh` for
-credentials/wallet/data plane, the script's seeding steps for the offer), and the script
+obligations are fulfilled by the platform's own tooling (the Membership Hub's
+`POST /hub/api/members` for credentials/wallet/data plane, the script's seeding steps for
+the offer), and the script
 drives both sides. Evolving it toward this document means extracting the ve2-side operations
 behind a "consumer/provider driver" interface and adding the reversed-role scenario — the
 ve1-side halves stay as they are.

@@ -15,9 +15,8 @@
 # did:web:issuer.<host>:issuer).
 #
 # Unlike install-ve.sh, nothing is built from source: every image — including the Onboarding
-# API and the Compliance Tracker — is pulled from its registry (the published images from
-# .github/workflows/publish.yml), so the umbrella's onboarding-api.image.pullPolicy=Never
-# (meant for kind-loaded images) is overridden below.
+# API, the Compliance Tracker and the Membership Hub — is pulled from its registry (the
+# published images from .github/workflows/publish.yml).
 #
 # Traefik is installed from traefik-values.yaml, which already carries the VPS-relevant
 # settings: hostPort 80/443 binding with the unprivileged-port sysctl, and the metallb
@@ -101,6 +100,9 @@ HOST_OVERRIDES=(
   --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
   --set "onboarding-api.httpRoute.hostnames={${HOST}}"
   --set-string "onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
+  # The hub resolves member DIDs by the same rule the onboarding-api does; both must follow the host.
+  --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
+  --set "membership-hub.httpRoute.hostnames={${HOST}}"
   --set "certo.gateway.hostnames={${HOST}}"
   # NOTE certo.sigletBaseUrl is deliberately NOT host-derived: certo calls siglet without a
   # bearer token, so it must use the in-cluster siglet service (the checked-in default) — the
@@ -118,14 +120,15 @@ kubectl rollout status deployment/traefik -n traefik --timeout=120s
 kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
 
 # Resolve the umbrella's dependencies (platform, catenax-profile, certo from OCI; the local
-# onboarding-api chart is vendored from ../onboarding-api)
+# onboarding-api and membership-hub charts are vendored from ../onboarding-api / ../membership-hub)
 helm dependency update "$UMBRELLA_CHART"
 
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
 # space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> onboarding-api jwtlet
-# mapping (200) -> certo jwtlet mappings (210) -> certo activity/orchestration (220). The seed
-# hooks dereference gateway-hostname URLs while the install is still running — on a VPS that
-# works without CoreDNS patching because <host> resolves through public DNS to the VPS itself.
+# mapping (200) -> certo jwtlet mappings (210) -> certo activity/orchestration (220) ->
+# membership-hub jwtlet mapping (230). The seed hooks dereference gateway-hostname URLs while
+# the install is still running — on a VPS that works without CoreDNS patching because <host>
+# resolves through public DNS to the VPS itself.
 helm upgrade --install "$RELEASE" "$UMBRELLA_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
   "${HOST_OVERRIDES[@]}" \
