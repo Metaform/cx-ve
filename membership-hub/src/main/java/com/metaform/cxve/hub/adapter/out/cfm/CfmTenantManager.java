@@ -98,7 +98,13 @@ public class CfmTenantManager implements TenantManager {
                     transferTypeMapping(ccmTransferType, ccmEndpointType, ccmEndpoint, ccmTokenSource));
         }
         if (!transferTypeMappings.isEmpty()) {
-            builder.vpaProperty("cfm.dataplane", Map.of("transferTypeMappings", transferTypeMappings));
+            // The authorization profile opts the data-plane registration into DPS signaling auth:
+            // the control plane then acquires an RFC 8693 token (jwtlet) for its calls to the
+            // siglet instance, whose signaling_auth is enabled as of platform 0.0.19 — without
+            // this, every transfer dies with 401 "Missing Authorization header" at flow prepare.
+            builder.vpaProperty("cfm.dataplane", Map.of(
+                    "authorization", Map.of("type", "oauth2_token_exchange"),
+                    "transferTypeMappings", transferTypeMappings));
         }
         return builder.build();
     }
