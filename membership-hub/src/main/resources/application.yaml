@@ -22,6 +22,18 @@ spring:
       # Hibernate manages the schema; move to `validate` once it is migration-managed.
       ddl-auto: update                                          # SPRING_JPA_HIBERNATE_DDLAUTO
     open-in-view: false
+  # Bearer-JWT validation on /api/callbacks/** against the VE's OSP IdP, Ory Hydra
+  # (CallbackSecurityConfig): the Onboarding API authenticates its status callbacks with the
+  # client this app registers alongside its callback URL. The JWKS is fetched lazily on the
+  # first request, so startup does not need the IdP to be reachable. issuer-uri is the expected
+  # `iss` value — Hydra's urls.self.issuer, the EXTERNAL gateway URL; with jwk-set-uri also set,
+  # Boot performs no discovery against it.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json  # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI
+          issuer-uri: http://cxve.localhost/auth/osp                                      # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUERURI
 
 springdoc:
   swagger-ui:
@@ -33,11 +45,18 @@ logging:
 
 # The Onboarding API, called in the onboarding-service-provider role: OAuth2 client-credentials
 # against the VE's OSP IdP (Ory Hydra). The client must be seeded there (see the umbrella chart's
-# ospIdp.clients) with the configure_partner_registration scope. callback-url is what the hub
-# registers as its status-callback address — it must be reachable FROM the Onboarding API.
+# ospIdp.clients) with the configure_partner_registration scope. The callback block is what the
+# hub registers as its status-callback address: the url must be reachable FROM the Onboarding
+# API, and token-url/client-id/client-secret are the credentials it uses to authenticate its
+# callback calls (a second seeded Hydra client) — this app's callback endpoint validates the
+# resulting bearer (see spring.security below).
 onboarding-api:
   url: http://cxve.localhost/onboarding                          # ONBOARDING_API_URL
-  callback-url: http://localhost:8080/api/callbacks/registration-status   # ONBOARDING_API_CALLBACK_URL
+  callback:
+    url: http://localhost:8080/api/callbacks/registration-status # ONBOARDING_API_CALLBACK_URL
+    token-url: http://cxve.localhost/auth/osp/oauth2/token       # ONBOARDING_API_CALLBACK_TOKEN_URL
+    client-id: membership-hub-callback                          # ONBOARDING_API_CALLBACK_CLIENT_ID
+    client-secret: ""                                           # ONBOARDING_API_CALLBACK_CLIENT_SECRET
   auth:
     token-url: http://cxve.localhost/auth/osp/oauth2/token       # ONBOARDING_API_AUTH_TOKEN_URL
     client-id: membership-hub                                   # ONBOARDING_API_AUTH_CLIENT_ID

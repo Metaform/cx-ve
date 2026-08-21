@@ -23,7 +23,7 @@ status callbacks carry) and the `participantContextId` provisioning assigns.
 |---|---|
 | `POST /api/members` | Submit a member (name, shortName, bpn, optional did, uniqueIds, companyRoles, agreements). Returns the membership record incl. its `externalId`. |
 | `GET /api/members/{externalId}` | The correlated view. For a member with a deployed profile, resolves the stored profile id and reads its current state from the Tenant Manager. |
-| `POST /api/callbacks/registration-status` | The status-callback endpoint registered with the Onboarding API. Not meant for humans. |
+| `POST /api/callbacks/registration-status` | The status-callback endpoint registered with the Onboarding API. OAuth2-protected: the caller presents a client-credentials bearer from the OSP IdP, obtained with the client this app registers alongside its callback URL. Not meant for humans. |
 
 States: `SUBMITTED → CONFIRMED → PROVISIONING → PROVISIONED` (the happy path runs through within
 the `POST`), with `REJECTED`/`FAILED` as terminal off-ramps and `REGISTERING` marking a
@@ -49,8 +49,10 @@ override. The deployed configuration lives in `charts/membership-hub/values.yaml
 rendered 1:1 into the pod's application.yaml). Notable:
 
 - `onboarding-api.*` — base URL, OSP OAuth2 client (must be seeded in the OSP IdP with the
-  `configure_partner_registration` scope; the umbrella chart does this) and the callback URL this
-  app registers.
+  `configure_partner_registration` scope; the umbrella chart does this) and the callback block
+  this app registers: its URL plus the token-url/client-id/client-secret the Onboarding API uses
+  to authenticate the status callbacks (a second seeded Hydra client, validated by this app via
+  `spring.security.oauth2.resourceserver.jwt.*`).
 - `tenant-manager.*` — base URL and the jwtlet mapping (`token-resource`) the workload token is
   exchanged under; the chart's jwtlet-seed job registers it with the
   `tenant-manager-api:read/write` scopes.

@@ -22,8 +22,9 @@ import org.springframework.web.bind.annotation.RestController;
  * submitting thread picks the recorded outcome up and drives provisioning from there. Unknown
  * external ids are answered with 404: the callback is not for this hub instance's records.
  *
- * <p>Deliberately unauthenticated for now: the Onboarding API does not (yet) use the credentials
- * a provider registers with its callback, and this endpoint is only reachable cluster-internally.
+ * <p>Authenticated: the caller presents a bearer obtained via client_credentials from the VE's
+ * OSP IdP with the client this app registered alongside its callback URL — enforced by
+ * {@link com.metaform.cxve.hub.config.CallbackSecurityConfig}.
  */
 @RestController
 @RequestMapping("/api/callbacks")

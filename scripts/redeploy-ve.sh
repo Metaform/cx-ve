@@ -79,6 +79,8 @@ HOST_OVERRIDES=(
   --set-string "onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   --set "membership-hub.httpRoute.hostnames={${HOST}}"
+  # The hub validates the Onboarding API's callback bearers against the OSP IdP's external issuer URL.
+  --set-string "membership-hub.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "certo.gateway.hostnames={${HOST}}"
 )
 
