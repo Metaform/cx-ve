@@ -102,6 +102,16 @@ config:
       url: jdbc:postgresql://cx-ve-postgresql.edc-v.svc.cluster.local:5432/membershiphub
       username: membershiphub
       password: membershiphub
+    # Bearer-JWT validation on the status-callback endpoint (/api/callbacks/**) against the
+    # VE's OSP IdP (CallbackSecurityConfig). The JWKS is fetched cluster-internally; issuer-uri
+    # is the expected `iss` value — the EXTERNAL gateway URL (host-derived: the install scripts
+    # override it for a non-default host) — and no discovery is performed against it.
+    security:
+      oauth2:
+        resourceserver:
+          jwt:
+            jwk-set-uri: http://osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
+            issuer-uri: http://cxve.localhost/auth/osp
   # Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and
   # springdoc URLs are generated with the external prefix when the route is enabled
   server:
@@ -112,14 +122,20 @@ config:
   logging:
     level:
       com.metaform.cxve.hub: INFO
-  # The Onboarding API, called as an onboarding service provider. The token comes from the OSP
-  # IdP's cluster-internal public port; its `iss` is the IdP's external issuer URL regardless of
-  # which host the request hit, so validation on the API side is unaffected. The client must be
-  # seeded in the IdP (umbrella: ospIdp.clients) with the configure_partner_registration scope.
-  # callback-url is this app's own in-cluster address, as the Onboarding API must reach it.
+  # The Onboarding API, called as an onboarding service provider. Tokens come from the OSP IdP's
+  # cluster-internal public port; their `iss` is the IdP's external issuer URL regardless of
+  # which host the request hit, so validation on the receiving side is unaffected. Both clients
+  # must be seeded in the IdP (umbrella: ospIdp.clients): `auth` is the hub's OSP identity
+  # (configure_partner_registration scope), `callback` the credentials it hands the Onboarding
+  # API for authenticating the status callbacks back to this app — the resourceserver block
+  # above validates them. The callback url is this app's own in-cluster address.
   onboarding-api:
     url: http://cx-ve-onboarding-api.edc-v.svc.cluster.local:8080
-    callback-url: http://cx-ve-membership-hub.edc-v.svc.cluster.local:8080/api/callbacks/registration-status
+    callback:
+      url: http://cx-ve-membership-hub.edc-v.svc.cluster.local:8080/api/callbacks/registration-status
+      token-url: http://osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+      client-id: membership-hub-callback
+      client-secret: membership-hub-callback-secret
     auth:
       token-url: http://osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
       client-id: membership-hub

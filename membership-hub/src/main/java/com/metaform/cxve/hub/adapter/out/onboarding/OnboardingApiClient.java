@@ -23,27 +23,42 @@ public class OnboardingApiClient implements OnboardingApi {
     private final RestClient restClient;
     private final OspTokenProvider tokenProvider;
     private final String callbackUrl;
+    private final String callbackTokenUrl;
+    private final String callbackClientId;
+    private final String callbackClientSecret;
 
     public OnboardingApiClient(@Qualifier("onboardingApiRestClient") RestClient restClient,
                                OspTokenProvider tokenProvider,
-                               @Value("${onboarding-api.callback-url:http://localhost:8080/api/callbacks/registration-status}") String callbackUrl) {
+                               @Value("${onboarding-api.callback.url:http://localhost:8080/api/callbacks/registration-status}") String callbackUrl,
+                               @Value("${onboarding-api.callback.token-url:http://cxve.localhost/auth/osp/oauth2/token}") String callbackTokenUrl,
+                               @Value("${onboarding-api.callback.client-id:membership-hub-callback}") String callbackClientId,
+                               @Value("${onboarding-api.callback.client-secret:}") String callbackClientSecret) {
         this.restClient = restClient;
         this.tokenProvider = tokenProvider;
         this.callbackUrl = callbackUrl;
+        this.callbackTokenUrl = callbackTokenUrl;
+        this.callbackClientId = callbackClientId;
+        this.callbackClientSecret = callbackClientSecret;
     }
 
     @Override
     public void registerCallback() {
-        // Only the callbackUrl is registered. The payload's authUrl/clientId/clientSecret are the
-        // credentials the Onboarding API would use to authenticate its outbound callback call —
-        // it does not do that today, and the hub's callback endpoint is cluster-internal.
+        // The registration carries the credentials for the OUTBOUND leg: the Onboarding API
+        // fetches a client_credentials token from authUrl with this client id/secret and sends
+        // it as the bearer on every status callback — which this app's callback endpoint
+        // requires (CallbackSecurityConfig).
         restClient.post()
                 .uri("/api/administration/RegistrationStatus/callback")
                 .header("Authorization", "Bearer " + tokenProvider.getToken())
-                .body(Map.of("callbackUrl", callbackUrl))
+                .body(Map.of(
+                        "callbackUrl", callbackUrl,
+                        "authUrl", callbackTokenUrl,
+                        "clientId", callbackClientId,
+                        "clientSecret", callbackClientSecret))
                 .retrieve()
                 .toBodilessEntity();
-        log.debug("Registered status callback '{}' with the Onboarding API", callbackUrl);
+        log.debug("Registered status callback '{}' (auth via client '{}' at {}) with the Onboarding API",
+                callbackUrl, callbackClientId, callbackTokenUrl);
     }
 
     @Override

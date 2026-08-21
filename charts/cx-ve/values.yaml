@@ -282,6 +282,13 @@ ospIdp:
     - id: membership-hub
       secret: membership-hub-secret
       scope: "configure_partner_registration"
+    # The credentials the hub registers ALONGSIDE its callback URL: the Onboarding API uses them
+    # (client_credentials) to authenticate the status callbacks it sends BACK to the hub, whose
+    # callback endpoint validates the bearer against this IdP. Must agree with the membership-hub
+    # chart's config onboarding-api.callback.*
+    - id: membership-hub-callback
+      secret: membership-hub-callback-secret
+      scope: "callback"
   resources: {}
 
 # ---- jwtlet endpoints for the umbrella's own seed jobs and the certo agent -------------------

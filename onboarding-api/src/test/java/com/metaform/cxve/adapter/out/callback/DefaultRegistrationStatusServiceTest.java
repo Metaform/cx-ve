@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,8 +23,10 @@ class DefaultRegistrationStatusServiceTest {
         }
     }
 
+    // No authUrl: the callback is invoked plain. The authenticated variant has its own tests —
+    // a registration WITH an authUrl whose token endpoint is unreachable drops the update.
     private static CallbackRequestData callback(String url) {
-        return new CallbackRequestData(url, "https://auth.example/token", "osp-oauth-client", "secret");
+        return new CallbackRequestData(url, null, "osp-oauth-client", "secret");
     }
 
     /**
@@ -135,5 +138,52 @@ class DefaultRegistrationStatusServiceTest {
         service.invokeCallback(OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-2"));
 
         assertThat(one.get()).isZero();
+    }
+
+    @Test
+    void invokeCallback_withRegisteredCredentials_carriesAClientCredentialsToken() throws IOException {
+        // A registration with an authUrl opts into authentication: the service fetches a token
+        // via client_credentials from exactly that endpoint and sends it as the bearer.
+        var server = startReceiver();
+        var tokenRequests = new AtomicInteger();
+        server.createContext("/token", exchange -> {
+            tokenRequests.incrementAndGet();
+            var body = "{\"access_token\":\"the-token\"}".getBytes();
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        var bearer = new AtomicReference<String>();
+        server.createContext("/status", exchange -> {
+            bearer.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        service.setCallbackAddress("client-1",
+                new CallbackRequestData(url(server, "/status"), url(server, "/token"), "cb-client", "cb-secret"));
+
+        service.invokeCallback(OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-1"));
+
+        assertThat(tokenRequests.get()).isEqualTo(1);
+        assertThat(bearer.get()).isEqualTo("Bearer the-token");
+    }
+
+    @Test
+    void invokeCallback_whenTheTokenFetchFails_dropsTheUpdateInsteadOfCallingPlain() throws IOException {
+        // The provider asked for authentication; an anonymous POST must never arrive at its
+        // callback — a broken token endpoint drops the update (fire-and-forget, logged).
+        var server = startReceiver();
+        var status = countingEndpoint(server, "/status");
+        server.createContext("/token", exchange -> {
+            exchange.sendResponseHeaders(500, -1);
+            exchange.close();
+        });
+        service.setCallbackAddress("client-1",
+                new CallbackRequestData(url(server, "/status"), url(server, "/token"), "cb-client", "cb-secret"));
+
+        service.invokeCallback(OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-1"));
+
+        assertThat(status.get()).isZero();
     }
 }

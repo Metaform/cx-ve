@@ -21,6 +21,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    // OAuth2 resource server: bearer-JWT validation of the Onboarding API's status callbacks
+    // against the VE's OSP IdP (Ory Hydra)
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
     // Postgres persistence for membership records; the "test" profile swaps in the in-memory
     // store (see application.yaml), so the app still runs database-free for local development
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")

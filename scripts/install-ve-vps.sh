@@ -103,6 +103,8 @@ HOST_OVERRIDES=(
   # The hub resolves member DIDs by the same rule the onboarding-api does; both must follow the host.
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   --set "membership-hub.httpRoute.hostnames={${HOST}}"
+  # The hub validates the Onboarding API's callback bearers against the OSP IdP's external issuer URL.
+  --set-string "membership-hub.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "certo.gateway.hostnames={${HOST}}"
   # NOTE certo.sigletBaseUrl is deliberately NOT host-derived: certo calls siglet without a
   # bearer token, so it must use the in-cluster siglet service (the checked-in default) — the
