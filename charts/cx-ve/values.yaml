@@ -108,6 +108,18 @@ core-platform-distribution:
           endpoint: "http://provider:8080/data"
           tokenSource: "provider"
           txRenewalSupport: true
+  cfm:
+    agents:
+      jwtlet:
+        clientMappings:
+          - name: controlplane
+            scopes: [read, signaling]
+          - name: identityhub
+            scopes: [read]
+          - name: siglet-sa
+            scopes: [read]
+          - name: certo
+            scopes: [siglet-token]
   postgresql:
     # Helm replaces lists wholesale, so this list must repeat the platform defaults in full —
     # the `certo`, `event_tracker` and `hydra` entries are the CX-VE-specific additions (certo's
@@ -194,6 +206,14 @@ certo:
   # behind clearglass, which requires siglet-api scopes on /tokens/** (and doesn't map
   # POST /tokens/verify at all -> default deny).
   sigletBaseUrl: "http://siglet.edc-v.svc.cluster.local:8080"
+
+  tokenExchange:
+    enabled: true
+    url: http://jwtlet.edc-v.svc.cluster.local:8080/token
+    audience: edcv
+    scope: siglet-token
+    verifyResource: sudo
+    subjectTokenAudience: https://kubernetes.default.svc.cluster.local
   # Certificate-exchange status changes (CX-0135 §2.1.3) published as CloudEvents onto the platform's
   # edc-events stream, on subjects events.certificate.exchange.* — the same stream and envelope shape
   # the EDC runtimes use, so the compliance tracker and any other events.> consumer sees them
