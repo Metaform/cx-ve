@@ -89,7 +89,7 @@ spec:
                 '{
                     "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:certo",
                     "participantContext": "sudo",
-                    "scopes": ["certo-mgmt-api:read", "certo-mgmt-api:write"],
+                    "scopes": ["certo-mgmt-api:read", "certo-mgmt-api:write", "siglet-token"],
                     "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
                 }'
 {{- end }}
