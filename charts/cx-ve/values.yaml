@@ -192,8 +192,6 @@ membership-hub:
 # ---- Certo (CX-0135 certificate exchange) ----------------------------------------------------
 certo:
   enabled: true
-  image:
-    tag: "latest"
   gateway:
     name: edcv-gateway
     namespace: edc-v
@@ -337,7 +335,7 @@ certoAgent:
   replicas: 1
   image:
     repository: ghcr.io/eclipse-cfm/cfm/certoagent
-    tag: latest
+    tag: 0.0.3
     pullPolicy: IfNotPresent
   # The agent runs under the platform's "cfm-agents" ServiceAccount; the certo-jwtlet-seed job
   # maps that SA to the "sudo" participant context with the certo-mgmt-api scopes, authorizing

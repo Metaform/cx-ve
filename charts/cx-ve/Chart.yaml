@@ -34,5 +34,5 @@ dependencies:
   # Certo (CX-0135 certificate exchange service)
   - name: certo
     repository: oci://ghcr.io/metaform/charts
-    version: 0.0.5
+    version: 0.0.6
     condition: certo.enabled
