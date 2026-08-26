@@ -16,7 +16,7 @@ dependencies:
   # infra (NATS/Vault/Postgres/telemetry) + generic platform seeding
   - name: core-platform-distribution
     repository: oci://ghcr.io/eclipse-cfm/charts
-    version: 0.0.21
+    version: 0.0.22
   # Catena-X dataspace seeding (issuer credentials, dataspace profile, EDC seed), layered on
   # the platform. 0.0.9+ carries hook weights 110-130 so its seeds run after the platform's
   # 10/20 hooks in the release's shared hook space.

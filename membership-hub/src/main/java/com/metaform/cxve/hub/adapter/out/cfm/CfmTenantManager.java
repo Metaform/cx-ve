@@ -106,6 +106,7 @@ public class CfmTenantManager implements TenantManager {
                     "authorization", Map.of("type", "oauth2_token_exchange"),
                     "transferTypeMappings", transferTypeMappings));
         }
+        builder.vpaProperty("cfm.connector", Map.of("dataspaceProfiles", List.of("cx-neptune")));
         return builder.build();
     }
 
