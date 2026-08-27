@@ -4,7 +4,7 @@
 
 ### 1.1 Purpose
 
-This plan defines the test cases and test suite to verify interoperability between **Eclipse EDC IdentityHub** (IH) ** and the **SAP DIV** (DIV) for DCP v1.0.1 credential issuance in the Catena-X Neptune environment. It provides comprehensive coverage of the credential issuance and presentation behavior required by the [Decentralized Claims Protocol](https://github.com/eclipse-dataspace-dcp/decentralized-claims-protocol) standard.
+This plan defines the test cases and test suite to verify interoperability between **Eclipse EDC IdentityHub (IH)** and the **SAP DIV** (DIV) for DCP v1.0.1 credential issuance in the Catena-X Neptune environment. It provides comprehensive coverage of the credential issuance and presentation behavior required by the [Decentralized Claims Protocol](https://github.com/eclipse-dataspace-dcp/decentralized-claims-protocol) standard.
 
 DCP interoperability in Catena-X has two aspects:
 
