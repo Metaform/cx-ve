@@ -90,7 +90,7 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
         // contractVersion is the fixed value the registration agent used to send.
         return Map.of(
                 "id", process.holderId(),
-                "contractVersion", "1.0.0",
+                "contractVersion", "1.0",
                 "memberOf", memberOf,
                 "bpn", process.bpn());
     }

@@ -10,6 +10,7 @@ import io.restassured.response.Response;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -29,6 +30,8 @@ import static org.awaitility.Awaitility.await;
 public class ManagementApi {
 
     static final String MANAGEMENT_CONTEXT = "https://w3id.org/edc/connector/management/v2";
+    static final String CX_POLICY_CONTEXT = "https://w3id.org/catenax/2025/9/policy/context.jsonld";
+
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(2);
 
     private final String baseUrl;
@@ -160,32 +163,31 @@ public class ManagementApi {
      * expression). The rightOperand is a placeholder — the e2e CEL expressions check fixed
      * credential claims and ignore it.
      */
-    public void createPolicy(String pcid, String policyId, Set<String> leftOperands) {
-        var constraints = mapper.createArrayNode();
-        leftOperands.forEach(op -> {
+    public void createPolicy(String pcid, String policyId, String action, List<Constraint> constraints) {
+        var policyConstraints = mapper.createArrayNode();
+        constraints.forEach(op -> {
             var c = mapper.createObjectNode();
-            c.put("leftOperand", op);
-            c.put("operator", "eq");
-            c.put("rightOperand", "active");
-            constraints.add(c);
+            c.put("leftOperand", op.leftOperand);
+            c.put("operator", op.operator);
+            c.put("rightOperand", op.rightOperand);
+            policyConstraints.add(c);
         });
-        var and = mapper.createObjectNode().set("and", constraints);
+        var and = mapper.createObjectNode().set("and", policyConstraints);
         var body = """
                 {
-                  "@context": ["%s", "http://www.w3.org/ns/odrl.jsonld"],
+                  "@context": ["%s", "%s"],
                   "@type": "PolicyDefinition",
                   "@id": "%s",
                   "policy": {
-                    "@context": "http://www.w3.org/ns/odrl.jsonld",
                     "@type": "Set",
                     "permission": [{
-                      "action": "use",
+                      "action": "%s",
                       "constraint": [%s]
                     }]
                   }
-                }""".formatted(MANAGEMENT_CONTEXT, policyId, and.toString());
+                }""".formatted(MANAGEMENT_CONTEXT, CX_POLICY_CONTEXT,  policyId, action, and.toString());
         expect2xx(post("/participants/%s/policydefinitions".formatted(pcid), body), "policy " + policyId);
-        log("   Management API:  policy '%s' (%d credential constraints) created", policyId, leftOperands.size());
+        log("   Management API:  policy '%s' (%d credential constraints) created", policyId, constraints.size());
     }
 
     public void createContractDefinition(String pcid, String id, String accessPolicyId, String contractPolicyId) {
@@ -348,5 +350,8 @@ public class ManagementApi {
         } else if (!context.isMissingNode()) {
             target.add(context);
         }
+    }
+
+    public record Constraint(String leftOperand, String operator, String rightOperand) {
     }
 }

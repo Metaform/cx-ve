@@ -56,7 +56,7 @@ its business), what ve1 does, and which wire exchanges occur (numbers reference 
 **SUT obligations (state):**
 - The SUT participant *holds* the three Catena-X credentials — `MembershipCredential`
   (`memberOf == "Catena-X"`), `BpnCredential` (matching its declared BPN) and
-  `DataExchangeGovernanceCredential` (`contractVersion == "1.0.0"`) — issued by an issuer ve1
+  `DataExchangeGovernanceCredential` (`contractVersion == "1.0"`) — issued by an issuer ve1
   trusts. Topology is the SUT's choice: its own (registered) issuer, or credentials issued by
   ve1's issuer service via DCP issuance (the more complete conformance target, not yet part of
   the harness).
@@ -73,7 +73,7 @@ verifies ve1's VP and vice versa) before asserting anything content-related.
 **SUT obligations (state):**
 - An agreed-upon asset exists with an `HttpData-PULL` distribution and a backing data source.
 - Access + contract policy gate the asset on the three CX credential constraints
-  (`Membership`, `FrameworkAgreement == DataExchangeGovernance:1.0.0`,
+  (`Membership`, `FrameworkAgreement == DataExchangeGovernance:1.0`,
   `BusinessPartnerNumber == <ve1 participant's BPN>`).
 - A contract definition exposes the asset in the catalog for authorized consumers.
 - Its data plane can mint/serve EDR tokens and (if advertised) support token refresh.
