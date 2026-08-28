@@ -26,6 +26,7 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMoc
 import static com.metaform.cxve.hub.e2e.TestLog.log;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.LIST;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -38,6 +39,11 @@ import static org.awaitility.Awaitility.await;
  * {@code check}/{@code build}; run it with {@code ./gradlew e2eTest}.
  */
 class VerificationEnvironmentE2eTest {
+    public static final ManagementApi.Constraint MEMBERSHIP_CONSTRAINT = new ManagementApi.Constraint("Membership", "eq", "active");
+    public static final ManagementApi.Constraint FRAMEWORK_AGREEMENT_CONSTRAINT = new ManagementApi.Constraint("FrameworkAgreement", "eq", "DataExchangeGovernance:1.0");
+    public static final ManagementApi.Constraint USAGE_PURPOSE_CONSTRAINT = new ManagementApi.Constraint("UsagePurpose", "isAnyOf", "cx.pcf.base:1");
+    public static final ManagementApi.Constraint DATA_USAGE_DEFINITION_CONSTRAINT = new ManagementApi.Constraint("DataUsageEndDefinition", "eq", "cx.dataUsageEnd.unlimited:1");
+
     private static final String ONBOARDING_API_URL = "http://cxve.localhost/onboarding";
     private static final String MEMBERSHIP_HUB_URL = "http://cxve.localhost/hub";
     // Hostname under which the in-cluster Onboarding API can reach THIS test process: the
@@ -71,18 +77,6 @@ class VerificationEnvironmentE2eTest {
     // kubectl must target the VE cluster regardless of the current kubectl context
     private static final String KUBECONFIG = System.getenv().getOrDefault("KUBECONFIG",
             System.getProperty("user.home") + "/.kube/cxve.config");
-
-    // e2e-owned CEL expressions: policy constraints reference these leftOperand IRIs, decoupled
-    // from the catenax-profile-seeded expressions (different IRIs -> no interference, and no
-    // action binding, so the same constraints work in access and contract policies).
-    // MUST be absolute IRIs: the policy validator matches a constraint's leftOperand AFTER
-    // JSON-LD expansion against the CEL expression's registered string — a bare name like
-    // "MembershipCredential" expands under the default vocab and no longer matches, failing
-    // policy creation with "leftOperand ... is not bound to any scopes/functions". Absolute
-    // IRIs pass through expansion unchanged (same reason the catenax-profile seeds use IRIs).
-    private static final String MEMBERSHIP_OPERAND = "https://w3id.org/cxve/e2e/policy/MembershipCredential";
-    private static final String BPN_OPERAND = "https://w3id.org/cxve/e2e/policy/BpnCredential";
-    private static final String GOV_OPERAND = "https://w3id.org/cxve/e2e/policy/DataExchangeGovernanceCredential";
 
     private final TokenExchange tokenExchange = new TokenExchange(TOKEN_EXCHANGE_URL, KUBECONFIG);
     private final MembershipHubApi hub = new MembershipHubApi(MEMBERSHIP_HUB_URL);
@@ -133,13 +127,6 @@ class VerificationEnvironmentE2eTest {
         var mgmt = new ManagementApi(MANAGEMENT_API_URL,
                 tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"));
         log("management-API token obtained (seed-jobs -> issuer, scope admin)");
-
-        mgmt.upsertCelExpression("cxve-e2e-membership", MEMBERSHIP_OPERAND,
-                "ctx.agent.claims.vc.withType('MembershipCredential').hasClaim('memberOf', 'Catena-X')");
-        mgmt.upsertCelExpression("cxve-e2e-bpn", BPN_OPERAND,
-                "ctx.agent.claims.vc.filter(c, c.type.exists(t, t == 'BpnCredential')).exists(c, c.credentialSubject.exists(cs, cs.bpn != null))");
-        mgmt.upsertCelExpression("cxve-e2e-gov", GOV_OPERAND,
-                "ctx.agent.claims.vc.withType('DataExchangeGovernanceCredential').hasClaim('contractVersion', '1.0.0')");
 
         // both sides offer their CCM asset (certo's protocol API behind the CCM transfer
         // type), each stamped with the OTHER side's BPN — the asset owner's siglet
@@ -226,13 +213,6 @@ class VerificationEnvironmentE2eTest {
         var mgmt = new ManagementApi(MANAGEMENT_API_URL,
                 tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"));
         log("management-API token obtained (seed-jobs -> issuer, scope admin)");
-
-        mgmt.upsertCelExpression("cxve-e2e-membership", MEMBERSHIP_OPERAND,
-                "ctx.agent.claims.vc.withType('MembershipCredential').hasClaim('memberOf', 'Catena-X')");
-        mgmt.upsertCelExpression("cxve-e2e-bpn", BPN_OPERAND,
-                "ctx.agent.claims.vc.filter(c, c.type.exists(t, t == 'BpnCredential')).exists(c, c.credentialSubject.exists(cs, cs.bpn != null))");
-        mgmt.upsertCelExpression("cxve-e2e-gov", GOV_OPERAND,
-                "ctx.agent.claims.vc.withType('DataExchangeGovernanceCredential').hasClaim('contractVersion', '1.0.0')");
 
         var providerAssetId = "ccm-api-" + runId;
         var consumerAssetId = "ccm-inbox-" + runId;
@@ -393,10 +373,10 @@ class VerificationEnvironmentE2eTest {
     private void seedCcmOffer(ManagementApi mgmt, String pcid, String assetId, String uniqueId) {
         var accessPolicyId = "e2e-ccm-access-policy-" + uniqueId;
         var contractPolicyId = "e2e-ccm-contract-policy-" + uniqueId;
-        var allThreeCredentials = Set.of(MEMBERSHIP_OPERAND, BPN_OPERAND, GOV_OPERAND);
+
         mgmt.createAsset(pcid, assetId, "http://cx-ve-certo.edc-v.svc.cluster.local:8080", Map.of());
-        mgmt.createPolicy(pcid, accessPolicyId, allThreeCredentials);
-        mgmt.createPolicy(pcid, contractPolicyId, allThreeCredentials);
+        mgmt.createPolicy(pcid, accessPolicyId, "access", List.of(MEMBERSHIP_CONSTRAINT));
+        mgmt.createPolicy(pcid, contractPolicyId, "use",List.of(FRAMEWORK_AGREEMENT_CONSTRAINT, USAGE_PURPOSE_CONSTRAINT, DATA_USAGE_DEFINITION_CONSTRAINT));
         mgmt.createContractDefinition(pcid, "e2e-ccm-cd-" + uniqueId, accessPolicyId, contractPolicyId);
     }
 

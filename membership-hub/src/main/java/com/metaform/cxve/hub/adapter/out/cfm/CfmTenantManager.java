@@ -126,7 +126,7 @@ public class CfmTenantManager implements TenantManager {
     private Map<String, Object> holderProperties(Membership membership, List<String> activeAgreementIds) {
         return Map.of(
                 "id", membership.did(),
-                "contractVersion", "1.0.0",
+                "contractVersion", "1.0",
                 "memberOf", String.join(", ", activeAgreementIds),
                 "bpn", membership.bpn()
         );
