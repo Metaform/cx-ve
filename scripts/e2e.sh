@@ -13,7 +13,8 @@
 #                             solution will reach it
 #   4. gradle e2e suite     — the black-box tests in membership-hub/src/e2e-test against the VE:
 #                             onboarding callback, credential-gated data exchange, and the
-#                             CX-0135 Flow B certificate exchange
+#                             CX-0135 certificate exchanges (v3.0.0 Flows A and B, plus the
+#                             v2.4.0 legacy embedded push)
 #
 # On success the cluster is left running for inspection; remove it with
 #   kind delete cluster -n cxve
