@@ -72,11 +72,21 @@ public class CertoApi {
      * change only, notifies no one). Returns the certificateId.
      */
     public String addCertificate(String pcid, String holderBpn, String documentId) {
+        return addCertificate(pcid, holderBpn, documentId, "CXVE-E2E-9001");
+    }
+
+    /**
+     * As {@link #addCertificate(String, String, String)}, with a caller-chosen registration number. The
+     * v2.4.0 bridge derives a pushed certificate's identity from {@code issuerBpn|registrationNumber}, so a
+     * run-scoped number keeps that derived identity unique per run — and gives the receiving side a value
+     * the test can assert the up-conversion against.
+     */
+    public String addCertificate(String pcid, String holderBpn, String documentId, String registrationNumber) {
         var body = """
                 {
                   "certificateType": "ISO9001",
                   "certificateTypeVersion": "2015",
-                  "registrationNumber": "CXVE-E2E-9001",
+                  "registrationNumber": "%s",
                   "validFrom": "2026-01-01",
                   "validUntil": "2030-01-01",
                   "trustLevel": "high",
@@ -87,7 +97,7 @@ public class CertoApi {
                   }],
                   "issuer": {"issuerName": "CXVE e2e CA", "issuerBpn": "BPNL00000000ISSUER"},
                   "documentIds": ["%s"]
-                }""".formatted(holderBpn, documentId);
+                }""".formatted(registrationNumber, holderBpn, documentId);
         var response = post("/participant-contexts/%s/certificates".formatted(pcid), body);
         expect2xx(response, "certificate");
         var certificateId = json(response).path("certificateId").asText();
@@ -106,9 +116,23 @@ public class CertoApi {
      * re-notify instead of opening a duplicate.
      */
     public String publish(String pcid, String certificateId, String consumerBpn, String consumerDid, String flowId) {
+        return publish(pcid, certificateId, consumerBpn, consumerDid, flowId, "3.0.0", false);
+    }
+
+    /**
+     * As {@link #publish(String, String, String, String, String)}, over an explicit protocol version and
+     * delivery mode. {@code protocolVersion} {@code "2.4.0"} renders the legacy wire form (certo
+     * docs/FLOWS.md Flow F3): {@code embedded} true delivers the full certificate inline to the consumer's
+     * {@code /companycertificate/push}, false only announces it on {@code /companycertificate/available}
+     * (ack-only — no content, and nothing to retrieve). Same retry + notification assertions as the native
+     * publish.
+     */
+    public String publish(String pcid, String certificateId, String consumerBpn, String consumerDid,
+                          String flowId, String protocolVersion, boolean embedded) {
         var body = """
-                {"consumerBpn": "%s", "consumerDid": "%s", "flowId": "%s", "idempotencyKey": "e2e-%s"}"""
-                .formatted(consumerBpn, consumerDid, flowId, certificateId);
+                {"consumerBpn": "%s", "consumerDid": "%s", "flowId": "%s", "idempotencyKey": "e2e-%s", \
+                "protocolVersion": "%s", "embedded": %b}"""
+                .formatted(consumerBpn, consumerDid, flowId, certificateId, protocolVersion, embedded);
         var result = new AtomicReference<JsonNode>();
         await().atMost(Duration.ofMinutes(2)).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
             var response = post("/participant-contexts/%s/certificates/%s/publish".formatted(pcid, certificateId), body);
@@ -146,6 +170,38 @@ public class CertoApi {
         log("   Certo API:       certificate retrieved: %s (%d document(s))",
                 retrieved.path("certificate").path("certificateId").asText(), retrieved.path("documents").size());
         return retrieved;
+    }
+
+    /**
+     * Retrieve WITHOUT a flow: an exchange whose content arrived <b>inline</b> (an embedded v2.4.0 push) is
+     * served from what the consumer kept, so no pull — and no flow token — is involved. The management
+     * endpoint's {@code flowId} is optional for exactly that case; omitting it here is what proves the
+     * content travelled with the push rather than being fetched afterwards.
+     */
+    public JsonNode retrieveEmbedded(String pcid, String exchangeId) {
+        var response = given()
+                .baseUri(baseUrl)
+                .header("Authorization", "Bearer " + token)
+                .post("/participant-contexts/%s/consumer/exchanges/%s/retrieve".formatted(pcid, exchangeId));
+        expectSuccessOrRetry(response, "inline retrieve of exchange " + exchangeId);
+        var retrieved = json(response);
+        log("   Certo API:       certificate retrieved inline: %s (%d document(s), no pull)",
+                retrieved.path("certificate").path("certificateId").asText(), retrieved.path("documents").size());
+        return retrieved;
+    }
+
+    /**
+     * The consumer's reconciliation query: with {@code awaitingAcceptanceOnly} the exchanges still needing a
+     * client's action (FULFILLED and undecided, or decided but whose report never landed), otherwise every
+     * exchange of the tenant. This is the only way to find an exchange a v2.4.0 push opened — 2.4.0 carries
+     * no exchangeId, so the receiving side minted a consumer-local surrogate the pushing side never learns.
+     */
+    public JsonNode consumerExchanges(String pcid, boolean awaitingAcceptanceOnly) {
+        var body = """
+                {"awaitingAcceptanceOnly": %b}""".formatted(awaitingAcceptanceOnly);
+        var response = post("/participant-contexts/%s/consumer/exchanges/query".formatted(pcid), body);
+        expectSuccessOrRetry(response, "consumer exchange query in " + pcid);
+        return json(response);
     }
 
     /**

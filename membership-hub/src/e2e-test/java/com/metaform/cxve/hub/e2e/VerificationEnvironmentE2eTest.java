@@ -1,5 +1,6 @@
 package com.metaform.cxve.hub.e2e;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import io.restassured.http.ContentType;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
@@ -288,6 +290,139 @@ class VerificationEnvironmentE2eTest {
             assertThat(exchange.path("acceptanceStatus").asText()).isEqualTo("ACCEPTED");
         });
         log("consumer-initiated exchange %s closed: FULFILLED / ACCEPTED", exchangeId);
+    }
+
+    /**
+     * CX-0135 <b>v2.4.0</b> legacy bridge (certo docs/FLOWS.md Flow F): the provider-initiated
+     * <b>embedded</b> push — the v2.4.0 counterpart of {@link #certificateExchange()}'s content round-trip.
+     * Everything else in this suite drives certo's native v3.0.0 CloudEvents protocol; here the publish names
+     * {@code protocolVersion 2.4.0}, so the provider renders a {@code BusinessPartnerCertificate} 3.1.0 and
+     * POSTs it to the consumer's {@code /companycertificate/push} over the same DSP flow and siglet-minted
+     * flow token. Embedded is the point: a by-reference v2.4.0 push ({@code /companycertificate/available})
+     * is acknowledged only — the content would have to come over the per-asset EDC pull, which is out of
+     * scope (certo docs/PROBLEM_NOTES.md §4.1/§4.2) — so an embedded push is the only v2.4.0 path that moves
+     * a document at all.
+     *
+     * <p>Two identities are consumer-LOCAL here, and the assertions pin exactly that: v2.4.0 has no exchange
+     * concept, so the receiving side mints a surrogate {@code exchangeId} the pushing side never learns; and
+     * a 3.1.0 certificate carries no {@code certificateId}, so the receiving side derives one from
+     * {@code issuerBpn|registrationNumber} (§5.3). The consumer is therefore found through its reconciliation
+     * query, not by the provider's exchange id.
+     *
+     * <p>Consequently the acceptance verdict is asserted on the CONSUMER only. The v2.4.0 report
+     * ({@code /companycertificate/status}) correlates by {@code (documentId = certificateId, verified DID)},
+     * and the two sides hold different certificate ids for the same artifact, so in a certo-to-certo
+     * deployment that report cannot bind to the provider's exchange (§4.3). {@code accept} is best-effort and
+     * post-commit, so it still succeeds; the provider's FULFILLED exchange is asserted, its acceptance
+     * deliberately is not.
+     */
+    @Test
+    void legacyV240EmbeddedPush() {
+        var runId = UUID.randomUUID().toString().substring(0, 8);
+
+        var pair = onboardProviderAndConsumer(runId);
+        var provider = pair.provider();
+        var consumer = pair.consumer();
+        var providerPcid = provider.participantContextId();
+        var consumerPcid = consumer.participantContextId();
+
+        var mgmt = new ManagementApi(MANAGEMENT_API_URL,
+                tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"));
+        log("management-API token obtained (seed-jobs -> issuer, scope admin)");
+
+        // the v2.4.0 endpoints live under the same certo root as the v3 ones, so the CCM offers and flows
+        // are seeded exactly as for a native exchange — only the publish body differs
+        var providerAssetId = "ccm-api-" + runId;
+        var consumerAssetId = "ccm-inbox-" + runId;
+        seedCcmOffer(mgmt, providerPcid, providerAssetId, "p-" + runId);
+        seedCcmOffer(mgmt, consumerPcid, consumerAssetId, "c-" + runId);
+
+        // pull: cert-consumer -> cert-provider (carries the acceptance report)
+        var flowIdPull = establishCcmFlow(mgmt, consumerPcid, providerPcid, provider.holderId(), providerAssetId);
+        // push: cert-provider -> cert-consumer (carries the /companycertificate/push)
+        var flowIdPush = establishCcmFlow(mgmt, providerPcid, consumerPcid, consumer.holderId(), consumerAssetId);
+
+        var certo = new CertoApi(CERTO_API_URL,
+                tokenExchange.getParticipantToken("certo", "sudo", "certo-mgmt-api:write"));
+        log("certo-API token obtained (certo -> sudo, scope certo-mgmt-api:write)");
+        certo.awaitParticipantContext(providerPcid, Duration.ofMinutes(2));
+        certo.awaitParticipantContext(consumerPcid, Duration.ofMinutes(2));
+
+        // the backend issues the certificate; the registration number is run-scoped because it is half of
+        // the identity the receiving side derives the certificateId from
+        var documentContent = certificateDocument();
+        var documentId = certo.addDocument(providerPcid, "application/pdf", documentContent);
+        var registrationNumber = "CXVE-E2E-" + runId;
+        var certificateId = certo.addCertificate(providerPcid, provider.bpn(), documentId, registrationNumber);
+
+        var exchangeId = certo.publish(providerPcid, certificateId, consumer.bpn(), consumer.holderId(),
+                flowIdPush, "2.4.0", true);
+        log("v2.4.0 embedded push delivered (provider exchange %s)", exchangeId);
+
+        // the consumer's record of the push: nothing on the wire identified it, so it is found through the
+        // reconciliation query — one fresh tenant, one delivery, one item
+        var pushed = new AtomicReference<JsonNode>();
+        await().atMost(Duration.ofMinutes(1)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
+            var items = certo.consumerExchanges(consumerPcid, true).path("items");
+            assertThat(items.size())
+                    .withFailMessage("expected exactly one exchange awaiting acceptance on the consumer: %s", items)
+                    .isEqualTo(1);
+            pushed.set(items.path(0));
+        });
+        var consumerExchangeId = pushed.get().path("exchangeId").asText();
+        assertThat(consumerExchangeId)
+                .withFailMessage("v2.4.0 assigns no exchangeId, so the consumer must hold a surrogate of its "
+                                 + "own — not the provider's %s", exchangeId)
+                .isNotEqualTo(exchangeId);
+        assertThat(pushed.get().path("embedded").asBoolean())
+                .withFailMessage("an embedded push must leave the content inline on the consumer: %s", pushed.get())
+                .isTrue();
+        assertThat(pushed.get().path("fulfillmentStatus").asText()).isEqualTo("FULFILLED");
+        assertThat(pushed.get().path("certificateId").asText())
+                .withFailMessage("a 3.1.0 certificate carries no id, so the consumer must derive its own — "
+                                 + "not reuse the provider's %s", certificateId)
+                .isNotEqualTo(certificateId);
+        log("consumer recorded the pushed certificate: surrogate exchange %s, derived certificate %s",
+                consumerExchangeId, pushed.get().path("certificateId").asText());
+
+        // retrieve WITHOUT a flow: the content came with the push, so nothing is pulled back
+        var retrieved = certo.retrieveEmbedded(consumerPcid, consumerExchangeId);
+        assertThat(retrieved.path("certificate").path("certificateType").asText()).isEqualTo("ISO9001");
+        assertThat(retrieved.path("certificate").path("registrationNumber").asText())
+                .withFailMessage("the up-converted certificate must carry the issued registration number: %s",
+                        retrieved.path("certificate"))
+                .isEqualTo(registrationNumber);
+        assertThat(retrieved.path("documents").size()).isEqualTo(1);
+        var document = retrieved.path("documents").path(0);
+        assertThat(document.path("documentId").asText()).isEqualTo(documentId);
+        assertThat(document.path("mediaType").asText()).isEqualTo("application/pdf");
+        var downloaded = Base64.getDecoder().decode(document.path("contentBase64").asText());
+        assertThat(downloaded)
+                .withFailMessage("the inlined document differs from the uploaded one")
+                .isEqualTo(documentContent);
+        var downloadPath = downloadDocument("certificate-document-v240-" + runId + ".pdf", downloaded);
+        log("document downloaded to %s (%d bytes, content verified)", downloadPath, downloaded.length);
+
+        // terminal verdict, rendered as a v2.4.0 /companycertificate/status over the pull flow. Only the
+        // consumer's own record is asserted — see the javadoc on why the provider cannot bind that report.
+        certo.accept(consumerPcid, consumerExchangeId, "ACCEPTED", flowIdPull);
+        await().atMost(Duration.ofMinutes(1)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
+            var recorded = findExchange(certo.consumerExchanges(consumerPcid, false), consumerExchangeId);
+            assertThat(recorded.path("acceptanceStatus").asText()).isEqualTo("ACCEPTED");
+        });
+        var providerExchange = certo.getExchange(providerPcid, exchangeId);
+        assertThat(providerExchange.path("fulfillmentStatus").asText()).isEqualTo("FULFILLED");
+        log("v2.4.0 exchange closed: provider %s FULFILLED, consumer %s ACCEPTED", exchangeId, consumerExchangeId);
+    }
+
+    /** One exchange out of a consumer exchange page, by id; fails the assertion if the page has no such row. */
+    private static JsonNode findExchange(JsonNode page, String exchangeId) {
+        for (var item : page.path("items")) {
+            if (exchangeId.equals(item.path("exchangeId").asText())) {
+                return item;
+            }
+        }
+        throw new AssertionError("exchange %s not in the consumer's exchange page: %s".formatted(exchangeId, page));
     }
 
     /**
