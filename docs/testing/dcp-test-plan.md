@@ -81,7 +81,7 @@ The TCK framework is designed to run as part of a **CI pipeline** (Docker image 
 | **TCK Test** blank | No TCK test — to be added as an enhanced test (§1.3) |
 | **IH** ✅ | IdentityHub passes (TCK tests assumed passing, or proven by IH's own test suite) |
 | **IH** ❌ | IdentityHub fails the case as specified (verified against `main`) |
-| **IH** ⚠️ | Unknown — behavior untested/unverified |
+| **IH** ⚠️ | Unknown — behavior untested/unverified or not applicable|
 | **IH** `—` | Not applicable (optional feature IH does not claim) |
 | **DIV** blank | Not yet assessed |
 
@@ -173,7 +173,7 @@ Note on the Bearer-header requirement (TOK-02/03): within DCP §6 the MUST is st
 | CS-STOR-11 | Credential payload whose proof/signature does not verify against a key from the issuer's DID document | Rejected, nothing stored | SEC | — | | ✅ | | Tag rule; IH verifies the JWS against a key resolved from the issuer's DID document for both token-based profiles. Credentials carrying an embedded Linked-Data proof are stored with a warning and without proof verification |
 | CS-STOR-12 | Credential whose `credentialSubject.id` is not the holder's DID | Rejected, nothing stored | SEC | — | | ✅ | | Tag rule; holder binding is normative only verifier-side (§5.4.3, dataspace-conditional). IH rejects the delivery unless every `credentialSubject.id` equals the holder's DID |
 | CS-STOR-13 | Exact re-delivery of an already accepted `CredentialMessage` | No-op: 2xx, no duplicate credential | SEC | — | | ✅ | | Tag rule; re-delivery to an already-`ISSUED` request is a 2xx no-op in IH, with no second copy stored |
-| CS-STOR-14 | The CS issued an access token in its original request's SI token (`token` claim), delivery arrives without it | 4xx (spec: if present, the access token MUST be used by the issuer) | MUST | 6.1, 6.4 | | ❌ | | |
+| CS-STOR-14 | The CS issued an access token in its original request's SI token (`token` claim), delivery arrives without it | 4xx (spec: if present, the access token MUST be used by the issuer) | MUST | 6.1, 6.4 | | ⚠️ | | IdentityHub does not use the `token` claim when making credential requests.|
 | CS-STOR-15 | Suite TOK | — | MUST | 4.3, 4.3.3 | see §3 | see §3 | | |
 
 ### 4.2 Credential Offer API — `POST <CredentialService>/offers`
@@ -255,7 +255,7 @@ Offer emission (IS-OFF-01/02) depends on the issuer trigger defined in §2.2.
 |---|---|---|---|---|---|---|---|---|
 | IS-DELIV-01 | Successful issuance | `POST` to the holder's `CredentialService` endpoint (from its DID document) at `/credentials`, with `issuerPid`, the holder's `holderPid`, `status=ISSUED`, and containers `{credentialType, payload, format}` | MUST | 5.2, 6.5.1, 6.5.2 | `is_6_4_1_credentialRequest` | ✅ | | Delivery observed by the mock CS, which validates message structure and SI token |
 | IS-DELIV-02 | SI token on delivery | `iss`=`sub`= issuer DID, `aud`= holder DID | MUST | 4.3, 4.3.3 | `is_6_4_1_credentialRequest` | ✅ | | Enforced by the mock CS's token validation on receipt |
-| IS-DELIV-03 | The holder's request token carried a `token` claim | The delivery token carries the same access token in its `token` claim | MUST | 6.1 | | ✅ | | IH keeps the holder's access token in its vault under the issuance process id and adds it to the delivery token's `token` claim when the holder sent one; covered by its own tests |
+| IS-DELIV-03 | The holder's request token carried a `token` claim | The delivery token carries the same access token in its `token` claim | MUST | 6.1 | | ✅ | | IH keeps the holder's access token in its vault under the issuance process id and adds it to the delivery token's `token` claim when the holder sent one; covered by its own tests. Reachable only from a holder that sends one, which IH's own holder does not (CS-STOR-14), so an IH-to-IH round trip leaves it unexercised — it matters for third-party holders and the TCK |
 | IS-DELIV-04 | Verify the delivered credential | Proof verifies against a key in the issuer's DID document; `issuer` property set per the selected profile's VC data model; `credentialSubject.id` = holder DID; correct `format` and `credentialType` in the container; passes full verifier-side validation with no manual fixes | MUST | 5.4.3, 6.5.2, A.2 | | ✅ | | The mock CS parses but does not cryptographically verify received credentials; IH's own generation tests verify signed output for both profiles |
 | IS-DELIV-05 | Holder endpoint temporarily unavailable | Delivery retried; if permanently undeliverable, request status becomes `REJECTED` (observable via status API) | SHOULD | — | | ✅ | | Tag rule; no spec statement on delivery retry. IH retries delivery and moves the process to `ERRORED` — reported as `REJECTED` — once the retry limit is exhausted; covered by its own tests |
 | IS-DELIV-06 | Delivery retry after an ambiguous outcome | Re-delivery carries the same `issuerPid`/`holderPid` so a compliant holder can deduplicate | SEC | — | | ✅ | | Tag rule; a re-delivery is sent from the same issuance process, so both pids are unchanged, and IH's holder side deduplicates it (CS-STOR-13); both covered by its own tests |
@@ -340,7 +340,7 @@ Two of those were not gaps this plan had identified. Both are security-relevant 
 - The holder's Storage and Offer APIs resolved a signing key from the DID named in the token's `kid` header while identifying the sender by its `iss` claim, with nothing binding the two. Any holder of a resolvable DID could sign a `CredentialMessage` claiming to come from a trusted issuer, and the trusted-issuer check — which compares against `iss` — would pass.
 - Published DID documents declared no verification relationships at all, so no generated Verifiable Presentation satisfied §5.4.3's requirement that the signing key be declared for `authentication`.
 
-What remains open: CS-STOR-14 (no holder-side enforcement of the access-token echo) and IS-REQ-08 (`issuancePolicy` VP enforcement) are ❌; TOK-13 is unverified on three of five endpoints; RT-06's key-rotation e2e exists but is disabled; and TOK-10 is blocked upstream, because the Connector's DidDocument model has no `capabilityInvocation` property to publish or enforce.
+What remains open: CS-STOR-14 (IH's holder neither sends an access token nor enforces the echo back) and IS-REQ-08 (`issuancePolicy` VP enforcement) are ❌; TOK-13 is unverified on three of five endpoints; RT-06's key-rotation e2e exists but is disabled; and TOK-10 is blocked upstream, because the Connector's DidDocument model has no `capabilityInvocation` property to publish or enforce.
 
 **Priorities:**
 
