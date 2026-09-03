@@ -22,7 +22,7 @@ import static java.util.Optional.ofNullable;
 /**
  * Registers holders through the IssuerService Admin API, replacing what the CFM registration agent
  * used to do inside the provisioning orchestration: {@code POST
- * /v1beta/participants/{issuerContextId}/holders} with the participant's DID as both {@code did}
+ * /v1/participants/{issuerContextId}/holders} with the participant's DID as both {@code did}
  * and {@code holderId}.
  *
  * <p>The holder {@code properties} are the attestation data of the issuer's holder attestation:
@@ -64,7 +64,7 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
         var did = process.holderId();
         try {
             restClient.post()
-                    .uri("/v1beta/participants/{issuerContextId}/holders", issuerContextId)
+                    .uri("/v1/participants/{issuerContextId}/holders", issuerContextId)
                     .header("Authorization", "Bearer " + tokenProvider.getToken(tokenResource, SCOPE))
                     .body(Map.of(
                             "did", did,

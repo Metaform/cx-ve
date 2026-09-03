@@ -22,7 +22,7 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * Minimal client for the EDC controlplane management API through the VE gateway
- * ({@code http://<host>/api/management/v5beta}). Every call carries the jwtlet bearer token —
+ * ({@code http://<host>/api/management/v5}). Every call carries the jwtlet bearer token —
  * clearglass enforces the route→scope map, the controlplane validates the token again. A token
  * obtained with {@code resource=issuer, scope=admin} may operate on any participant context
  * (management-api:admin covers cross-context access).
