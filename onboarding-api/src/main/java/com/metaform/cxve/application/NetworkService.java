@@ -1,5 +1,6 @@
 package com.metaform.cxve.application;
 
+import com.metaform.cxve.domain.model.FileUploadResponse;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 
 public interface NetworkService {
@@ -11,4 +12,11 @@ public interface NetworkService {
      * @return the id of the created onboarding process
      */
     String registerPartner(String clientId, PartnerRegistrationData registrationData);
+
+    /**
+     * Announces a file to be submitted alongside a partner registration.
+     *
+     * @return the assigned file id and the presigned URL to upload the file contents to
+     */
+    FileUploadResponse initiateFileUpload(String fileName, String contentType);
 }

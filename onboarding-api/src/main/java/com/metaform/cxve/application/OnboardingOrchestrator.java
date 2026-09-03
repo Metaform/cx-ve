@@ -5,7 +5,7 @@ import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 
 /**
- * Drives a partner onboarding through the CX-0006 sequence. The POST to {@code /partnerRegistration}
+ * Drives a partner onboarding through the CX-0006 sequence. The POST to {@code /partnerregistration}
  * only needs to call {@link #start}; identity proofing may involve an out-of-band system, so the
  * orchestrator persists an {@link OnboardingProcess} and advances it as each step completes.
  *

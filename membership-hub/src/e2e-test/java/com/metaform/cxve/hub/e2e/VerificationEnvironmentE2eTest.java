@@ -445,7 +445,7 @@ class VerificationEnvironmentE2eTest {
                 .header("Authorization", "Bearer " + ospAccessToken())
                 .contentType(ContentType.JSON)
                 .body(new SetCallbackRequest(callbackUrl, null, null, null))
-                .post("/api/administration/RegistrationStatus/callback")
+                .post("/api/administration/registrationstatus/callback")
                 .then().statusCode(204);
 
         var externalId = "osp-contract-" + UUID.randomUUID().toString().substring(0, 8);
@@ -455,8 +455,8 @@ class VerificationEnvironmentE2eTest {
         await().atMost(Duration.ofMinutes(2)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
             var byExternalId = callbackResults();
             assertThat(byExternalId).containsKey(externalId);
-            // pin the state: a REJECTED callback must fail here, not as an opaque mismatch later
-            assertThat(byExternalId.get(externalId).state())
+            // pin the status: a REJECTED callback must fail here, not as an opaque mismatch later
+            assertThat(byExternalId.get(externalId).status())
                     .withFailMessage("registration not confirmed: %s", byExternalId.get(externalId))
                     .isEqualTo("CONFIRMED");
         });
@@ -613,7 +613,7 @@ class VerificationEnvironmentE2eTest {
                 .header("Authorization", "Bearer " + ospAccessToken())
                 .contentType("application/json")
                 .body(newParticipant)
-                .post("/api/v2/administration/registration/Network/partnerRegistration")
+                .post("/api/administration/registration/network/partnerregistration")
                 .then()
                 .statusCode(200);
         log("onboarding submitted: \"%s\" (shortName=%s, externalId=%s)", name, shortName, runId);

@@ -6,7 +6,7 @@ import java.util.List;
 
 /**
  * DTO for incoming partner registration requests (the payload of
- * POST /api/v2/administration/registration/Network/partnerRegistration). The annotated components
+ * POST /api/administration/registration/network/partnerregistration). The annotated components
  * — name, shortName, uniqueIds, externalId, companyRoles and agreements — are mandatory and
  * must be supplied by callers; they are enforced at the web boundary via {@code @Valid} on the
  * controller, so a request missing any of them is rejected with 400 before it reaches the
@@ -30,19 +30,19 @@ public record PartnerRegistrationData(
         @NotEmpty List<CompanyRoleId> companyRoles,
         String did,
         @NotEmpty List<AgreementConsentData> agreements,
-        List<DocumentUpload> documents,
+        List<String> fileIds,
         Boolean autoSubmit
 ) {
 
     public PartnerRegistrationData withBpn(String newBpn) {
         return new PartnerRegistrationData(name, city, streetName, countryAlpha2Code, newBpn, shortName,
                 region, streetAdditional, streetNumber, zipCode, uniqueIds, externalId, userDetails,
-                companyRoles, did, agreements, documents, autoSubmit);
+                companyRoles, did, agreements, fileIds, autoSubmit);
     }
 
     public PartnerRegistrationData withDid(String newDid) {
         return new PartnerRegistrationData(name, city, streetName, countryAlpha2Code, bpn, shortName,
                 region, streetAdditional, streetNumber, zipCode, uniqueIds, externalId, userDetails,
-                companyRoles, newDid, agreements, documents, autoSubmit);
+                companyRoles, newDid, agreements, fileIds, autoSubmit);
     }
 }

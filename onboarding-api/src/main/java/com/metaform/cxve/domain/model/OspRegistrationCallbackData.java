@@ -1,4 +1,8 @@
 package com.metaform.cxve.domain.model;
 
-public record OspRegistrationCallbackData(String externalId, RegistrationStatus state, String message ) {
+/**
+ * Payload of the status update POSTed to an onboarding service provider's registered callback
+ * (the spec's {@code OspRegistrationCallbackData}).
+ */
+public record OspRegistrationCallbackData(String externalId, RegistrationStatus status, String message) {
 }

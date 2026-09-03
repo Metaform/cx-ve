@@ -1,6 +1,8 @@
 package com.metaform.cxve.adapter.in.web;
 
 import com.metaform.cxve.application.NetworkService;
+import com.metaform.cxve.domain.model.FileUploadRequest;
+import com.metaform.cxve.domain.model.FileUploadResponse;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -11,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v2/administration/registration/Network")
+@RequestMapping("/api/administration/registration/network")
 public class NetworkController {
 
     private final NetworkService networkService;
@@ -29,9 +31,19 @@ public class NetworkController {
      *
      * @return the ID of the onboarding process
      */
-    @PostMapping("/partnerRegistration")
+    @PostMapping("/partnerregistration")
     public String registerPartner(@Valid @RequestBody PartnerRegistrationData registrationData,
                                   @AuthenticationPrincipal Jwt token) {
         return networkService.registerPartner(TokenClientId.from(token), registrationData);
+    }
+
+    /**
+     * Announces a file for a partner registration: assigns a file id and returns the presigned
+     * URL the caller uploads the contents to. The id goes into the registration payload's
+     * {@code fileIds}.
+     */
+    @PostMapping("/partnerregistration/fileupload")
+    public FileUploadResponse uploadFile(@Valid @RequestBody FileUploadRequest uploadRequest) {
+        return networkService.initiateFileUpload(uploadRequest.fileName(), uploadRequest.contentType());
     }
 }

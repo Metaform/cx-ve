@@ -5,7 +5,7 @@ import java.util.List;
 
 /**
  * E2e-local mirror of the app's {@code PartnerRegistrationData} wire format (the payload of
- * POST /api/v2/administration/registration/Network/partnerRegistration). Kept separate on
+ * POST /api/administration/registration/network/partnerregistration). Kept separate on
  * purpose: the e2e suite has no dependency on the app's classes, so these tests exercise the
  * HTTP contract exactly as an external client would. Enums of the main model are flattened to
  * plain strings here (e.g. companyRoles "ACTIVE_PARTICIPANT", consentStatus "ACTIVE") — keep
@@ -28,7 +28,7 @@ public record NewParticipantData(
         List<String> companyRoles,
         String did,
         List<Agreement> agreements,
-        List<Document> documents,
+        List<String> fileIds,
         Boolean autoSubmit
 ) {
 
@@ -46,10 +46,6 @@ public record NewParticipantData(
     }
 
     public record Agreement(String agreementId, String consentStatus) {
-    }
-
-    /** {@code fileContent} is base64-encoded on the wire (Jackson's byte[] mapping in the app). */
-    public record Document(String documentType, String fileName, byte[] fileContent) {
     }
 
     public static Builder builder() {
@@ -73,7 +69,7 @@ public record NewParticipantData(
         private final List<String> companyRoles = new ArrayList<>();
         private String did;
         private final List<Agreement> agreements = new ArrayList<>();
-        private final List<Document> documents = new ArrayList<>();
+        private final List<String> fileIds = new ArrayList<>();
         private Boolean autoSubmit;
 
         private Builder() {
@@ -159,8 +155,8 @@ public record NewParticipantData(
             return this;
         }
 
-        public Builder document(Document document) {
-            this.documents.add(document);
+        public Builder fileId(String fileId) {
+            this.fileIds.add(fileId);
             return this;
         }
 
@@ -173,7 +169,7 @@ public record NewParticipantData(
             return new NewParticipantData(name, city, streetName, countryAlpha2Code, bpn, shortName,
                     region, streetAdditional, streetNumber, zipCode, List.copyOf(uniqueIds), externalId,
                     List.copyOf(userDetails), List.copyOf(companyRoles), did, List.copyOf(agreements),
-                    List.copyOf(documents), autoSubmit);
+                    List.copyOf(fileIds), autoSubmit);
         }
     }
 }

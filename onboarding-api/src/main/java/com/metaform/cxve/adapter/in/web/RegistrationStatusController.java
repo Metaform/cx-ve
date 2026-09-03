@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
  * outbound call to its callback endpoint.
  */
 @RestController
-@RequestMapping("/api/administration/RegistrationStatus")
+@RequestMapping("/api/administration/registrationstatus")
 public class RegistrationStatusController {
 
     private final RegistrationStatusService registrationStatusService;

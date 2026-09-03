@@ -48,7 +48,7 @@ public class OnboardingApiClient implements OnboardingApi {
         // it as the bearer on every status callback — which this app's callback endpoint
         // requires (CallbackSecurityConfig).
         restClient.post()
-                .uri("/api/administration/RegistrationStatus/callback")
+                .uri("/api/administration/registrationstatus/callback")
                 .header("Authorization", "Bearer " + tokenProvider.getToken())
                 .body(Map.of(
                         "callbackUrl", callbackUrl,
@@ -64,7 +64,7 @@ public class OnboardingApiClient implements OnboardingApi {
     @Override
     public String submitRegistration(String externalId, String did, MemberData data) {
         return restClient.post()
-                .uri("/api/v2/administration/registration/Network/partnerRegistration")
+                .uri("/api/administration/registration/network/partnerregistration")
                 .header("Authorization", "Bearer " + tokenProvider.getToken())
                 .body(PartnerRegistrationPayload.from(externalId, did, data))
                 .retrieve()
