@@ -109,7 +109,7 @@ consumer-role verification can assert the actual download.)
 ## What is explicitly out of scope
 
 The SUT's management APIs, onboarding process, wallet/agent internals, auth stack and
-deployment shape. Equally, the reference harness's own conveniences — the v5beta management
+deployment shape. Equally, the reference harness's own conveniences — the v5 management
 API, jwtlet/clearglass, the tenant manager, the siglet token-cache API used by
 `dsp-tests.sh` to fetch the EDR on the consumer side — are driver tooling for ve2 and vanish
 from the picture once ve2 is replaced by a real SUT.

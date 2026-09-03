@@ -70,7 +70,7 @@ class VerificationEnvironmentE2eTest {
             .build();
 
     private static final String TOKEN_EXCHANGE_URL = "http://cxve.localhost/api/auth/token";
-    private static final String MANAGEMENT_API_URL = "http://cxve.localhost/api/management/v5beta";
+    private static final String MANAGEMENT_API_URL = "http://cxve.localhost/api/management/v5";
     private static final String CERTO_API_URL = "http://cxve.localhost/api/certo/management/v1";
     // Transfer type of the CCM flows — must be exactly this profile URI; it keys the
     // participant's siglet transfer-type mapping (installed at provisioning from

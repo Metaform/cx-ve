@@ -41,8 +41,8 @@ Core Platform Distribution 0.0.17, rendered with `global.host=vps.yourdomain.com
 | External URL (prefix)                           | Backend (rewritten path)                  | Gateway auth                                     | In-app auth                                      |
 |-------------------------------------------------|-------------------------------------------|--------------------------------------------------|--------------------------------------------------|
 | `http://vps.yourdomain.com/api/management`       | controlplane:8081 (`/api/mgmt`)           | clearglass: `management-api:*`                   | jwtlet JWT (OAuth2 filter) + per-endpoint scopes |
-| `http://vps.yourdomain.com/api/identity`         | identityhub:7081 (`/api/identity/v1beta`) | clearglass: `identity-api:*`                     | jwtlet JWT + per-endpoint scopes                 |
-| `http://vps.yourdomain.com/api/issuer/admin`     | issuerservice:10013 (`/api/admin/v1beta`) | clearglass: `issuer-admin-api:*`                 | jwtlet JWT (scope granularity gateway-only)      |
+| `http://vps.yourdomain.com/api/identity`         | identityhub:7081 (`/api/identity/v1`) | clearglass: `identity-api:*`                     | jwtlet JWT + per-endpoint scopes                 |
+| `http://vps.yourdomain.com/api/issuer/admin`     | issuerservice:10013 (`/api/admin/v1`) | clearglass: `issuer-admin-api:*`                 | jwtlet JWT (scope granularity gateway-only)      |
 | `http://vps.yourdomain.com/api/tm`               | tenant-manager:8080 (`/api/v1alpha1`)     | clearglass: `tenant-manager-api:*`               | jwtlet JWT + exact-match scopes                  |
 | `http://vps.yourdomain.com/api/pm`               | provision-manager:8080 (`/api/v1alpha1`)  | clearglass: `provision-manager-api:*`            | jwtlet JWT + exact-match scopes                  |
 | `http://vps.yourdomain.com/api/siglet`           | siglet:8080 (prefix stripped)             | clearglass: `siglet-api:*` / `siglet-mgmt-api:*` | **none** — clearglass is the only gate           |
@@ -62,7 +62,7 @@ Core Platform Distribution 0.0.17, rendered with `global.host=vps.yourdomain.com
 
 ### `/api/management` → EDC Management API (controlplane:8081)
 
-External shape `http://vps.yourdomain.com/api/management/v5beta/participants/<pcid>/...`
+External shape `http://vps.yourdomain.com/api/management/v5/participants/<pcid>/...`
 (rewritten to `/api/mgmt/...`). Two independent gates, both on the jwtlet JWT:
 
 1. **Gateway**: clearglass, `management-api:*` scopes per the route map.
@@ -78,7 +78,7 @@ There is **no API-key auth** (`edc.api.auth.*` is absent) — in-cluster callers
 ### `/api/identity` → IdentityHub Identity API (identityhub:7081)
 
 External shape `http://vps.yourdomain.com/api/identity/participants/...` (rewrite inserts
-`/v1beta`). Same two-gate pattern: clearglass (`identity-api:*`, incl. resource rules like
+`/v1`). Same two-gate pattern: clearglass (`identity-api:*`, incl. resource rules like
 `identity-api:dids:read`) + in-app OAuth2 (`identityhub-oauth2-bom` replaces the classic x-api-key auth):
 `JwtValidatorFilter` (jwtlet JWKS + `iss` check),
 `ServicePrincipalAuthenticationFilter` (non-admin `sub` must be an existing participant context; `identity-api:admin`
@@ -89,7 +89,7 @@ deployed BOM.
 ### `/api/issuer/admin` → IssuerService Admin API (issuerservice:10013)
 
 External shape `http://vps.yourdomain.com/api/issuer/admin/...` (rewritten to
-`/api/admin/v1beta/...`). Gateway: clearglass, `issuer-admin-api:*` scopes. In-app:
+`/api/admin/v1/...`). Gateway: clearglass, `issuer-admin-api:*` scopes. In-app:
 `JwtValidatorFilter` + `ServicePrincipalAuthenticationFilter` (as above, admin scope
 `issuer-admin-api:admin`), plus resource-ownership checks (non-admin `sub` must own the addressed participant context).
 **Asymmetry vs IdentityHub:** the deployed
@@ -165,12 +165,12 @@ auth:
 
 ### `/api/issuance` → DCP Issuance API (issuerservice:10012, not rewritten)
 
-- **`POST /v1beta/participants/issuer/credentials`** (credential request) — Bearer self-issued token from the
+- **`POST /v1/participants/issuer/credentials`** (credential request) — Bearer self-issued token from the
   **holder**; `iss==sub`, `aud` = the issuer's DID (`did:web:issuer.vps.yourdomain.com:issuer`), signature via the
   holder's DID document, one-time `jti`; **the holder's DID must already be onboarded** (`HolderStore` lookup; anonymous
   holders disabled by default) → else 401.
-- **`GET /v1beta/participants/issuer/requests/{id}`** — same, plus results filtered to the authenticated holder.
-- **`GET /v1beta/participants/issuer/metadata`** — anonymous by design (issuer metadata).
+- **`GET /v1/participants/issuer/requests/{id}`** — same, plus results filtered to the authenticated holder.
+- **`GET /v1/participants/issuer/metadata`** — anonymous by design (issuer metadata).
 
 ---
 
