@@ -41,8 +41,8 @@ public class RegistrationCallbackController {
     @PostMapping("/registration-status")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void onRegistrationStatus(@RequestBody RegistrationStatusUpdate update) {
-        log.info("Registration status callback: externalId={}, state={}", update.externalId(), update.state());
-        membershipService.onRegistrationStatus(update.externalId(), update.state(), update.message());
+        log.info("Registration status callback: externalId={}, status={}", update.externalId(), update.status());
+        membershipService.onRegistrationStatus(update.externalId(), update.status(), update.message());
     }
 
     @ExceptionHandler(NoSuchElementException.class)
@@ -52,6 +52,6 @@ public class RegistrationCallbackController {
     }
 
     /** Wire mirror of the Onboarding API's {@code OspRegistrationCallbackData}. */
-    public record RegistrationStatusUpdate(String externalId, String state, String message) {
+    public record RegistrationStatusUpdate(String externalId, String status, String message) {
     }
 }

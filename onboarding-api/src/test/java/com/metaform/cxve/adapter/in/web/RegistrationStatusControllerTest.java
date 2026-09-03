@@ -32,7 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(ApiSecurityConfig.class)
 class RegistrationStatusControllerTest {
 
-    private static final String CALLBACK_PATH = "/api/administration/RegistrationStatus/callback";
+    private static final String CALLBACK_PATH = "/api/administration/registrationstatus/callback";
 
     @Autowired
     private MockMvc mockMvc;

@@ -29,7 +29,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
  * property-driven decoder under {@code spring.security.oauth2.resourceserver.jwt}: signature via
  * the IdP's JWKS, {@code exp}/{@code nbf}, and {@code iss} against the configured issuer. Any
  * valid token may call the API; the one finer-grained rule is registering a status callback
- * ({@code POST .../RegistrationStatus/callback}), which requires the
+ * ({@code POST .../registrationstatus/callback}), which requires the
  * {@code configure_partner_registration} scope — Hydra puts granted scopes in the {@code scp}
  * claim, which Spring maps to {@code SCOPE_} authorities out of the box.
  *
@@ -56,7 +56,7 @@ public class ApiSecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers(HttpMethod.POST, "/api/administration/RegistrationStatus/callback")
+                        .requestMatchers(HttpMethod.POST, "/api/administration/registrationstatus/callback")
                         .hasAuthority(CONFIGURE_PARTNER_REGISTRATION)
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults())

@@ -6,9 +6,10 @@ import com.metaform.cxve.application.NetworkService;
 import com.metaform.cxve.config.ApiSecurityConfig;
 import com.metaform.cxve.domain.model.CompanyRoleId;
 import com.metaform.cxve.domain.model.ConsentStatusId;
-import com.metaform.cxve.domain.model.DocumentTypeId;
+import com.metaform.cxve.domain.model.FileUploadResponse;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.UniqueIdentifierId;
+import java.time.Instant;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -68,13 +70,7 @@ class NetworkControllerTest {
               "agreements": [
                 { "agreementId": "Catena-X", "consentStatus": "ACTIVE" }
               ],
-              "documents": [
-                {
-                  "documentType": "COMMERCIAL_REGISTER_EXTRACT",
-                  "fileName": "extract.pdf",
-                  "fileContent": "aGVsbG8="
-                }
-              ],
+              "fileIds": [ "file-1" ],
               "autoSubmit": true
             }
             """;
@@ -94,7 +90,7 @@ class NetworkControllerTest {
     @Test
     void registerPartner_withoutABearerToken_is401() throws Exception {
         // Registration needs no particular scope, but it does need an authenticated caller.
-        mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isUnauthorized());
@@ -104,7 +100,7 @@ class NetworkControllerTest {
 
     @Test
     void registerPartner_returns200AndDelegatesToService() throws Exception {
-        mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration")
                         .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
@@ -128,15 +124,13 @@ class NetworkControllerTest {
         assertThat(data.agreements()).hasSize(1);
         assertThat(data.agreements().get(0).agreementId()).isEqualTo("Catena-X");
         assertThat(data.agreements().get(0).consentStatus()).isEqualTo(ConsentStatusId.ACTIVE);
-        assertThat(data.documents()).hasSize(1);
-        assertThat(data.documents().get(0).documentType()).isEqualTo(DocumentTypeId.COMMERCIAL_REGISTER_EXTRACT);
-        assertThat(data.documents().get(0).fileContent()).asString().isEqualTo("hello");
+        assertThat(data.fileIds()).containsExactly("file-1");
         assertThat(data.autoSubmit()).isTrue();
     }
 
     @Test
     void registerPartner_withMalformedJson_returns400WithMessageAndLogs(CapturedOutput output) throws Exception {
-        mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration")
                         .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ not json"))
@@ -148,7 +142,7 @@ class NetworkControllerTest {
 
     @Test
     void registerPartner_withUnknownEnumValue_returns400WithMessageAndLogs(CapturedOutput output) throws Exception {
-        mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration")
                         .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -167,7 +161,7 @@ class NetworkControllerTest {
         var payload = validPayload();
         payload.remove("bpn");
 
-        mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration")
                         .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
@@ -185,7 +179,7 @@ class NetworkControllerTest {
         payload.remove(field);
         var expectedMessage = field + ": " + (LIST_FIELDS.contains(field) ? "must not be empty" : "must not be blank");
 
-        mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration")
                         .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
@@ -203,7 +197,7 @@ class NetworkControllerTest {
         payload.put(field, "   ");
         var expectedMessage = field + ": must not be blank";
 
-        mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration")
                         .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
@@ -221,7 +215,57 @@ class NetworkControllerTest {
         payload.putArray(field);
         var expectedMessage = field + ": must not be empty";
 
-        mockMvc.perform(post("/api/v2/administration/registration/Network/partnerRegistration")
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration")
+                        .with(jwt().jwt(j -> j.subject("client-1")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload.toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(expectedMessage));
+
+        assertThat(output).contains("Rejected request with 400 due to invalid shape: " + expectedMessage);
+        verifyNoInteractions(networkService);
+    }
+
+    @Test
+    void uploadFile_withoutABearerToken_is401() throws Exception {
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration/fileupload")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "fileName": "extract.pdf", "contentType": "application/pdf" }
+                                """))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(networkService);
+    }
+
+    @Test
+    void uploadFile_returnsTheUploadTarget() throws Exception {
+        when(networkService.initiateFileUpload("extract.pdf", "application/pdf"))
+                .thenReturn(new FileUploadResponse("file-1", "https://storage.example/upload/file-1",
+                        Instant.parse("2026-08-25T12:00:00Z")));
+
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration/fileupload")
+                        .with(jwt().jwt(j -> j.subject("client-1")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "fileName": "extract.pdf", "contentType": "application/pdf" }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fileId").value("file-1"))
+                .andExpect(jsonPath("$.presignedUploadUrl").value("https://storage.example/upload/file-1"))
+                .andExpect(jsonPath("$.expiresAt").value("2026-08-25T12:00:00Z"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "fileName", "contentType" })
+    void uploadFile_withMissingRequiredField_returns400WithMessageAndLogs(String field, CapturedOutput output) throws Exception {
+        var payload = (ObjectNode) MAPPER.readTree("""
+                { "fileName": "extract.pdf", "contentType": "application/pdf" }
+                """);
+        payload.remove(field);
+        var expectedMessage = field + ": must not be blank";
+
+        mockMvc.perform(post("/api/administration/registration/network/partnerregistration/fileupload")
                         .with(jwt().jwt(j -> j.subject("client-1")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
