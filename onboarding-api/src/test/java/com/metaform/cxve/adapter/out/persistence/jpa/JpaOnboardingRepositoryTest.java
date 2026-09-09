@@ -1,13 +1,14 @@
 package com.metaform.cxve.adapter.out.persistence.jpa;
 
-import com.metaform.cxve.domain.model.AgreementConsentData;
 import com.metaform.cxve.domain.model.CompanyRoleId;
 import com.metaform.cxve.domain.model.CompanyUniqueIdData;
-import com.metaform.cxve.domain.model.ConsentStatusId;
+import com.metaform.cxve.domain.model.ConsentData;
+import com.metaform.cxve.domain.model.ConsentKind;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.model.UniqueIdentifierId;
+import com.metaform.cxve.domain.model.UserDetailData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,14 +40,15 @@ class JpaOnboardingRepositoryTest {
     }
 
     private static PartnerRegistrationData registration(String bpn, String did) {
+        // Distinct value per component on purpose: the record-equality round-trip assertions
+        // would miss silently swapped fields if values repeated.
         return new PartnerRegistrationData(
-                "Acme Corp", "Berlin", "Musterstrasse", "DE", bpn, "Acme", "BE",
-                null, "12", "10115",
+                "ext-123", "Acme Corp", "Berlin", "Musterstrasse", "DE", "BE",
+                List.of(CompanyRoleId.ACTIVE_PARTICIPANT),
                 List.of(new CompanyUniqueIdData(UniqueIdentifierId.VAT_ID, "DE123456789")),
-                "ext-123", List.of(),
-                List.of(CompanyRoleId.ACTIVE_PARTICIPANT), did,
-                List.of(new AgreementConsentData("agreement-1", ConsentStatusId.ACTIVE)),
-                null, null);
+                List.of(new UserDetailData("idp-1", "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")),
+                bpn, "Acme", "12", "Backyard", "10115", did, Boolean.TRUE,
+                List.of(new ConsentData(ConsentKind.CX_OPERATING_MODEL, List.of("file-1"))));
     }
 
     @Test
@@ -144,6 +146,59 @@ class JpaOnboardingRepositoryTest {
                 new CompanyUniqueIdData(UniqueIdentifierId.LEI_CODE, "DE123456789"))).isEmpty();
         assertThat(repository.findActiveByUniqueId(
                 new CompanyUniqueIdData(UniqueIdentifierId.VAT_ID, "DE000000000"))).isEmpty();
+    }
+
+    @Test
+    void findPayload_toleratesLegacyPayloadJson() {
+        // Rows written under earlier spec revisions carry fields the current record no longer
+        // has (agreements, fileIds) and miss fields it gained. @JsonIgnoreProperties on
+        // PartnerRegistrationData is load-bearing here: the plain ObjectMapper the repository
+        // uses would otherwise throw on every pre-existing row — including inside the
+        // active-registration queries that gate NEW registrations.
+        var entity = new OnboardingProcessEntity();
+        entity.setId("legacy-1");
+        entity.setExternalId("ext-legacy");
+        entity.setState(OnboardingState.COMPLETED);
+        entity.setPayload("""
+                {
+                  "name": "Legacy Corp",
+                  "externalId": "ext-legacy",
+                  "shortName": "Legacy",
+                  "companyRoles": [ "ACTIVE_PARTICIPANT" ],
+                  "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
+                  "fileIds": [ "file-1" ]
+                }
+                """);
+        springData.save(entity);
+
+        var payload = repository.findPayload("legacy-1");
+
+        assertThat(payload).isPresent();
+        assertThat(payload.get().name()).isEqualTo("Legacy Corp");
+        assertThat(payload.get().city()).isNull();
+    }
+
+    @Test
+    void existsByClientIdAndExternalId_isScopedToTheClient() {
+        var process = OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-1");
+        repository.create(process, registration(null, null));
+
+        assertThat(repository.existsByClientIdAndExternalId("client-1", "ext-1")).isTrue();
+        // The same externalId under another OSP is no conflict (uniqueness is per OSP)...
+        assertThat(repository.existsByClientIdAndExternalId("client-2", "ext-1")).isFalse();
+        // ...nor is another externalId of the same OSP.
+        assertThat(repository.existsByClientIdAndExternalId("client-1", "ext-2")).isFalse();
+    }
+
+    @Test
+    void existsByClientIdAndExternalId_countsTerminalAttempts() {
+        // The §2.2.2 conflict check is deliberately any-state: a declined registration keeps its
+        // externalId — OSPs mint a fresh one per registration.
+        var process = OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-1");
+        repository.create(process, registration(null, null));
+        repository.save(process.rejected("nope"));
+
+        assertThat(repository.existsByClientIdAndExternalId("client-1", "ext-1")).isTrue();
     }
 
     @Test

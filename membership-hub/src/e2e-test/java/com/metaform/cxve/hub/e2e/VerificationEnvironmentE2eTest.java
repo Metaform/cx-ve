@@ -437,14 +437,22 @@ class VerificationEnvironmentE2eTest {
     void ospRegistrationStatusContract() {
         wiremock.stubFor(post(urlPathEqualTo("/registration/status"))
                 .willReturn(okJson("{}")));
+        // The token endpoint MUST be stubbed before the callback config is registered: all four
+        // config fields are mandatory now, so the Onboarding API authenticates every status
+        // delivery — and a failed token fetch DROPS the update (no retry), which would burn the
+        // whole await budget below.
+        wiremock.stubFor(post(urlPathEqualTo("/token"))
+                .willReturn(okJson("{\"access_token\":\"e2e-callback-token\"}")));
 
-        // set callback url: status updates land on the WireMock stub above
+        // set the callback config: status updates land on the WireMock stub above, authenticated
+        // with a client-credentials token from the stubbed token endpoint
         var callbackUrl = "http://%s:%d/registration/status".formatted(CALLBACK_HOST, wiremock.getPort());
+        var tokenUrl = "http://%s:%d/token".formatted(CALLBACK_HOST, wiremock.getPort());
         given()
                 .baseUri(ONBOARDING_API_URL)
                 .header("Authorization", "Bearer " + ospAccessToken())
                 .contentType(ContentType.JSON)
-                .body(new SetCallbackRequest(callbackUrl, null, null, null))
+                .body(new SetCallbackRequest(callbackUrl, tokenUrl, "e2e-cb-client", "e2e-cb-secret"))
                 .post("/api/administration/registrationstatus/callback")
                 .then().statusCode(204);
 
@@ -455,11 +463,19 @@ class VerificationEnvironmentE2eTest {
         await().atMost(Duration.ofMinutes(2)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
             var byExternalId = callbackResults();
             assertThat(byExternalId).containsKey(externalId);
-            // pin the status: a REJECTED callback must fail here, not as an opaque mismatch later
-            assertThat(byExternalId.get(externalId).status())
-                    .withFailMessage("registration not confirmed: %s", byExternalId.get(externalId))
+            var callback = byExternalId.get(externalId);
+            // pin the status: a DECLINED callback must fail here, not as an opaque mismatch later
+            assertThat(callback.applicationStatus())
+                    .withFailMessage("registration not confirmed: %s", callback)
                     .isEqualTo("CONFIRMED");
+            // the CX-0010 bpnl is mandatory on the callback and known at confirmation
+            assertThat(callback.bpnl())
+                    .withFailMessage("CONFIRMED callback carries no bpnl: %s", callback)
+                    .isNotBlank();
         });
+        // the delivery was authenticated with the token from the stubbed endpoint
+        wiremock.verify(postRequestedFor(urlPathEqualTo("/registration/status"))
+                .withHeader("Authorization", com.github.tomakehurst.wiremock.client.WireMock.equalTo("Bearer e2e-callback-token")));
         log("CONFIRMED callback received for %s", externalId);
     }
 
@@ -588,7 +604,8 @@ class VerificationEnvironmentE2eTest {
 
     /** Submits a registration DIRECTLY to the Onboarding API, in the OSP role (osp-client). */
     private static void submitOspRegistration(String name, String shortName, String runId) {
-        // bpn is a required field of the registration payload (see bpnFor)
+        // bpn is optional per spec but supplied here so the duplicate checks bite (see bpnFor);
+        // userDetails is spec-mandatory since the CX-0009 revision that reshaped the payload
         var bpn = bpnFor(runId);
         var newParticipant = NewParticipantData.builder()
                 .name(name)
@@ -603,7 +620,8 @@ class VerificationEnvironmentE2eTest {
                 .countryAlpha2Code("DE")
                 .uniqueId("VAT_ID", "DE" + runId)
                 .companyRole("ACTIVE_PARTICIPANT")
-                .agreement("Catena-X", "ACTIVE")
+                .userDetail(new NewParticipantData.UserDetail(
+                        null, "e2e-user-" + runId, null, "E2e", "Tester", "e2e-" + runId + "@example.com"))
                 .autoSubmit(true)
                 .build();
 

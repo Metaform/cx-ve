@@ -77,7 +77,10 @@ public class DefaultRegistrationStatusService implements RegistrationStatusServi
                     after.clientId(), after.id());
             return;
         }
-        var regData = new OspRegistrationCallbackData(after.externalId(), RegistrationStatus.from(after.state()), after.failureReason());
+        // bpnl travels on every callback that has one to give; a DECLINED before BPN assignment
+        // has none, and NON_NULL serialization omits the field (spec defect, see the payload record).
+        var regData = new OspRegistrationCallbackData(after.externalId(), RegistrationStatus.from(after.state()),
+                after.failureReason(), after.bpn(), null, null);
         post(after.clientId(), callback, regData);
     }
 

@@ -4,8 +4,6 @@ import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import static java.util.Optional.ofNullable;
-
 /**
  * Resolves the DID a participant is (or will be) provisioned under.
  *
@@ -14,7 +12,10 @@ import static java.util.Optional.ofNullable;
  * two must agree. If they drifted, a subscriber would correlate on a DID the participant never gets.
  *
  * <p>The value is knowable before provisioning because it is either supplied by the caller or
- * derived from the configured template and the participant's short name.
+ * derived from the configured template: caller-supplied did → template + shortName → template +
+ * externalId (shortName is Optional per spec; externalId is always present, though only unique
+ * per OSP — externalIds are UUIDs by convention, and a collision is caught by the duplicate-DID
+ * check).
  */
 @Component
 public class ParticipantDidResolver {
@@ -26,6 +27,12 @@ public class ParticipantDidResolver {
     }
 
     public String resolve(PartnerRegistrationData registrationData) {
-        return ofNullable(registrationData.did()).orElseGet(() -> didTemplate + registrationData.shortName());
+        if (registrationData.did() != null && !registrationData.did().isBlank()) {
+            return registrationData.did();
+        }
+        var suffix = registrationData.shortName() != null && !registrationData.shortName().isBlank()
+                ? registrationData.shortName()
+                : registrationData.externalId();
+        return didTemplate + suffix;
     }
 }

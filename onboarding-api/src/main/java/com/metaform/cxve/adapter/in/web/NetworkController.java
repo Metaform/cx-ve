@@ -1,8 +1,6 @@
 package com.metaform.cxve.adapter.in.web;
 
 import com.metaform.cxve.application.NetworkService;
-import com.metaform.cxve.domain.model.FileUploadRequest;
-import com.metaform.cxve.domain.model.FileUploadResponse;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -23,27 +21,19 @@ public class NetworkController {
     }
 
     /**
-     * Registers a partner company on behalf of the calling client — the token identity (see
-     * {@link TokenClientId}) is recorded on the onboarding process and its status callbacks are
-     * routed to that client's registered callback. Payloads missing a required field (see
-     * {@link PartnerRegistrationData}) are rejected with 400; such rejections are logged and the
-     * exact error message is returned (see {@link InvalidRequestShapeHandler}).
+     * Registers a partner company on behalf of the calling client (CX-0009 §2.2.1) — the token
+     * identity (see {@link TokenClientId}) is recorded on the onboarding process and its status
+     * callbacks are routed to that client's registered callback. Payloads missing a required
+     * field (see {@link PartnerRegistrationData}) are rejected with 400; such rejections are
+     * logged and the exact error message is returned (see {@link InvalidRequestShapeHandler}).
      *
-     * @return the ID of the onboarding process
+     * @return the ID of the onboarding process. (Deliberate deviation: the spec declares an empty
+     *         200 — the id in the body is what OSP clients correlate the process on, and the
+     *         spec's tolerant reader permits it.)
      */
     @PostMapping("/partnerregistration")
     public String registerPartner(@Valid @RequestBody PartnerRegistrationData registrationData,
                                   @AuthenticationPrincipal Jwt token) {
         return networkService.registerPartner(TokenClientId.from(token), registrationData);
-    }
-
-    /**
-     * Announces a file for a partner registration: assigns a file id and returns the presigned
-     * URL the caller uploads the contents to. The id goes into the registration payload's
-     * {@code fileIds}.
-     */
-    @PostMapping("/partnerregistration/fileupload")
-    public FileUploadResponse uploadFile(@Valid @RequestBody FileUploadRequest uploadRequest) {
-        return networkService.initiateFileUpload(uploadRequest.fileName(), uploadRequest.contentType());
     }
 }

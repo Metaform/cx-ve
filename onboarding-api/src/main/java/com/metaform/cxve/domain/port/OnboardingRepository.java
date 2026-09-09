@@ -43,4 +43,12 @@ public interface OnboardingRepository {
 
     /** The active registration holding the given unique id (matched on type and value), if any. */
     Optional<PartnerRegistration> findActiveByUniqueId(CompanyUniqueIdData uniqueId);
+
+    /**
+     * True when the given OSP client already submitted a registration under this externalId —
+     * in ANY state, terminal attempts included: the CX-0009 §2.2.2 conflict check is strict, so a
+     * declined registration keeps its externalId (OSPs mint a fresh id per registration). Racy by
+     * design (exists-then-create without a unique index) — acceptable for the VE.
+     */
+    boolean existsByClientIdAndExternalId(String clientId, String externalId);
 }

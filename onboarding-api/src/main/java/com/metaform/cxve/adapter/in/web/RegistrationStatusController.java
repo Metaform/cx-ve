@@ -2,6 +2,8 @@ package com.metaform.cxve.adapter.in.web;
 
 import com.metaform.cxve.adapter.out.callback.RegistrationStatusService;
 import com.metaform.cxve.domain.model.CallbackRequestData;
+import com.metaform.cxve.domain.model.CallbackResponseData;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -29,21 +31,24 @@ public class RegistrationStatusController {
     }
 
     /**
-     * Gets the callback address the calling onboarding service provider has registered.
+     * Gets the callback address the calling onboarding service provider has registered — without
+     * the client secret, which is write-only per spec. Nothing registered yet answers 200 with an
+     * empty body ("Empty if not configured").
      */
     @GetMapping("/callback")
-    public CallbackRequestData getCallbackAddress(@AuthenticationPrincipal Jwt token) {
-        return registrationStatusService.getCallbackAddress(TokenClientId.from(token));
+    public CallbackResponseData getCallbackAddress(@AuthenticationPrincipal Jwt token) {
+        return CallbackResponseData.from(registrationStatusService.getCallbackAddress(TokenClientId.from(token)));
     }
 
     /**
-     * Sets the callback address of the calling onboarding service provider. Requires the
+     * Sets or updates the callback address of the calling onboarding service provider. All four
+     * fields are mandatory (spec §2.2.4); like every administration endpoint this requires the
      * {@code configure_partner_registration} scope (enforced in
      * {@link com.metaform.cxve.config.ApiSecurityConfig}).
      */
     @PostMapping("/callback")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void setCallbackAddress(@RequestBody CallbackRequestData callbackData, @AuthenticationPrincipal Jwt token) {
+    public void setCallbackAddress(@Valid @RequestBody CallbackRequestData callbackData, @AuthenticationPrincipal Jwt token) {
         registrationStatusService.setCallbackAddress(TokenClientId.from(token), callbackData);
     }
 }

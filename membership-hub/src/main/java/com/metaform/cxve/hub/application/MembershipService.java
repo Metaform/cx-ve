@@ -97,7 +97,8 @@ public class MembershipService {
     /**
      * Records an Onboarding API status callback on the membership: CONFIRMED marks the
      * registration confirmed (provisioning itself is driven by {@link #onboard}, which picks the
-     * marker up after the submission returns), REJECTED terminally rejects it.
+     * marker up after the submission returns), DECLINED terminally rejects it (the internal
+     * REJECTED state — the wire value changed with the spec, the persisted enum did not).
      */
     public Membership onRegistrationStatus(String externalId, String status, String message) {
         var membership = current(externalId);
@@ -111,8 +112,8 @@ public class MembershipService {
                 repository.save(confirmed);
                 yield confirmed;
             }
-            case "REJECTED" -> {
-                log.warn("Membership '{}' was rejected by the Onboarding API: {}", externalId, message);
+            case "DECLINED" -> {
+                log.warn("Membership '{}' was declined by the Onboarding API: {}", externalId, message);
                 var rejected = membership.rejected(message);
                 repository.save(rejected);
                 yield rejected;

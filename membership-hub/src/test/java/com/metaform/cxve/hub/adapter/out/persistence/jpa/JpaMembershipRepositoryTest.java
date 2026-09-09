@@ -32,10 +32,12 @@ class JpaMembershipRepositoryTest {
     }
 
     private static MemberData payload() {
-        return new MemberData("Acme Corp", "Acme", "BPNL0000000000XY", null,
+        return new MemberData("Acme Corp", "Acme", "BPNL0000000000XY",
+                "Berlin", "Musterstrasse", "DE", "BE", null,
                 List.of(new MemberData.UniqueId("VAT_ID", "DE123456789")),
                 List.of("ACTIVE_PARTICIPANT"),
-                List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE")));
+                List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE")),
+                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")));
     }
 
     @Test

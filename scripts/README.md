@@ -68,7 +68,9 @@ prints the correlated record incl. the participant context id. `--short-name` pi
 (`did:web:identity.<host>:<short-name>`). No credentials needed — the hub's API is unauthenticated and the hub
 itself authenticates to the Onboarding API. Registering directly with the Onboarding API in the OSP role
 (registration + credential holder only, no provisioning) remains possible via its API with an `osp-client` token;
-see [registration-api.yaml](../registration-api.yaml).
+see [registration-api.yaml](../registration-api.yaml) and, for the callback the OSP hosts,
+[osp-registration-callback-api.yaml](../osp-registration-callback-api.yaml) (both verbatim copies of the
+normative CX-0009 OpenAPI documents).
 
 ## `e2e.sh`
 

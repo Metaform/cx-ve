@@ -100,9 +100,19 @@ payload=$(jq -n \
     name: $name,
     shortName: $shortName,
     bpn: $bpn,
+    city: "Munich",
+    streetName: "Otto-Hahn-Ring",
+    countryAlpha2Code: "DE",
+    region: "BY",
     uniqueIds: [ { type: "VAT_ID", value: $vatId } ],
     companyRoles: [ "ACTIVE_PARTICIPANT" ],
-    agreements: [ { agreementId: "Catena-X", consentStatus: "ACTIVE" } ]
+    agreements: [ { agreementId: "Catena-X", consentStatus: "ACTIVE" } ],
+    userDetails: [ {
+      providerId: ("user-" + $vatId),
+      firstName: "Test",
+      lastName: "Operator",
+      email: (("op-" + $vatId) + "@example.com")
+    } ]
   }')
 
 echo "Onboarding member \"$NAME\" (shortName=$SHORT_NAME, bpn=$BPN)"

@@ -61,6 +61,12 @@ public class InMemoryOnboardingRepository implements OnboardingRepository {
         return findActive(r -> r.data().uniqueIds() != null && r.data().uniqueIds().contains(uniqueId));
     }
 
+    @Override
+    public boolean existsByClientIdAndExternalId(String clientId, String externalId) {
+        return processes.values().stream()
+                .anyMatch(p -> clientId.equals(p.clientId()) && externalId.equals(p.externalId()));
+    }
+
     private Optional<PartnerRegistration> findActive(Predicate<PartnerRegistration> predicate) {
         return processes.values().stream()
                 .filter(OnboardingProcess::isActiveRegistration)

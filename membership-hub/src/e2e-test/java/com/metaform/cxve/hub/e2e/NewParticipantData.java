@@ -27,8 +27,6 @@ public record NewParticipantData(
         List<UserDetail> userDetails,
         List<String> companyRoles,
         String did,
-        List<Agreement> agreements,
-        List<String> fileIds,
         Boolean autoSubmit
 ) {
 
@@ -43,9 +41,6 @@ public record NewParticipantData(
             String lastName,
             String email
     ) {
-    }
-
-    public record Agreement(String agreementId, String consentStatus) {
     }
 
     public static Builder builder() {
@@ -68,8 +63,6 @@ public record NewParticipantData(
         private final List<UserDetail> userDetails = new ArrayList<>();
         private final List<String> companyRoles = new ArrayList<>();
         private String did;
-        private final List<Agreement> agreements = new ArrayList<>();
-        private final List<String> fileIds = new ArrayList<>();
         private Boolean autoSubmit;
 
         private Builder() {
@@ -150,16 +143,6 @@ public record NewParticipantData(
             return this;
         }
 
-        public Builder agreement(String agreementId, String consentStatus) {
-            this.agreements.add(new Agreement(agreementId, consentStatus));
-            return this;
-        }
-
-        public Builder fileId(String fileId) {
-            this.fileIds.add(fileId);
-            return this;
-        }
-
         public Builder autoSubmit(Boolean autoSubmit) {
             this.autoSubmit = autoSubmit;
             return this;
@@ -168,8 +151,7 @@ public record NewParticipantData(
         public NewParticipantData build() {
             return new NewParticipantData(name, city, streetName, countryAlpha2Code, bpn, shortName,
                     region, streetAdditional, streetNumber, zipCode, List.copyOf(uniqueIds), externalId,
-                    List.copyOf(userDetails), List.copyOf(companyRoles), did, List.copyOf(agreements),
-                    List.copyOf(fileIds), autoSubmit);
+                    List.copyOf(userDetails), List.copyOf(companyRoles), did, autoSubmit);
         }
     }
 }

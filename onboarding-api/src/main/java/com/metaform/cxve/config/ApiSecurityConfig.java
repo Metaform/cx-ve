@@ -5,7 +5,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -27,11 +26,11 @@ import org.springframework.security.web.access.AccessDeniedHandler;
  * jwtlet, whose only grant exchanges Kubernetes ServiceAccount tokens — a workload-identity
  * mechanism that must not be handed to external clients). Validation is Boot's standard
  * property-driven decoder under {@code spring.security.oauth2.resourceserver.jwt}: signature via
- * the IdP's JWKS, {@code exp}/{@code nbf}, and {@code iss} against the configured issuer. Any
- * valid token may call the API; the one finer-grained rule is registering a status callback
- * ({@code POST .../registrationstatus/callback}), which requires the
- * {@code configure_partner_registration} scope — Hydra puts granted scopes in the {@code scp}
- * claim, which Spring maps to {@code SCOPE_} authorities out of the box.
+ * the IdP's JWKS, {@code exp}/{@code nbf}, and {@code iss} against the configured issuer. On top
+ * of authentication, every administration endpoint requires the
+ * {@code configure_partner_registration} scope — CX-0009 declares that Required Role on each
+ * CSP-B endpoint. Hydra puts granted scopes in the {@code scp} claim, which Spring maps to
+ * {@code SCOPE_} authorities out of the box.
  *
  * <p>Everything outside {@code /api/**} stays open: the actuator (Kubernetes probes) and the
  * springdoc/swagger surface.
@@ -41,9 +40,8 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 public class ApiSecurityConfig {
 
     /**
-     * The scope required to register a status callback — the one write that redirects onboarding
-     * outcome data to a third party, hence gated separately (the Catena-X portal role of the same
-     * name).
+     * The scope gating the whole administration surface — CX-0009 requires the role of the same
+     * name (the Catena-X portal role) on every CSP-B endpoint.
      */
     public static final String CONFIGURE_PARTNER_REGISTRATION = "SCOPE_configure_partner_registration";
 
@@ -56,7 +54,7 @@ public class ApiSecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers(HttpMethod.POST, "/api/administration/registrationstatus/callback")
+                        .requestMatchers("/api/administration/**")
                         .hasAuthority(CONFIGURE_PARTNER_REGISTRATION)
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults())

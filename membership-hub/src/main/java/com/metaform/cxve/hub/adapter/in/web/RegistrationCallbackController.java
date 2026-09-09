@@ -1,5 +1,6 @@
 package com.metaform.cxve.hub.adapter.in.web;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.metaform.cxve.hub.application.MembershipService;
 import java.util.NoSuchElementException;
 import org.slf4j.Logger;
@@ -14,8 +15,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * The status-callback endpoint this app registers with the Onboarding API. The payload mirrors
- * the API's {@code OspRegistrationCallbackData}: the {@code externalId} the hub minted at
- * submission, the registration status (SUBMITTED/CONFIRMED/REJECTED) and an optional message.
+ * the spec's {@code OspRegistrationCallbackData}: the {@code externalId} the hub minted at
+ * submission, the {@code applicationStatus} (SUBMITTED/CONFIRMED/DECLINED), an optional message
+ * and the CX-0010 BPN values ({@code bpnl} logged for reference — the hub requires the BPN up
+ * front, so its own record stays authoritative). Answers 200 on receipt, per spec.
  *
  * <p>The callback only RECORDS the registration's outcome on the membership — the Onboarding API
  * delivers it synchronously while the hub's own submission is still on the wire, and the
@@ -39,10 +42,10 @@ public class RegistrationCallbackController {
     }
 
     @PostMapping("/registration-status")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void onRegistrationStatus(@RequestBody RegistrationStatusUpdate update) {
-        log.info("Registration status callback: externalId={}, status={}", update.externalId(), update.status());
-        membershipService.onRegistrationStatus(update.externalId(), update.status(), update.message());
+        log.info("Registration status callback: externalId={}, applicationStatus={}, bpnl={}",
+                update.externalId(), update.applicationStatus(), update.bpnl());
+        membershipService.onRegistrationStatus(update.externalId(), update.applicationStatus(), update.message());
     }
 
     @ExceptionHandler(NoSuchElementException.class)
@@ -51,7 +54,9 @@ public class RegistrationCallbackController {
         return e.getMessage();
     }
 
-    /** Wire mirror of the Onboarding API's {@code OspRegistrationCallbackData}. */
-    public record RegistrationStatusUpdate(String externalId, String status, String message) {
+    /** Wire mirror of the spec's {@code OspRegistrationCallbackData}; tolerant reader. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RegistrationStatusUpdate(String externalId, String applicationStatus, String message,
+                                           String bpnl, String bpna, String bpns) {
     }
 }
