@@ -453,7 +453,8 @@ type OnboardingStartedEvent struct{ OnboardingEvent }
 // OnboardingCompletedEvent announces that an onboarding reached a terminal state — any of them, not
 // just success — so State is what says how it ended and must be inspected. Did and
 // ParticipantContextID are empty when the onboarding never got far enough to be assigned them, and
-// FailureMessage is set for OnboardingStateRejected and OnboardingStateFailed.
+// FailureMessage is set for OnboardingStateRejected, OnboardingStateFailed and
+// OnboardingStateCancelled (there it carries the cancellation reason, not a failure).
 type OnboardingCompletedEvent struct {
 	OnboardingEvent
 	ParticipantContextID string          `json:"participantContextId,omitempty"`
@@ -503,15 +504,17 @@ const (
 )
 
 // OnboardingState is the terminal state reached by an onboarding, likewise serialized as the enum
-// constant name. Only these three appear on the wire: the Onboarding API announces an outcome
+// constant name. Only these four appear on the wire: the Onboarding API announces an outcome
 // exactly when the process becomes terminal, so the intermediate states of its state machine
-// (SUBMITTED, VALIDATED, BPN_ASSIGNED, ...) are never published.
+// (SUBMITTED, VALIDATED, BPN_ASSIGNED, ...) are never published. CANCELLED is the
+// OSP-initiated cancellation via the API's DELETE endpoint.
 type OnboardingState string
 
 const (
 	OnboardingStateCompleted OnboardingState = "COMPLETED"
 	OnboardingStateRejected  OnboardingState = "REJECTED"
 	OnboardingStateFailed    OnboardingState = "FAILED"
+	OnboardingStateCancelled OnboardingState = "CANCELLED"
 )
 
 // CredentialFormat is likewise serialized as the enum constant name.

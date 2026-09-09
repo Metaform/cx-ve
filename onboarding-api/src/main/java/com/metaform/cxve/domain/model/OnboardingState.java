@@ -31,5 +31,13 @@ public enum OnboardingState {
     COMPLETED,
 
     /** A step failed irrecoverably. Terminal. */
-    FAILED
+    FAILED,
+
+    /** The submitting OSP cancelled the registration before it completed. Terminal. */
+    CANCELLED;
+
+    /** True for the states an onboarding can never leave — shared by the domain and the stores. */
+    public boolean isTerminal() {
+        return this == COMPLETED || this == REJECTED || this == FAILED || this == CANCELLED;
+    }
 }

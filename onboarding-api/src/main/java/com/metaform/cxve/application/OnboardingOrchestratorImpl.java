@@ -109,7 +109,7 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
             // CREDENTIALS_ISSUED is no longer entered (credentials are issued downstream, after
             // the EDC resources exist) but remains a valid stored state that must keep advancing.
             case WALLET_PROVISIONED, CREDENTIALS_ISSUED -> process.withState(OnboardingState.COMPLETED);
-            case COMPLETED, REJECTED, FAILED -> process;
+            case COMPLETED, REJECTED, FAILED, CANCELLED -> process;
         };
         repository.save(next);
         processOutcome(process, next);

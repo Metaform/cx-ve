@@ -172,6 +172,39 @@ class RegistrationStatusControllerTest {
     }
 
     @Test
+    void fineGrainedScopes_splitConfigReadAndWrite() throws Exception {
+        when(registrationStatusService.getCallbackAddress("client-1")).thenReturn(
+                new CallbackRequestData("https://osp.example/callback", "https://auth.example/token", "c", "s"));
+
+        // callback-config:write — POST passes, GET is 403
+        mockMvc.perform(post(CALLBACK_PATH)
+                        .with(scopelessClient1().authorities(new SimpleGrantedAuthority(ApiSecurityConfig.CALLBACK_CONFIG_WRITE)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get(CALLBACK_PATH)
+                        .with(scopelessClient1().authorities(new SimpleGrantedAuthority(ApiSecurityConfig.CALLBACK_CONFIG_WRITE))))
+                .andExpect(status().isForbidden());
+
+        // callback-config:read — GET passes, POST is 403
+        mockMvc.perform(get(CALLBACK_PATH)
+                        .with(scopelessClient1().authorities(new SimpleGrantedAuthority(ApiSecurityConfig.CALLBACK_CONFIG_READ))))
+                .andExpect(status().isOk());
+        mockMvc.perform(post(CALLBACK_PATH)
+                        .with(scopelessClient1().authorities(new SimpleGrantedAuthority(ApiSecurityConfig.CALLBACK_CONFIG_READ)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isForbidden());
+
+        // a registration scope grants nothing here
+        mockMvc.perform(post(CALLBACK_PATH)
+                        .with(scopelessClient1().authorities(new SimpleGrantedAuthority(ApiSecurityConfig.REGISTRATION_WRITE)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void withoutABearerToken_is401() throws Exception {
         mockMvc.perform(get(CALLBACK_PATH))
                 .andExpect(status().isUnauthorized());

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Pattern;
 import java.util.List;
 
 /**
@@ -29,7 +30,10 @@ import java.util.List;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record PartnerRegistrationData(
-        @NotBlank String externalId,
+        // Path-safe like the tenant flow's: legacy registrations are readable through the same
+        // recovery endpoints, so their ids must be addressable there too.
+        @NotBlank @Pattern(regexp = OspTenantRegistrationData.EXTERNAL_ID_PATTERN,
+                message = OspTenantRegistrationData.EXTERNAL_ID_MESSAGE) String externalId,
         @NotBlank String name,
         @NotBlank String city,
         @NotBlank String streetName,

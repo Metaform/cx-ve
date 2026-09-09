@@ -345,6 +345,15 @@ onboarding-process id as its body (the spec declares an empty response; the id i
 the tolerant reader permits it). The optional §2.2.3 file upload endpoint is not offered (conformant: this CSP-B
 requires no files); `consents[].fileIds` are accepted but nothing dereferences them.
 
+It additionally implements EXTENSIONS beyond the spec — mitigating, implementation-side, the gaps behind findings
+§10.1/§10.5/§10.7, which remain open against the spec itself:
+client-scoped `GET`/`DELETE /api/administration/osp/v2/tenant-registration[/{externalId}]` — the recovery read for a
+lost callback (in-flight states read as `SUBMITTED`; a cancelled registration reads as the extension status
+`CANCELLED`, never sent on a callback) and OSP-initiated cancellation (204/404/409, no callback, terminal event
+still published); fine-grained per-endpoint scopes (`registration:read`/`registration:write`,
+`callback-config:read`/`callback-config:write`) accepted alongside the spec's `configure_partner_registration`
+umbrella role; and `bpnl` treated as effectively optional on callbacks (omitted when no BPN exists yet).
+
 Still open or newly introduced:
 
 1. **No read path, anywhere.** Neither flow has a status GET; the §2.2.2 `201` carries no body and no `Location`. A

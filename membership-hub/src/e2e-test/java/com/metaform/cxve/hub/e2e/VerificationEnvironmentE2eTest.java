@@ -477,6 +477,17 @@ class VerificationEnvironmentE2eTest {
         wiremock.verify(postRequestedFor(urlPathEqualTo("/registration/status"))
                 .withHeader("Authorization", com.github.tomakehurst.wiremock.client.WireMock.equalTo("Bearer e2e-callback-token")));
         log("CONFIRMED callback received for %s", externalId);
+
+        // recovery read (cx-ve extension beyond the spec): the registration's status is
+        // retrievable without a callback — the same applicationStatus/bpnl the callback carried
+        given()
+                .baseUri(ONBOARDING_API_URL)
+                .header("Authorization", "Bearer " + ospAccessToken())
+                .get("/api/administration/osp/v2/tenant-registration/{externalId}", externalId)
+                .then().statusCode(200)
+                .body("applicationStatus", org.hamcrest.Matchers.equalTo("CONFIRMED"))
+                .body("bpnl", org.hamcrest.Matchers.not(org.hamcrest.Matchers.emptyOrNullString()));
+        log("recovery GET confirms %s without a callback", externalId);
     }
 
     /**

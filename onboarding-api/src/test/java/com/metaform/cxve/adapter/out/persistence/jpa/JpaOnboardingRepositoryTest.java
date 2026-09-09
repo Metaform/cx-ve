@@ -179,26 +179,87 @@ class JpaOnboardingRepositoryTest {
     }
 
     @Test
-    void existsByClientIdAndExternalId_isScopedToTheClient() {
+    void findAllByClientIdAndExternalId_isScopedToTheClient_andReturnsDuplicates() {
         var process = OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-1");
         repository.create(process, registration(null, null));
 
-        assertThat(repository.existsByClientIdAndExternalId("client-1", "ext-1")).isTrue();
-        // The same externalId under another OSP is no conflict (uniqueness is per OSP)...
-        assertThat(repository.existsByClientIdAndExternalId("client-2", "ext-1")).isFalse();
-        // ...nor is another externalId of the same OSP.
-        assertThat(repository.existsByClientIdAndExternalId("client-1", "ext-2")).isFalse();
+        assertThat(repository.findAllByClientIdAndExternalId("client-1", "ext-1")).containsExactly(process);
+        assertThat(repository.findAllByClientIdAndExternalId("client-2", "ext-1")).isEmpty();
+        assertThat(repository.findAllByClientIdAndExternalId("client-1", "ext-2")).isEmpty();
+
+        // (clientId, externalId) is NOT unique — legacy resubmissions and post-cancel
+        // re-registrations create sibling rows; the lookup must return them all, not throw.
+        repository.create(OnboardingProcess.submitted("proc-2", "ext-1", null, null, "client-1"),
+                registration(null, null));
+        assertThat(repository.findAllByClientIdAndExternalId("client-1", "ext-1"))
+                .extracting(OnboardingProcess::id)
+                .containsExactlyInAnyOrder("proc-1", "proc-2");
     }
 
     @Test
-    void existsByClientIdAndExternalId_countsTerminalAttempts() {
-        // The §2.2.2 conflict check is deliberately any-state: a declined registration keeps its
-        // externalId — OSPs mint a fresh one per registration.
+    void findAllByClientId_returnsEveryStateOfThatClientOnly() {
+        var one = OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-1");
+        repository.create(one, registration(null, null));
+        repository.save(one.rejected("nope"));
+        repository.create(OnboardingProcess.submitted("proc-2", "ext-2", null, null, "client-1"),
+                registration(null, null));
+        repository.create(OnboardingProcess.submitted("proc-3", "ext-3", null, null, "client-2"),
+                registration(null, null));
+
+        assertThat(repository.findAllByClientId("client-1"))
+                .extracting(OnboardingProcess::externalId)
+                .containsExactlyInAnyOrder("ext-1", "ext-2");
+        assertThat(repository.findAllByClientId("client-3")).isEmpty();
+    }
+
+    @Test
+    void cancel_transitionsOnlyNonTerminalProcesses_atomically() {
+        var process = OnboardingProcess.submitted("proc-1", "ext-1", "BPNL0000000000XY", "did:web:acme", "client-1");
+        repository.create(process, registration("BPNL0000000000XY", null));
+        repository.save(process.withState(OnboardingState.VALIDATED));
+
+        assertThat(repository.cancel("proc-1", "operator asked")).isTrue();
+
+        var cancelled = repository.findById("proc-1").orElseThrow();
+        assertThat(cancelled.state()).isEqualTo(OnboardingState.CANCELLED);
+        assertThat(cancelled.failureReason()).isEqualTo("operator asked");
+        // The conditional UPDATE touches only state and reason — recorded identities survive.
+        assertThat(cancelled.bpn()).isEqualTo("BPNL0000000000XY");
+        assertThat(cancelled.holderId()).isEqualTo("did:web:acme");
+
+        // Already terminal: the same call is a no-op answering false — cancelling twice, or
+        // cancelling a completed onboarding, never relabels the recorded outcome.
+        assertThat(repository.cancel("proc-1", "again")).isFalse();
+        assertThat(repository.findById("proc-1").orElseThrow().failureReason()).isEqualTo("operator asked");
+        assertThat(repository.cancel("unknown", "whatever")).isFalse();
+    }
+
+    @Test
+    void cancel_refusesACompletedOnboarding() {
         var process = OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-1");
         repository.create(process, registration(null, null));
-        repository.save(process.rejected("nope"));
+        repository.save(process.withState(OnboardingState.COMPLETED));
 
-        assertThat(repository.existsByClientIdAndExternalId("client-1", "ext-1")).isTrue();
+        assertThat(repository.cancel("proc-1", "too late")).isFalse();
+        assertThat(repository.findById("proc-1").orElseThrow().state()).isEqualTo(OnboardingState.COMPLETED);
+    }
+
+    @Test
+    void save_refusesToOverwriteATerminalStateWithAStaleSnapshot() {
+        // The other half of the cancellation race: a drive thread holding a pre-cancel snapshot
+        // must not resurrect (or relabel) a terminal row with its stale step result.
+        var process = OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-1");
+        repository.create(process, registration(null, null));
+        assertThat(repository.cancel("proc-1", "cancelled mid-drive")).isTrue();
+
+        repository.save(process.withState(OnboardingState.IDENTITY_VERIFIED));
+
+        var stored = repository.findById("proc-1").orElseThrow();
+        assertThat(stored.state()).isEqualTo(OnboardingState.CANCELLED);
+        assertThat(stored.failureReason()).isEqualTo("cancelled mid-drive");
+        // Same-state re-saves stay allowed (idempotent).
+        repository.save(stored);
+        assertThat(repository.findById("proc-1").orElseThrow().state()).isEqualTo(OnboardingState.CANCELLED);
     }
 
     @Test

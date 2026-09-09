@@ -288,18 +288,20 @@ ospIdp:
     # The `hydra` database comes from the postgresql.databases list above (its CX-VE entry)
     dsn: postgres://hydra:hydra@cx-ve-postgresql.edc-v.svc.cluster.local:5432/hydra?sslmode=disable
   # OSP clients seeded into the IdP (osp-idp-seed-job.yaml; upserted on upgrade). `scope` is the
-  # space-separated maximum a client may request — configure_partner_registration additionally
-  # allows registering a status callback on the Onboarding API.
+  # space-separated maximum a client may request. configure_partner_registration is the CX-0009
+  # umbrella role sufficient for every administration endpoint; the fine-grained scopes
+  # (registration:read/write, callback-config:read/write) are the least-privilege alternatives
+  # the Onboarding API accepts per operation class — seeded here so clients CAN request them.
   clients:
     - id: osp-client
       secret: osp-secret
-      scope: "configure_partner_registration"
+      scope: "configure_partner_registration registration:read registration:write callback-config:read callback-config:write"
     # The Membership Hub's own OSP identity — a separate client, so its callback registration
     # cannot collide with osp-client's (e.g. the e2e suite's). Must agree with the
     # membership-hub chart's config onboarding-api.auth.*
     - id: membership-hub
       secret: membership-hub-secret
-      scope: "configure_partner_registration"
+      scope: "configure_partner_registration registration:read registration:write callback-config:read callback-config:write"
     # The credentials the hub registers ALONGSIDE its callback URL: the Onboarding API uses them
     # (client_credentials) to authenticate the status callbacks it sends BACK to the hub, whose
     # callback endpoint validates the bearer against this IdP. Must agree with the membership-hub

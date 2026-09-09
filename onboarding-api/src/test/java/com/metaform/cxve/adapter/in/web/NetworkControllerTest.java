@@ -116,6 +116,25 @@ class NetworkControllerTest {
     }
 
     @Test
+    void registerPartner_acceptsTheFineGrainedWriteScope_butNotRead() throws Exception {
+        // Least privilege: registration:write is the automation credential's scope; a read-only
+        // token must not submit registrations.
+        mockMvc.perform(post(REGISTRATION_PATH)
+                        .with(jwt().jwt(j -> j.subject("client-1"))
+                                .authorities(new SimpleGrantedAuthority(ApiSecurityConfig.REGISTRATION_WRITE)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post(REGISTRATION_PATH)
+                        .with(jwt().jwt(j -> j.subject("client-1"))
+                                .authorities(new SimpleGrantedAuthority(ApiSecurityConfig.REGISTRATION_READ)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void registerPartner_returns200AndDelegatesToService() throws Exception {
         mockMvc.perform(post(REGISTRATION_PATH)
                         .with(ospClient())
@@ -249,14 +268,34 @@ class NetworkControllerTest {
         payload.put(field, "   ");
         var expectedMessage = field + ": must not be blank";
 
+        // containsString, not equality: a blank externalId additionally violates its path-safety
+        // pattern, so the joined detail carries both messages.
         mockMvc.perform(post(REGISTRATION_PATH)
                         .with(ospClient())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload.toString()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value(expectedMessage));
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString(expectedMessage)));
 
-        assertThat(output).contains("Rejected request with 400 due to invalid shape: " + expectedMessage);
+        assertThat(output).contains(expectedMessage);
+        verifyNoInteractions(networkService);
+    }
+
+    @Test
+    void registerPartner_withAPathUnsafeExternalId_returns400() throws Exception {
+        // externalId doubles as the address of the recovery GET/DELETE — an id the path cannot
+        // express would be accepted but permanently unreadable, so it is rejected at intake.
+        var payload = validPayload();
+        payload.put("externalId", "orders/2026/001");
+
+        mockMvc.perform(post(REGISTRATION_PATH)
+                        .with(ospClient())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload.toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(
+                        org.hamcrest.Matchers.containsString("URL-path-safe")));
+
         verifyNoInteractions(networkService);
     }
 

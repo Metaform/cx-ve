@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Pattern;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -25,7 +26,7 @@ import java.util.stream.Collectors;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record OspTenantRegistrationData(
-        @NotBlank String externalId,
+        @NotBlank @Pattern(regexp = EXTERNAL_ID_PATTERN, message = EXTERNAL_ID_MESSAGE) String externalId,
         @NotBlank String name,
         @NotBlank String city,
         @NotBlank String streetName,
@@ -40,6 +41,16 @@ public record OspTenantRegistrationData(
         String zipCode,
         String did
 ) {
+
+    /**
+     * externalId doubles as the address of the read/cancel endpoints
+     * ({@code .../tenant-registration/{externalId}}), so it is constrained to characters a single
+     * URL path segment can carry verbatim — an id the API accepted but its own read path cannot
+     * express would be unrecoverable.
+     */
+    public static final String EXTERNAL_ID_PATTERN = "[A-Za-z0-9._~:@+-]+";
+    public static final String EXTERNAL_ID_MESSAGE =
+            "must contain only URL-path-safe characters (letters, digits, . _ ~ : @ + -)";
 
     private static final Set<ConsentKind> REQUIRED_KINDS = EnumSet.of(
             ConsentKind.CX_OPERATING_MODEL, ConsentKind.CX_TEN_GOLDEN_RULES, ConsentKind.CX_DATA_EXCHANGE_GOVERNANCE);
