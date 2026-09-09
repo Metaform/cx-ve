@@ -1,6 +1,7 @@
 package com.metaform.cxve.application;
 
-import com.metaform.cxve.domain.model.FileUploadResponse;
+import com.metaform.cxve.domain.DuplicateRegistrationException;
+import com.metaform.cxve.domain.model.OspTenantRegistrationData;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 
 public interface NetworkService {
@@ -14,9 +15,12 @@ public interface NetworkService {
     String registerPartner(String clientId, PartnerRegistrationData registrationData);
 
     /**
-     * Announces a file to be submitted alongside a partner registration.
+     * Registers a tenant invited by the given OSP client (CX-0009 §2.2.2) — the fully
+     * OSP-mediated flow, running the same onboarding as {@link #registerPartner}.
      *
-     * @return the assigned file id and the presigned URL to upload the file contents to
+     * @return the id of the created onboarding process
+     * @throws DuplicateRegistrationException when this client already submitted a registration
+     *         under the payload's externalId (answered with 409 at the web boundary)
      */
-    FileUploadResponse initiateFileUpload(String fileName, String contentType);
+    String registerTenant(String clientId, OspTenantRegistrationData tenantData);
 }

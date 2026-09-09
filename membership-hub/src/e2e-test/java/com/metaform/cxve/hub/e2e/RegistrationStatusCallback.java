@@ -3,12 +3,11 @@ package com.metaform.cxve.hub.e2e;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 /**
- * E2e-local mirror of the registration-status callback payload (the app's
- * {@code OspRegistrationCallbackData}): deliberately no more than the OSP contract — which
- * registration ({@code externalId}), where it landed ({@code status}: SUBMITTED, CONFIRMED or
- * REJECTED) and, on rejection, why ({@code message}). Keep in sync with the app manually, like
- * {@link NewParticipantData}.
+ * E2e-local mirror of the status-callback payload the Onboarding API POSTs to the registered
+ * callback URL (the spec's {@code OspRegistrationCallbackData}): the externalId supplied at
+ * registration, the applicationStatus (SUBMITTED, CONFIRMED or DECLINED), an optional message
+ * (e.g. the decline reason) and the CX-0010 {@code bpnl}.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record RegistrationStatusCallback(String externalId, String status, String message) {
+public record RegistrationStatusCallback(String externalId, String applicationStatus, String message, String bpnl) {
 }

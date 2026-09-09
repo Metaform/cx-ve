@@ -102,11 +102,13 @@ class MembershipServiceTest {
     }
 
     private static MemberData request(String did) {
-        return new MemberData("Acme Corp", "Acme", "BPNL0000000000XY", did,
+        return new MemberData("Acme Corp", "Acme", "BPNL0000000000XY",
+                "Berlin", "Musterstrasse", "DE", "BE", did,
                 List.of(new MemberData.UniqueId("VAT_ID", "DE123456789")),
                 List.of("ACTIVE_PARTICIPANT"),
                 List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE"),
-                        new MemberData.AgreementConsent("agreement-2", "INACTIVE")));
+                        new MemberData.AgreementConsent("agreement-2", "INACTIVE")),
+                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")));
     }
 
     /** The DID the resolver derives for {@link #request}'s short name. */
@@ -170,7 +172,7 @@ class MembershipServiceTest {
         // The Onboarding API answers a rejected registration with a normal 200 too — the callback
         // is what carries the outcome, and no EDC resources may be provisioned on a rejection.
         onboardingApi.onSubmit = externalId ->
-                service.onRegistrationStatus(externalId, "REJECTED", "duplicate BPN");
+                service.onRegistrationStatus(externalId, "DECLINED", "duplicate BPN");
 
         var membership = service.onboard(request(null));
 

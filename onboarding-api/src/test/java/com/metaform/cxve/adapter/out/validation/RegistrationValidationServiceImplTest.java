@@ -19,9 +19,9 @@ class RegistrationValidationServiceImplTest {
     private static PartnerRegistrationData registration(String externalId, String bpn, String did,
                                                         List<CompanyUniqueIdData> uniqueIds) {
         return new PartnerRegistrationData(
-                "Acme Corp", "Berlin", "Musterstrasse", "DE", bpn, "Acme", "BE",
-                null, null, null, uniqueIds, externalId, List.of(),
-                List.of(CompanyRoleId.ACTIVE_PARTICIPANT), did, null, null, null);
+                externalId, "Acme Corp", "Berlin", "Musterstrasse", "DE", "BE",
+                List.of(CompanyRoleId.ACTIVE_PARTICIPANT), uniqueIds, List.of(),
+                bpn, "Acme", null, null, null, did, null, null);
     }
 
     /**

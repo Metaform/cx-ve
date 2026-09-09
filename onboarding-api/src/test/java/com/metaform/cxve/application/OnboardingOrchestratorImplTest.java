@@ -1,10 +1,13 @@
 package com.metaform.cxve.application;
 
 import com.metaform.cxve.domain.model.CompanyRoleId;
+import com.metaform.cxve.domain.model.ConsentData;
+import com.metaform.cxve.domain.model.ConsentKind;
 import com.metaform.cxve.domain.model.OnboardingCompleted;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.CallbackRequestData;
 import com.metaform.cxve.domain.model.OnboardingState;
+import com.metaform.cxve.domain.model.OspTenantRegistrationData;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.port.HolderRegistrationService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
@@ -50,9 +53,9 @@ class OnboardingOrchestratorImplTest {
 
     private static PartnerRegistrationData registration(String bpn) {
         return new PartnerRegistrationData(
-                "Acme Corp", "Berlin", "Musterstrasse", "DE", bpn, "Acme", "BE",
-                null, null, null, List.of(), "ext-123", List.of(),
-                List.of(CompanyRoleId.ACTIVE_PARTICIPANT), null, null, null, null);
+                "ext-123", "Acme Corp", "Berlin", "Musterstrasse", "DE", "BE",
+                List.of(CompanyRoleId.ACTIVE_PARTICIPANT), List.of(), List.of(),
+                bpn, "Acme", null, null, null, null, null, null);
     }
 
     /** The DID the resolver derives for {@link #registration}'s short name. */
@@ -155,6 +158,64 @@ class OnboardingOrchestratorImplTest {
         // is announced as started is also announced as finished.
         assertThat(events.started()).hasSize(2);
         assertThat(events.completed()).hasSize(2);
+    }
+
+    @Test
+    void rejection_invokesTheStatusCallback() {
+        // CX-0009: the OSP learns about a declined registration through the same callback as a
+        // confirmation — a rejection silently swallowed would leave the OSP polling forever
+        // (there is no read endpoint).
+        var notified = new ArrayList<OnboardingProcess>();
+        var recordingCallback = new RegistrationStatusService() {
+            @Override
+            public CallbackRequestData getCallbackAddress(String clientId) {
+                return null;
+            }
+
+            @Override
+            public void setCallbackAddress(String clientId, CallbackRequestData callbackData) {
+            }
+
+            @Override
+            public void invokeCallback(OnboardingProcess after) {
+                notified.add(after);
+            }
+        };
+        var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
+                holderRegistration, repository, recordingCallback, events,
+                RecordingOnboardingEventPublisher.didResolver());
+
+        orchestrator.start("osp-1", registration("BPNL0000000000XY"));
+        var rejectedId = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
+
+        // Both terminal outcomes were reported: the completion and the duplicate's rejection.
+        assertThat(notified).hasSize(2);
+        assertThat(notified.get(0).state()).isEqualTo(OnboardingState.COMPLETED);
+        assertThat(notified.get(1).id()).isEqualTo(rejectedId);
+        assertThat(notified.get(1).state()).isEqualTo(OnboardingState.REJECTED);
+    }
+
+    @Test
+    void tenantShapedRegistration_runsTheSameFlow() {
+        // The §2.2.2 tenant flow maps onto the same orchestrator: implied role, no BPN (assigned
+        // at the BPN step), consents carried through persistence.
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+        var tenant = new OspTenantRegistrationData(
+                "tenant-ext-1", "Tenant GmbH", "Munich", "Otto-Hahn-Ring", "DE",
+                List.of(), List.of(),
+                List.of(new ConsentData(ConsentKind.CX_OPERATING_MODEL, null),
+                        new ConsentData(ConsentKind.CX_TEN_GOLDEN_RULES, null),
+                        new ConsentData(ConsentKind.CX_DATA_EXCHANGE_GOVERNANCE, null)),
+                "BY", "Tenant", null, null, null, null);
+
+        var id = orchestrator.start("osp-1", tenant.toRegistrationData());
+
+        var process = orchestrator.get(id);
+        assertThat(process.state()).isEqualTo(OnboardingState.COMPLETED);
+        assertThat(process.bpn()).isNotBlank();
+        var payload = repository.findPayload(id).orElseThrow();
+        assertThat(payload.companyRoles()).containsExactly(CompanyRoleId.ACTIVE_PARTICIPANT);
+        assertThat(payload.consents()).hasSize(3);
     }
 
     @Test
@@ -375,8 +436,8 @@ class OnboardingOrchestratorImplTest {
         // orchestrator trusts the shape and only performs logical validation (duplicates/in-flight).
         var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
         var missingRoles = new PartnerRegistrationData(
-                "Acme Corp", null, null, null, null, null, null,
-                null, null, null, null, "ext-1", null, List.of(), null, null, null, null);
+                "ext-1", "Acme Corp", null, null, null, null,
+                List.of(), null, null, null, null, null, null, null, null, null, null);
 
         var id = orchestrator.start("osp-1", missingRoles);
 

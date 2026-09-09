@@ -2,9 +2,11 @@ package com.metaform.cxve.adapter.out.callback;
 
 import com.metaform.cxve.domain.model.CallbackRequestData;
 import com.metaform.cxve.domain.model.OnboardingProcess;
+import com.metaform.cxve.domain.model.OnboardingState;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -47,6 +49,16 @@ class DefaultRegistrationStatusServiceTest {
             exchange.close();
         });
         return hits;
+    }
+
+    private AtomicReference<String> capturingEndpoint(HttpServer server, String path) {
+        var body = new AtomicReference<String>();
+        server.createContext(path, exchange -> {
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        return body;
     }
 
     private String url(HttpServer server, String path) {
@@ -138,6 +150,46 @@ class DefaultRegistrationStatusServiceTest {
         service.invokeCallback(OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-2"));
 
         assertThat(one.get()).isZero();
+    }
+
+    @Test
+    void invokeCallback_carriesTheSpecPayloadShape() throws IOException {
+        // The wire contract of CX-0009 §2.3.1: applicationStatus (not the former "status") plus
+        // the CX-0010 bpnl; a confirmed onboarding carries both.
+        var server = startReceiver();
+        var body = capturingEndpoint(server, "/status");
+        service.setCallbackAddress("client-1", callback(url(server, "/status")));
+        var confirmed = OnboardingProcess.submitted("proc-1", "ext-1", "BPNL0000000000XY", "did:web:acme", "client-1")
+                .withState(OnboardingState.COMPLETED);
+
+        service.invokeCallback(confirmed);
+
+        assertThat(body.get())
+                .contains("\"externalId\":\"ext-1\"")
+                .contains("\"applicationStatus\":\"CONFIRMED\"")
+                .contains("\"bpnl\":\"BPNL0000000000XY\"")
+                .doesNotContain("\"status\"");
+    }
+
+    @Test
+    void invokeCallback_forADeclineWithoutABpn_omitsTheBpnl() throws IOException {
+        // A registration declined before the BPN step has no bpnl to report; NON_NULL
+        // serialization omits the field rather than sending null (the spec marks bpnl Mandatory —
+        // a known defect for pre-assignment declines; never-populated bpna/bpns are absent too).
+        var server = startReceiver();
+        var body = capturingEndpoint(server, "/status");
+        service.setCallbackAddress("client-1", callback(url(server, "/status")));
+        var declined = OnboardingProcess.submitted("proc-1", "ext-1", null, null, "client-1")
+                .rejected("duplicate registration");
+
+        service.invokeCallback(declined);
+
+        assertThat(body.get())
+                .contains("\"applicationStatus\":\"DECLINED\"")
+                .contains("\"message\":\"duplicate registration\"")
+                .doesNotContain("bpnl")
+                .doesNotContain("bpna")
+                .doesNotContain("bpns");
     }
 
     @Test

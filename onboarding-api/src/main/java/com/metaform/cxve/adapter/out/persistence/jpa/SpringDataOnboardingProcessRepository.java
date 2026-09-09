@@ -45,4 +45,7 @@ public interface SpringDataOnboardingProcessRepository extends JpaRepository<Onb
             @Param("idType") String idType,
             @Param("idValue") String idValue,
             @Param("inactiveStates") Collection<OnboardingState> inactiveStates);
+
+    /** The §2.2.2 conflict check: any registration this client submitted under this externalId. */
+    boolean existsByClientIdAndExternalId(String clientId, String externalId);
 }

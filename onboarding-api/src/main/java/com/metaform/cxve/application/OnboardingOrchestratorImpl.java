@@ -27,7 +27,8 @@ import java.util.UUID;
  * <p>{@link #start} drives the process as far as it can go synchronously; the one async gate left
  * is identity proofing, where it stops until a later {@link #advance} call resumes it — e.g. from
  * a proofing callback. With proofing satisfied, the drive runs straight through holder
- * registration to completion, so the CONFIRMED status callback fires within the submitting call.
+ * registration to completion, so the terminal status callback (CONFIRMED or DECLINED) fires
+ * within the submitting call.
  */
 @Service
 public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
@@ -185,9 +186,9 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         // and the outcome must reach subscribers whether or not that party is reachable.
         eventPublisher.onboardingCompleted(new OnboardingCompleted(after.id(), after.externalId(),
                 after.bpn(), after.holderId(), after.state(), after.failureReason()));
-        if (after.state() == OnboardingState.COMPLETED) {
-            registrationStatusService.invokeCallback(after);
-        }
+        // Every terminal outcome is reported to the submitting OSP — CONFIRMED and DECLINED alike
+        // (CX-0009: the callback is how the OSP learns a registration was declined, too).
+        registrationStatusService.invokeCallback(after);
     }
 
     private OnboardingProcess validate(OnboardingProcess process, PartnerRegistrationData payload) {

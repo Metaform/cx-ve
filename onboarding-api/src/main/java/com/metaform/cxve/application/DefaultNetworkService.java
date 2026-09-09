@@ -1,25 +1,27 @@
 package com.metaform.cxve.application;
 
-import com.metaform.cxve.domain.model.FileUploadResponse;
+import com.metaform.cxve.domain.DuplicateRegistrationException;
+import com.metaform.cxve.domain.model.OspTenantRegistrationData;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
-import com.metaform.cxve.domain.port.FileStorageService;
+import com.metaform.cxve.domain.port.OnboardingRepository;
 import org.springframework.stereotype.Service;
 
 /**
- * Hands a submitted partner registration to the {@link OnboardingOrchestrator}, which drives the
- * CX-0006 onboarding sequence. The endpoint returns as soon as the process is created; progression
- * continues asynchronously. File uploads are announced up front against the
- * {@link FileStorageService} and referenced from the registration by their ids.
+ * Hands a submitted registration to the {@link OnboardingOrchestrator}, which drives the CX-0006
+ * onboarding sequence. The endpoints return as soon as the process is created; progression
+ * continues asynchronously. The tenant flow (§2.2.2) additionally enforces the spec's per-OSP
+ * externalId uniqueness before anything is created — the legacy flow deliberately does not (the
+ * spec declares no 409 there; its duplicate checks reject via the DECLINED callback instead).
  */
 @Service
 public class DefaultNetworkService implements NetworkService {
 
     private final OnboardingOrchestrator orchestrator;
-    private final FileStorageService fileStorageService;
+    private final OnboardingRepository repository;
 
-    public DefaultNetworkService(OnboardingOrchestrator orchestrator, FileStorageService fileStorageService) {
+    public DefaultNetworkService(OnboardingOrchestrator orchestrator, OnboardingRepository repository) {
         this.orchestrator = orchestrator;
-        this.fileStorageService = fileStorageService;
+        this.repository = repository;
     }
 
     @Override
@@ -28,7 +30,10 @@ public class DefaultNetworkService implements NetworkService {
     }
 
     @Override
-    public FileUploadResponse initiateFileUpload(String fileName, String contentType) {
-        return fileStorageService.initiateUpload(fileName, contentType);
+    public String registerTenant(String clientId, OspTenantRegistrationData tenantData) {
+        if (repository.existsByClientIdAndExternalId(clientId, tenantData.externalId())) {
+            throw new DuplicateRegistrationException(tenantData.externalId());
+        }
+        return orchestrator.start(clientId, tenantData.toRegistrationData());
     }
 }

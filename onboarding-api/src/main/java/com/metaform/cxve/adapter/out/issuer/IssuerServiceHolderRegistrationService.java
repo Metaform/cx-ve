@@ -1,14 +1,10 @@
 package com.metaform.cxve.adapter.out.issuer;
 
 import com.metaform.cxve.adapter.out.auth.TokenProvider;
-import com.metaform.cxve.domain.model.AgreementConsentData;
-import com.metaform.cxve.domain.model.ConsentStatusId;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.port.HolderRegistrationService;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -16,8 +12,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
-
-import static java.util.Optional.ofNullable;
 
 /**
  * Registers holders through the IssuerService Admin API, replacing what the CFM registration agent
@@ -48,15 +42,18 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
     private final RestClient restClient;
     private final String issuerContextId;
     private final String tokenResource;
+    private final String memberOf;
 
     public IssuerServiceHolderRegistrationService(TokenProvider tokenProvider,
                                                   @Qualifier("issuerServiceClient") RestClient restClient,
                                                   @Value("${issuer-service.issuer-context-id:issuer}") String issuerContextId,
-                                                  @Value("${issuer-service.token-resource:sudo}") String tokenResource) {
+                                                  @Value("${issuer-service.token-resource:sudo}") String tokenResource,
+                                                  @Value("${issuer-service.member-of:Catena-X}") String memberOf) {
         this.tokenProvider = tokenProvider;
         this.restClient = restClient;
         this.issuerContextId = issuerContextId;
         this.tokenResource = tokenResource;
+        this.memberOf = memberOf;
     }
 
     @Override
@@ -82,10 +79,10 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
     }
 
     private Map<String, Object> holderProperties(OnboardingProcess process, PartnerRegistrationData registrationData) {
-        var memberOf = ofNullable(registrationData.agreements()).orElse(List.of()).stream()
-                .filter(acd -> acd.consentStatus() == ConsentStatusId.ACTIVE)
-                .map(AgreementConsentData::agreementId)
-                .collect(Collectors.joining(", "));
+        // memberOf is deliberately a configured constant, not derived from the registration: the
+        // MembershipCredential's memberOf claim must satisfy the Catena-X CEL Membership policy
+        // (memberOf == 'Catena-X'), and neither flow carries a value to derive it from anymore
+        // (§2.2.1 lost its agreements; §2.2.2 consents name policy documents, not memberships).
         // The BPN is assigned before the holder registration runs (the BPN step precedes it);
         // contractVersion is the fixed value the registration agent used to send.
         return Map.of(

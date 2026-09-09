@@ -101,6 +101,12 @@ public class JpaOnboardingRepository implements OnboardingRepository {
         return toRegistration(repository.findActiveByUniqueId(type, uniqueId.value(), INACTIVE_STATES));
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsByClientIdAndExternalId(String clientId, String externalId) {
+        return repository.existsByClientIdAndExternalId(clientId, externalId);
+    }
+
     private Optional<PartnerRegistration> toRegistration(List<OnboardingProcessEntity> matches) {
         // A process saved without a create has no payload; the in-memory store skips those in its
         // active queries, so this does too.

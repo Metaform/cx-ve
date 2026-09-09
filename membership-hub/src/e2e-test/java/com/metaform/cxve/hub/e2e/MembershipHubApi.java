@@ -45,10 +45,19 @@ public class MembershipHubApi {
                           "name": "%s",
                           "shortName": "%s",
                           "bpn": "%s",
+                          "city": "Munich",
+                          "streetName": "Otto-Hahn-Ring",
+                          "countryAlpha2Code": "DE",
+                          "region": "BY",
                           "uniqueIds": [ { "type": "VAT_ID", "value": "%s" } ],
                           "companyRoles": [ "ACTIVE_PARTICIPANT" ],
-                          "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ]
-                        }""".formatted(name, shortName, bpn, vatId))
+                          "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
+                          "userDetails": [ {
+                            "providerId": "e2e-user-%s",
+                            "firstName": "E2e", "lastName": "Tester",
+                            "email": "e2e-%s@example.com"
+                          } ]
+                        }""".formatted(name, shortName, bpn, vatId, vatId, vatId))
                 .post("/api/members");
         assertThat(response.statusCode())
                 .withFailMessage("membership submission for '%s' failed: %s", name, response.asString())

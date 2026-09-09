@@ -21,7 +21,7 @@ status callbacks carry) and the `participantContextId` provisioning assigns.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/members` | Submit a member (name, shortName, bpn, optional did, uniqueIds, companyRoles, agreements). Returns the membership record incl. its `externalId`. |
+| `POST /api/members` | Submit a member (name, shortName, bpn, city, streetName, countryAlpha2Code, region, optional did, uniqueIds, companyRoles, agreements, userDetails). Returns the membership record incl. its `externalId`. |
 | `GET /api/members/{externalId}` | The correlated view. For a member with a deployed profile, resolves the stored profile id and reads its current state from the Tenant Manager. |
 | `POST /api/callbacks/registration-status` | The status-callback endpoint registered with the Onboarding API. OAuth2-protected: the caller presents a client-credentials bearer from the OSP IdP, obtained with the client this app registers alongside its callback URL. Not meant for humans. |
 
