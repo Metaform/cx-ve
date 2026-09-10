@@ -5,6 +5,7 @@ import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.PartnerRegistration;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.port.OnboardingRepository;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,7 +34,11 @@ public class InMemoryOnboardingRepository implements OnboardingRepository {
 
     @Override
     public void save(OnboardingProcess process) {
-        processes.put(process.id(), process);
+        // Terminal is terminal: a state recorded as an outcome must not be overwritten by a
+        // racing writer holding a stale, non-terminal snapshot (e.g. the orchestrator's drive
+        // saving a step result after a concurrent cancellation landed).
+        processes.compute(process.id(), (id, stored) ->
+                stored != null && stored.isTerminal() && stored.state() != process.state() ? stored : process);
     }
 
     @Override
@@ -62,9 +67,31 @@ public class InMemoryOnboardingRepository implements OnboardingRepository {
     }
 
     @Override
-    public boolean existsByClientIdAndExternalId(String clientId, String externalId) {
+    public List<OnboardingProcess> findAllByClientIdAndExternalId(String clientId, String externalId) {
         return processes.values().stream()
-                .anyMatch(p -> clientId.equals(p.clientId()) && externalId.equals(p.externalId()));
+                .filter(p -> clientId.equals(p.clientId()) && externalId.equals(p.externalId()))
+                .toList();
+    }
+
+    @Override
+    public List<OnboardingProcess> findAllByClientId(String clientId) {
+        return processes.values().stream()
+                .filter(p -> clientId.equals(p.clientId()))
+                .toList();
+    }
+
+    @Override
+    public boolean cancel(String processId, String reason) {
+        // BEYOND-SPEC (cancellation); compute() makes check-and-transition one atomic map operation.
+        var transitioned = new boolean[1];
+        processes.computeIfPresent(processId, (id, stored) -> {
+            if (stored.isTerminal()) {
+                return stored;
+            }
+            transitioned[0] = true;
+            return stored.cancelled(reason);
+        });
+        return transitioned[0];
     }
 
     private Optional<PartnerRegistration> findActive(Predicate<PartnerRegistration> predicate) {

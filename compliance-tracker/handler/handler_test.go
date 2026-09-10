@@ -350,9 +350,9 @@ func TestProcess_OnboardingStarted_RegistersTheParticipant(t *testing.T) {
 
 func TestProcess_OnboardingCompleted_ClosesTheRegistration(t *testing.T) {
 	// Every terminal outcome closes the registration — the STATE decides whether the window stays open
-	// (COMPLETED owns its identity permanently) or ends (REJECTED/FAILED free the identifiers),
-	// and that decision is the store's, so the closure must carry the state verbatim.
-	for _, outcome := range []OnboardingState{OnboardingStateCompleted, OnboardingStateRejected, OnboardingStateFailed} {
+	// (COMPLETED owns its identity permanently) or ends (REJECTED/FAILED/CANCELLED free the
+	// identifiers), and that decision is the store's, so the closure must carry the state verbatim.
+	for _, outcome := range []OnboardingState{OnboardingStateCompleted, OnboardingStateRejected, OnboardingStateFailed, OnboardingStateCancelled} {
 		t.Run(string(outcome), func(t *testing.T) {
 			participants := &recordingParticipants{}
 

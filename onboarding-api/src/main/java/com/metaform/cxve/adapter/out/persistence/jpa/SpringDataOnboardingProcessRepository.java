@@ -2,6 +2,7 @@ package com.metaform.cxve.adapter.out.persistence.jpa;
 
 import com.metaform.cxve.domain.model.OnboardingState;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -46,6 +47,32 @@ public interface SpringDataOnboardingProcessRepository extends JpaRepository<Onb
             @Param("idValue") String idValue,
             @Param("inactiveStates") Collection<OnboardingState> inactiveStates);
 
-    /** The §2.2.2 conflict check: any registration this client submitted under this externalId. */
-    boolean existsByClientIdAndExternalId(String clientId, String externalId);
+    /**
+     * The client-scoped lookup behind the conflict check and the read/cancel endpoints — a list,
+     * since (clientId, externalId) is not unique (legacy resubmissions, re-registration after a
+     * cancellation).
+     */
+    List<OnboardingProcessEntity> findAllByClientIdAndExternalId(String clientId, String externalId);
+
+    /** BEYOND-SPEC: every registration a client has submitted, any state (list endpoint). */
+    List<OnboardingProcessEntity> findAllByClientId(String clientId);
+
+    /**
+     * BEYOND-SPEC: the atomic cancellation — one conditional UPDATE, so the still-non-terminal
+     * check and the transition cannot be interleaved by a racing writer. Touches only state and
+     * failureReason — identities assigned by the onboarding steps stay as recorded.
+     *
+     * @return the number of rows transitioned (0 when the process was already terminal or unknown)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update OnboardingProcessEntity e
+            set e.state = com.metaform.cxve.domain.model.OnboardingState.CANCELLED,
+                e.failureReason = :reason
+            where e.id = :id
+              and e.state not in :terminalStates
+            """)
+    int cancel(@Param("id") String id,
+               @Param("reason") String reason,
+               @Param("terminalStates") Collection<OnboardingState> terminalStates);
 }

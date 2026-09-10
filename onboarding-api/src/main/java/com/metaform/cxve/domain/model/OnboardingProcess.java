@@ -58,19 +58,22 @@ public record OnboardingProcess(
         return new OnboardingProcess(id, externalId, OnboardingState.FAILED, bpn, holderId, reason, clientId);
     }
 
+    public OnboardingProcess cancelled(String reason) {
+        return new OnboardingProcess(id, externalId, OnboardingState.CANCELLED, bpn, holderId, reason, clientId);
+    }
+
     public boolean isTerminal() {
-        return state == OnboardingState.COMPLETED
-                || state == OnboardingState.REJECTED
-                || state == OnboardingState.FAILED;
+        return state.isTerminal();
     }
 
     /**
-     * True once validation has passed and the process has not been rejected or failed — i.e. this
-     * registration (in flight or completed) blocks duplicate registrations.
+     * True once validation has passed and the process has not been rejected, failed or cancelled —
+     * i.e. this registration (in flight or completed) blocks duplicate registrations.
      */
     public boolean isActiveRegistration() {
         return state != OnboardingState.SUBMITTED
                 && state != OnboardingState.REJECTED
-                && state != OnboardingState.FAILED;
+                && state != OnboardingState.FAILED
+                && state != OnboardingState.CANCELLED;
     }
 }

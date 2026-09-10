@@ -8,6 +8,8 @@ import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistration;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.port.OnboardingRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,13 +32,19 @@ import java.util.Optional;
 @Transactional
 public class JpaOnboardingRepository implements OnboardingRepository {
 
+    private static final Logger log = LoggerFactory.getLogger(JpaOnboardingRepository.class);
+
     /**
      * The states {@link OnboardingProcess#isActiveRegistration()} excludes — the SQL queries take
      * the complement. Kept next to the queries as their parameter; parity with the domain predicate
      * is pinned by a test.
      */
-    static final EnumSet<OnboardingState> INACTIVE_STATES =
-            EnumSet.of(OnboardingState.SUBMITTED, OnboardingState.REJECTED, OnboardingState.FAILED);
+    static final EnumSet<OnboardingState> INACTIVE_STATES = EnumSet.of(OnboardingState.SUBMITTED,
+            OnboardingState.REJECTED, OnboardingState.FAILED, OnboardingState.CANCELLED);
+
+    /** The states a process can never leave; parameter of the conditional-cancel UPDATE. */
+    static final EnumSet<OnboardingState> TERMINAL_STATES = EnumSet.of(OnboardingState.COMPLETED,
+            OnboardingState.REJECTED, OnboardingState.FAILED, OnboardingState.CANCELLED);
 
     private final SpringDataOnboardingProcessRepository repository;
     // The payload is a self-contained JSON document; a plain mapper keeps its wire shape
@@ -64,6 +72,14 @@ public class JpaOnboardingRepository implements OnboardingRepository {
         // Load-then-update, NOT a fresh entity: a fresh one would merge null over the payload
         // columns written at create.
         var entity = repository.findById(process.id()).orElseGet(OnboardingProcessEntity::new);
+        // Terminal is terminal: a recorded outcome must not be overwritten by a writer holding a
+        // stale, non-terminal snapshot (the orchestrator's drive saving a step result after a
+        // concurrent cancellation landed, say). Same-state re-saves stay allowed.
+        if (entity.getState() != null && entity.getState().isTerminal() && entity.getState() != process.state()) {
+            log.warn("Refusing to overwrite terminal state {} of onboarding {} with {}",
+                    entity.getState(), process.id(), process.state());
+            return;
+        }
         updateEntity(entity, process);
         repository.save(entity);
     }
@@ -103,8 +119,19 @@ public class JpaOnboardingRepository implements OnboardingRepository {
 
     @Override
     @Transactional(readOnly = true)
-    public boolean existsByClientIdAndExternalId(String clientId, String externalId) {
-        return repository.existsByClientIdAndExternalId(clientId, externalId);
+    public List<OnboardingProcess> findAllByClientIdAndExternalId(String clientId, String externalId) {
+        return repository.findAllByClientIdAndExternalId(clientId, externalId).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OnboardingProcess> findAllByClientId(String clientId) {
+        return repository.findAllByClientId(clientId).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public boolean cancel(String processId, String reason) {
+        return repository.cancel(processId, reason, TERMINAL_STATES) > 0;
     }
 
     private Optional<PartnerRegistration> toRegistration(List<OnboardingProcessEntity> matches) {

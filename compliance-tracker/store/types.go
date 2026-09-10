@@ -80,7 +80,7 @@ type ParticipantClosure struct {
 	Did                  string
 	Bpn                  string
 	ParticipantContextID string
-	// State is the terminal OnboardingState constant name: COMPLETED, REJECTED or FAILED.
+	// State is the terminal OnboardingState constant name: COMPLETED, REJECTED, FAILED or CANCELLED.
 	State       string
 	CompletedAt time.Time
 }

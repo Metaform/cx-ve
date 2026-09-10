@@ -4,6 +4,7 @@ import com.metaform.cxve.domain.model.CompanyUniqueIdData;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.PartnerRegistration;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -45,10 +46,27 @@ public interface OnboardingRepository {
     Optional<PartnerRegistration> findActiveByUniqueId(CompanyUniqueIdData uniqueId);
 
     /**
-     * True when the given OSP client already submitted a registration under this externalId —
-     * in ANY state, terminal attempts included: the CX-0009 §2.2.2 conflict check is strict, so a
-     * declined registration keeps its externalId (OSPs mint a fresh id per registration). Racy by
-     * design (exists-then-create without a unique index) — acceptable for the VE.
+     * Every registration the given OSP client submitted under this externalId — the lookup behind
+     * the §2.2.2 conflict check and the read/cancel endpoints, deliberately scoped to the
+     * submitting client: another OSP's externalId resolves to empty, never to foreign data. A
+     * LIST because (clientId, externalId) is not unique — the legacy flow enforces no uniqueness,
+     * and a cancelled tenant registration frees its externalId for resubmission; callers pick
+     * deterministically. The conflict check remains racy by design (check-then-create without a
+     * unique index) — acceptable for the VE.
      */
-    boolean existsByClientIdAndExternalId(String clientId, String externalId);
+    List<OnboardingProcess> findAllByClientIdAndExternalId(String clientId, String externalId);
+
+    /** BEYOND-SPEC: every registration the given OSP client has submitted, any state (list endpoint). */
+    List<OnboardingProcess> findAllByClientId(String clientId);
+
+    /**
+     * BEYOND-SPEC: atomically transitions the process to {@link OnboardingState#CANCELLED} — but
+     * only while it is still non-terminal: the check and the write are ONE operation, so a
+     * cancellation can neither relabel an outcome recorded concurrently nor be based on a stale
+     * snapshot.
+     *
+     * @return true when this call performed the transition; false when the process was already
+     *         terminal (or does not exist)
+     */
+    boolean cancel(String processId, String reason);
 }
