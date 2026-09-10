@@ -56,6 +56,12 @@ global:
 
 # ---- Core Platform Distribution --------------------------------------------------------------
 core-platform-distribution:
+  # Name the platform's app Deployments and bootstrap/seed Jobs <release>-<component>
+  # (cx-ve-jwtlet, cx-ve-issuerservice, ...), matching everything else this umbrella deploys.
+  # Deployments and Jobs only — Service DNS (jwtlet.edc-v.svc...) and the
+  # system:serviceaccount:edc-v:* identities are unaffected, so nothing here or in the app
+  # charts needs to follow suit. Requires core-platform-distribution >= 0.0.25.
+  prefixWorkloadNames: true
   # NATS auth switch 1 of 4 — see the NATS authentication block above. Uncomment together with
   # switches 2-4. Covers EVERY platform component at once: the init containers, volumes and
   # nats.auth.method / edc.nats.auth.nkey.seed.path config keys for controlplane, identityhub,

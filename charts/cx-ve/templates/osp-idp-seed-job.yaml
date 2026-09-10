@@ -7,7 +7,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: osp-idp-seed-r{{ .Release.Revision }}
+  name: {{ include "cx-ve.fullname" . }}-osp-idp-seed-r{{ .Release.Revision }}
   labels:
     {{- include "cx-ve.labels" . | nindent 4 }}
 spec:
@@ -16,7 +16,7 @@ spec:
   template:
     metadata:
       labels:
-        app: osp-idp-seed
+        app: {{ include "cx-ve.fullname" . }}-osp-idp-seed
     spec:
       restartPolicy: OnFailure
       containers:
@@ -26,7 +26,7 @@ spec:
             - sh
             - -ec
             - |
-              until curl -sf http://osp-idp:4445/health/ready > /dev/null; do
+              until curl -sf http://{{ include "cx-ve.fullname" . }}-osp-idp:4445/health/ready > /dev/null; do
                 echo "Waiting for the OSP IdP admin API..."
                 sleep 2
               done
@@ -35,18 +35,18 @@ spec:
               # which can exceed the API's JWKS fetch timeout and turn the first authenticated
               # call after an install into a 500. Generating them here moves that cost into the
               # install.
-              curl -sf http://osp-idp:4444/.well-known/jwks.json > /dev/null || true
+              curl -sf http://{{ include "cx-ve.fullname" . }}-osp-idp:4444/.well-known/jwks.json > /dev/null || true
 
               # POST creates; 409 = exists -> PUT to converge on the values-defined state
               upsert() {
                 id="$1"; body="$2"
                 status=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
                   -H "Content-Type: application/json" -d "${body}" \
-                  http://osp-idp:4445/admin/clients)
+                  http://{{ include "cx-ve.fullname" . }}-osp-idp:4445/admin/clients)
                 if [ "$status" = "409" ]; then
                   echo "Client ${id} exists, updating"
                   curl -sf -o /dev/null -X PUT -H "Content-Type: application/json" \
-                    -d "${body}" "http://osp-idp:4445/admin/clients/${id}"
+                    -d "${body}" "http://{{ include "cx-ve.fullname" . }}-osp-idp:4445/admin/clients/${id}"
                 elif [ "$status" -ge 400 ]; then
                   echo "ERROR: creating client ${id} failed (HTTP ${status})"
                   exit 1

@@ -94,7 +94,7 @@ IMAGES=(
 
 # Deployments running the images built above; restarted after the upgrade because a rebuilt
 # image under an unchanged tag does not change the pod spec, so helm will not roll them.
-DEPLOYMENTS=(cx-ve-onboarding-api compliance-tracker cx-ve-membership-hub)
+DEPLOYMENTS=(cx-ve-onboarding-api cx-ve-compliance-tracker cx-ve-membership-hub)
 
 set -x
 
