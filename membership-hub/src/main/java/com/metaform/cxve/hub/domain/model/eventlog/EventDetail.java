@@ -1,7 +1,7 @@
 package com.metaform.cxve.hub.domain.model.eventlog;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.time.OffsetDateTime;
+import tools.jackson.databind.JsonNode;
 
 /**
  * A full ledger event attributed to a participant, from the compliance tracker's

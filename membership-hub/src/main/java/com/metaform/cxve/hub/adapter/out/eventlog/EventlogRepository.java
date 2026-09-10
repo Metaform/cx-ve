@@ -1,9 +1,5 @@
 package com.metaform.cxve.hub.adapter.out.eventlog;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.metaform.cxve.hub.domain.model.eventlog.EventDetail;
 import com.metaform.cxve.hub.domain.model.eventlog.EventSummary;
 import com.metaform.cxve.hub.domain.model.eventlog.ParticipantEventlog;
@@ -18,6 +14,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Read-only queries against the compliance tracker's views. All correlation semantics (which
@@ -38,7 +38,7 @@ public class EventlogRepository {
                     + "FROM participant_event";
 
     private final JdbcClient jdbc;
-    // The web layer's mapper: it has the JavaTimeModule registered, and the parsed records go
+    // The web layer's mapper (Jackson 3, java.time support built in) — the parsed records go
     // straight back out through it.
     private final ObjectMapper objectMapper;
 
@@ -125,7 +125,7 @@ public class EventlogRepository {
         }
         try {
             return objectMapper.readValue(json, new TypeReference<List<EventSummary>>() { });
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("Failed to parse a participant_eventlog events array", e);
         }
     }
@@ -133,7 +133,7 @@ public class EventlogRepository {
     private JsonNode readEnvelope(String json) {
         try {
             return objectMapper.readTree(json);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("Failed to parse a stored event envelope", e);
         }
     }
