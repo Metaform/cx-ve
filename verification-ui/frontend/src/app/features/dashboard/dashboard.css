@@ -1,0 +1,143 @@
+.dash-grid {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.col-left {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.panel-head h2 {
+  margin: 0;
+}
+
+.muted {
+  color: var(--ink-soft);
+  margin: 0 0 12px;
+}
+
+.muted.small,
+.small {
+  font-size: 13px;
+}
+
+.error {
+  color: var(--fail);
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+
+/* --- verification participant card --- */
+.vp-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+/* --- run form --- */
+.derive {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 4px 0 16px;
+}
+
+.derive .preview {
+  color: var(--verify-deep);
+  font-size: 12px;
+}
+
+.btn.submit {
+  width: 100%;
+}
+
+/* --- runs list --- */
+.runs-panel .empty {
+  padding: 24px 0;
+}
+
+.run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.run-row {
+  display: grid;
+  grid-template-columns: 82px 1fr auto auto 70px;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 10px;
+  margin: 0 -10px;
+  border-radius: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.run-list li:last-child .run-row {
+  border-bottom: none;
+}
+
+.run-row:hover {
+  background: var(--paper);
+  text-decoration: none;
+}
+
+.runid {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.run-name {
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.run-name .sub {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.run-step {
+  font-size: 12.5px;
+  color: var(--run);
+  text-align: right;
+}
+
+.run-row time {
+  text-align: right;
+}
+
+@media (max-width: 980px) {
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .run-row {
+    grid-template-columns: 70px 1fr auto;
+  }
+
+  .run-step,
+  .run-row time {
+    display: none;
+  }
+}

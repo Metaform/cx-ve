@@ -1,0 +1,122 @@
+<div class="dash-grid">
+  <div class="col-left">
+
+    <section class="panel vp-card">
+      <div class="panel-head">
+        <h2>Verification participant</h2>
+        @if (vp?.membership; as membership) {
+          <span class="chip {{ membershipChip(membership.state) }}">{{ membership.state }}</span>
+        }
+      </div>
+
+      @if (!vp && !vpUnreachable) {
+        <p class="muted">Loading…</p>
+      } @else if (vpUnreachable && !vp) {
+        <p class="muted">The verification environment is not reachable. Retrying…</p>
+      } @else if (vp && !vp.exists) {
+        <p class="muted">
+          The permanent consumer side of every verification run. Ensure it once —
+          all runs reuse it.
+        </p>
+        <button class="btn primary" (click)="ensure()" [disabled]="ensuring">
+          {{ ensuring ? 'Ensuring…' : 'Ensure participant' }}
+        </button>
+        @if (ensuring) {
+          <p class="muted small">First-time onboarding runs the full registration — this can take a few minutes.</p>
+        }
+      } @else if (vp?.membership; as membership) {
+        <dl class="kv">
+          <dt>Name</dt><dd>{{ membership.name }}</dd>
+          <dt>BPN</dt><dd>{{ membership.bpn }}</dd>
+          @if (membership.did) {
+            <dt>DID</dt><dd>{{ membership.did }}</dd>
+          }
+          @if (membership.participantContextId) {
+            <dt>Context</dt><dd>{{ membership.participantContextId }}</dd>
+          }
+        </dl>
+        <div class="vp-foot">
+          @if (vp!.offerSeeded) {
+            <span class="chip ok">inbox offer seeded</span>
+          } @else {
+            <span class="chip neutral">offer not verified yet</span>
+          }
+          <button class="btn quiet" (click)="ensure()" [disabled]="ensuring">
+            {{ ensuring ? 'Checking…' : 'Re-check & seed' }}
+          </button>
+        </div>
+      }
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Start a verification run</h2>
+      </div>
+      <p class="muted small">
+        Onboards a participant under test as data provider, establishes both CCM flows and
+        runs the certificate exchange. Leave fields empty to auto-generate an identity.
+      </p>
+      <form (ngSubmit)="startRun()">
+        <label class="field">
+          <span class="label">Participant name</span>
+          <input type="text" name="name" [(ngModel)]="name" placeholder="auto-generated" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="label">Short name</span>
+          <input type="text" name="shortName" [(ngModel)]="shortName" placeholder="auto-generated"
+                 autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field">
+          <span class="label">BPN</span>
+          <input type="text" name="bpn" [(ngModel)]="bpn" [disabled]="deriveBpn"
+                 [placeholder]="derivedBpn || 'derived from short name'" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="derive">
+          <input type="checkbox" name="deriveBpn" [(ngModel)]="deriveBpn">
+          <span>Derive BPN from short name</span>
+          @if (deriveBpn && derivedBpn) {
+            <span class="mono preview">→ {{ derivedBpn }}</span>
+          }
+        </label>
+        <button class="btn primary submit" type="submit" [disabled]="starting">
+          {{ starting ? 'Starting…' : 'Start verification run' }}
+        </button>
+      </form>
+      @if (error) {
+        <p class="error">{{ error }}</p>
+      }
+    </section>
+  </div>
+
+  <section class="panel runs-panel">
+    <div class="panel-head">
+      <h2>Runs</h2>
+      <span class="muted small">{{ runs.length }} in this session</span>
+    </div>
+    @if (runs.length === 0) {
+      <p class="muted empty">No runs yet — start the first verification. Runs live in memory
+        and are forgotten when the backend restarts; the event ledger is not.</p>
+    } @else {
+      <ul class="run-list">
+        @for (run of runs; track run.id) {
+          <li>
+            <a class="run-row" [routerLink]="['/runs', run.id]">
+              <span class="mono runid">#{{ run.id }}</span>
+              <span class="run-name">
+                {{ run.name }}
+                <span class="mono sub">{{ run.bpn }}</span>
+              </span>
+              <span class="run-step">
+                @if (run.state === 'RUNNING' && run.currentStep) {
+                  {{ stepLabel(run.currentStep) }}
+                }
+              </span>
+              <span class="chip {{ runChip(run.state) }}">{{ run.state }}</span>
+              <time class="muted small">{{ run.startedAt | date: 'HH:mm:ss' }}</time>
+            </a>
+          </li>
+        }
+      </ul>
+    }
+  </section>
+</div>
