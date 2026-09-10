@@ -3,6 +3,8 @@ package com.metaform.cxve.hub.adapter.out.persistence;
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.port.MembershipRepository;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.context.annotation.Profile;
@@ -34,6 +36,13 @@ public class InMemoryMembershipRepository implements MembershipRepository {
     @Override
     public Optional<Membership> findByExternalId(String externalId) {
         return Optional.ofNullable(memberships.get(externalId));
+    }
+
+    @Override
+    public List<Membership> findByBpn(String bpn) {
+        return memberships.values().stream()
+                .filter(membership -> Objects.equals(membership.bpn(), bpn))
+                .toList();
     }
 
     @Override

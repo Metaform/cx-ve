@@ -2,6 +2,7 @@ package com.metaform.cxve.hub.domain.port;
 
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -19,6 +20,12 @@ public interface MembershipRepository {
     void save(Membership membership);
 
     Optional<Membership> findByExternalId(String externalId);
+
+    /**
+     * All memberships carrying the given BPN. More than one can exist — a REJECTED or FAILED
+     * attempt does not retire its BPN — so callers filter by state.
+     */
+    List<Membership> findByBpn(String bpn);
 
     /** The request payload the membership was created from. */
     Optional<MemberData> findPayload(String externalId);

@@ -107,6 +107,19 @@ participant:
     endpoint: ""                                                # PARTICIPANT_CCM_ENDPOINT
     token-source: provider                                      # PARTICIPANT_CCM_TOKENSOURCE
 
+# Read-only window into the compliance tracker's event ledger — the `event_tracker` database its
+# views live in (see compliance-tracker/store/tables.go). The hub only ever SELECTs from those
+# views (participant_eventlog / participant_event); the tracker remains the schema's sole owner
+# and writer. Every eventlog bean and the /api/eventlog endpoints are conditional on the url:
+# with it unset — the packaged default, unlike spring.datasource above — the hub runs without
+# the tracker database at all. The chart sets it; for a local run against a port-forwarded
+# Postgres, set the environment variables.
+#eventtracker:
+#  datasource:
+#    url: jdbc:postgresql://localhost:5432/event_tracker        # EVENTTRACKER_DATASOURCE_URL
+#    username: event_tracker                                    # EVENTTRACKER_DATASOURCE_USERNAME
+#    password: event_tracker                                    # EVENTTRACKER_DATASOURCE_PASSWORD
+
 # Profile "test": the in-memory MembershipRepository instead of Postgres, with the whole
 # DataSource/JPA machinery excluded so no database is required at startup. For tests and
 # storage-free local runs.

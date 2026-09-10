@@ -6,6 +6,7 @@ import com.metaform.cxve.hub.domain.model.MembershipState;
 import com.metaform.cxve.hub.domain.port.MembershipRepository;
 import com.metaform.cxve.hub.domain.port.OnboardingApi;
 import com.metaform.cxve.hub.domain.port.TenantManager;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -138,6 +139,15 @@ public class MembershipService {
         var refreshed = applyProfile(membership, tenantManager.refresh(membership));
         repository.save(refreshed);
         return refreshed;
+    }
+
+    /**
+     * All memberships registered under the given BPN — a plain repository read, deliberately
+     * WITHOUT the Tenant Manager refresh {@link #get} performs: callers use this to rediscover
+     * records (e.g. a permanent participant after a restart), not to poll provisioning progress.
+     */
+    public List<Membership> findByBpn(String bpn) {
+        return repository.findByBpn(bpn);
     }
 
     /**
