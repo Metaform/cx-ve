@@ -56,13 +56,14 @@ public interface OnboardingRepository {
      */
     List<OnboardingProcess> findAllByClientIdAndExternalId(String clientId, String externalId);
 
-    /** Every registration the given OSP client has submitted, any state. */
+    /** BEYOND-SPEC: every registration the given OSP client has submitted, any state (list endpoint). */
     List<OnboardingProcess> findAllByClientId(String clientId);
 
     /**
-     * Atomically transitions the process to {@link OnboardingState#CANCELLED} — but only while it
-     * is still non-terminal: the check and the write are ONE operation, so a cancellation can
-     * neither relabel an outcome recorded concurrently nor be based on a stale snapshot.
+     * BEYOND-SPEC: atomically transitions the process to {@link OnboardingState#CANCELLED} — but
+     * only while it is still non-terminal: the check and the write are ONE operation, so a
+     * cancellation can neither relabel an outcome recorded concurrently nor be based on a stale
+     * snapshot.
      *
      * @return true when this call performed the transition; false when the process was already
      *         terminal (or does not exist)

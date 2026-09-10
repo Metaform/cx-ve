@@ -49,16 +49,19 @@ public class ApiSecurityConfig {
      */
     public static final String CONFIGURE_PARTNER_REGISTRATION = "SCOPE_configure_partner_registration";
 
-    /** Create registrations (both flows) and cancel them. */
+    // BEYOND-SPEC: the four fine-grained scopes below are cx-ve extensions — CX-0009 knows only
+    // the configure_partner_registration role; these give least-privilege clients an alternative.
+
+    /** BEYOND-SPEC: create registrations (both flows) and cancel them. */
     public static final String REGISTRATION_WRITE = "SCOPE_registration:write";
 
-    /** Read registration status — the polling/recovery client's scope. */
+    /** BEYOND-SPEC: read registration status — the polling/recovery client's scope. */
     public static final String REGISTRATION_READ = "SCOPE_registration:read";
 
-    /** Set or replace the status-callback configuration (carries the OSP's client secret). */
+    /** BEYOND-SPEC: set or replace the status-callback configuration (carries the OSP's client secret). */
     public static final String CALLBACK_CONFIG_WRITE = "SCOPE_callback-config:write";
 
-    /** Read the (secret-free) status-callback configuration. */
+    /** BEYOND-SPEC: read the (secret-free) status-callback configuration. */
     public static final String CALLBACK_CONFIG_READ = "SCOPE_callback-config:read";
 
     private static final Logger log = LoggerFactory.getLogger(ApiSecurityConfig.class);

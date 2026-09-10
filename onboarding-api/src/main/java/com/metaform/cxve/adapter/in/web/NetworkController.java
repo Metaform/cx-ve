@@ -27,9 +27,9 @@ public class NetworkController {
      * field (see {@link PartnerRegistrationData}) are rejected with 400; such rejections are
      * logged and the exact error message is returned (see {@link InvalidRequestShapeHandler}).
      *
-     * @return the ID of the onboarding process. (Deliberate deviation: the spec declares an empty
-     *         200 — the id in the body is what OSP clients correlate the process on, and the
-     *         spec's tolerant reader permits it.)
+     * @return the ID of the onboarding process. (BEYOND-SPEC deviation: the spec declares an
+     *         empty 200 — the id in the body is what OSP clients correlate the process on, and
+     *         the spec's tolerant reader permits it.)
      */
     @PostMapping("/partnerregistration")
     public String registerPartner(@Valid @RequestBody PartnerRegistrationData registrationData,

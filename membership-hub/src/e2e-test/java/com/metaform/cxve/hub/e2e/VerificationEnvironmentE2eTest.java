@@ -478,8 +478,8 @@ class VerificationEnvironmentE2eTest {
                 .withHeader("Authorization", com.github.tomakehurst.wiremock.client.WireMock.equalTo("Bearer e2e-callback-token")));
         log("CONFIRMED callback received for %s", externalId);
 
-        // recovery read (cx-ve extension beyond the spec): the registration's status is
-        // retrievable without a callback — the same applicationStatus/bpnl the callback carried
+        // recovery read (BEYOND-SPEC extension): the registration's status is retrievable
+        // without a callback — the same applicationStatus/bpnl the callback carried
         given()
                 .baseUri(ONBOARDING_API_URL)
                 .header("Authorization", "Bearer " + ospAccessToken())

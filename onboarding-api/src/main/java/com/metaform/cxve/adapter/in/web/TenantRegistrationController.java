@@ -32,10 +32,11 @@ import org.springframework.web.bind.annotation.RestController;
  * Runs the same onboarding as {@code /partnerregistration}; what differs is the contract — 201
  * with an empty body, and 409 when this OSP already used the externalId.
  *
- * <p>The GET and DELETE mappings are cx-ve EXTENSIONS beyond the spec (which declares no read or
+ * <p>BEYOND-SPEC: the GET and DELETE mappings are cx-ve extensions (CX-0009 declares no read or
  * cancel path, leaving a lost callback unrecoverable): they serve any registration the calling
  * client submitted — through either flow, both store the submitter — keyed on the caller's token
- * identity, so a foreign externalId answers 404 exactly like an unknown one.
+ * identity, so a foreign externalId answers 404 exactly like an unknown one. Extension sites are
+ * marked {@code BEYOND-SPEC} throughout the codebase.
  */
 @RestController
 @RequestMapping("/api/administration/osp/v2/tenant-registration")
@@ -57,8 +58,8 @@ public class TenantRegistrationController {
     }
 
     /**
-     * The recovery read: the registration's current wire status, exactly what the status
-     * callbacks would have reported. 404 when the calling client has no such registration.
+     * BEYOND-SPEC: the recovery read — the registration's current wire status, exactly what the
+     * status callbacks would have reported. 404 when the calling client has no such registration.
      */
     @GetMapping("/{externalId}")
     public RegistrationProcessView getRegistration(@PathVariable String externalId,
@@ -66,7 +67,7 @@ public class TenantRegistrationController {
         return RegistrationProcessView.from(networkService.getRegistration(TokenClientId.from(token), externalId));
     }
 
-    /** Every registration the calling client has submitted, optionally filtered by wire status. */
+    /** BEYOND-SPEC: every registration the calling client has submitted, optionally filtered by wire status. */
     @GetMapping
     public List<RegistrationProcessView> listRegistrations(@RequestParam(name = "status", required = false) RegistrationStatus status,
                                                            @AuthenticationPrincipal Jwt token) {
@@ -77,10 +78,10 @@ public class TenantRegistrationController {
     }
 
     /**
-     * Cancels an in-flight registration — 204 on success, 404 for an unknown (or foreign)
-     * externalId, 409 once the registration is terminal. No status callback is sent: the caller
-     * initiated the cancellation, this response is the acknowledgment. A cancelled registration
-     * frees its externalId — the same id may be resubmitted with corrected data.
+     * BEYOND-SPEC: cancels an in-flight registration — 204 on success, 404 for an unknown (or
+     * foreign) externalId, 409 once the registration is terminal. No status callback is sent: the
+     * caller initiated the cancellation, this response is the acknowledgment. A cancelled
+     * registration frees its externalId — the same id may be resubmitted with corrected data.
      */
     @DeleteMapping("/{externalId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)

@@ -82,7 +82,7 @@ public class InMemoryOnboardingRepository implements OnboardingRepository {
 
     @Override
     public boolean cancel(String processId, String reason) {
-        // compute() makes check-and-transition one atomic map operation.
+        // BEYOND-SPEC (cancellation); compute() makes check-and-transition one atomic map operation.
         var transitioned = new boolean[1];
         processes.computeIfPresent(processId, (id, stored) -> {
             if (stored.isTerminal()) {

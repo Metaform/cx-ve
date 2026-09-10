@@ -33,7 +33,7 @@ public enum OnboardingState {
     /** A step failed irrecoverably. Terminal. */
     FAILED,
 
-    /** The submitting OSP cancelled the registration before it completed. Terminal. */
+    /** BEYOND-SPEC: the submitting OSP cancelled the registration via the extension DELETE. Terminal. */
     CANCELLED;
 
     /** True for the states an onboarding can never leave — shared by the domain and the stores. */

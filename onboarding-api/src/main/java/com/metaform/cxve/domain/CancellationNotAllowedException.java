@@ -3,7 +3,7 @@ package com.metaform.cxve.domain;
 import com.metaform.cxve.domain.model.OnboardingState;
 
 /**
- * A cancellation hit a registration that is already terminal — there is nothing left to cancel,
+ * BEYOND-SPEC: a cancellation (extension DELETE) hit a registration that is already terminal — there is nothing left to cancel,
  * and relabeling a completed or declined outcome would falsify the record. Answered with 409.
  */
 public class CancellationNotAllowedException extends RuntimeException {

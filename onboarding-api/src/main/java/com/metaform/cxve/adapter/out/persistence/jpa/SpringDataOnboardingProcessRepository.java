@@ -54,13 +54,13 @@ public interface SpringDataOnboardingProcessRepository extends JpaRepository<Onb
      */
     List<OnboardingProcessEntity> findAllByClientIdAndExternalId(String clientId, String externalId);
 
-    /** Every registration a client has submitted, any state. */
+    /** BEYOND-SPEC: every registration a client has submitted, any state (list endpoint). */
     List<OnboardingProcessEntity> findAllByClientId(String clientId);
 
     /**
-     * The atomic cancellation: one conditional UPDATE, so the still-non-terminal check and the
-     * transition cannot be interleaved by a racing writer. Touches only state and failureReason —
-     * identities assigned by the onboarding steps stay as recorded.
+     * BEYOND-SPEC: the atomic cancellation — one conditional UPDATE, so the still-non-terminal
+     * check and the transition cannot be interleaved by a racing writer. Touches only state and
+     * failureReason — identities assigned by the onboarding steps stay as recorded.
      *
      * @return the number of rows transitioned (0 when the process was already terminal or unknown)
      */

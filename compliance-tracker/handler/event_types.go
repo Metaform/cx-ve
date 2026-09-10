@@ -507,7 +507,7 @@ const (
 // constant name. Only these four appear on the wire: the Onboarding API announces an outcome
 // exactly when the process becomes terminal, so the intermediate states of its state machine
 // (SUBMITTED, VALIDATED, BPN_ASSIGNED, ...) are never published. CANCELLED is the
-// OSP-initiated cancellation via the API's DELETE endpoint.
+// OSP-initiated cancellation via the API's BEYOND-SPEC DELETE endpoint.
 type OnboardingState string
 
 const (

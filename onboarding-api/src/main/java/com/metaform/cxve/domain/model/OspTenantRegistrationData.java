@@ -43,10 +43,10 @@ public record OspTenantRegistrationData(
 ) {
 
     /**
-     * externalId doubles as the address of the read/cancel endpoints
+     * BEYOND-SPEC: externalId doubles as the address of the extension read/cancel endpoints
      * ({@code .../tenant-registration/{externalId}}), so it is constrained to characters a single
-     * URL path segment can carry verbatim — an id the API accepted but its own read path cannot
-     * express would be unrecoverable.
+     * URL path segment can carry verbatim (the spec allows any string) — an id the API accepted
+     * but its own read path cannot express would be unrecoverable.
      */
     public static final String EXTERNAL_ID_PATTERN = "[A-Za-z0-9._~:@+-]+";
     public static final String EXTERNAL_ID_MESSAGE =

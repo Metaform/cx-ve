@@ -345,7 +345,8 @@ onboarding-process id as its body (the spec declares an empty response; the id i
 the tolerant reader permits it). The optional §2.2.3 file upload endpoint is not offered (conformant: this CSP-B
 requires no files); `consents[].fileIds` are accepted but nothing dereferences them.
 
-It additionally implements EXTENSIONS beyond the spec — mitigating, implementation-side, the gaps behind findings
+It additionally implements EXTENSIONS beyond the spec — every such site is marked `BEYOND-SPEC` in the code
+(`grep -rn "BEYOND-SPEC"` enumerates them) — mitigating, implementation-side, the gaps behind findings
 §10.1/§10.5/§10.7, which remain open against the spec itself:
 client-scoped `GET`/`DELETE /api/administration/osp/v2/tenant-registration[/{externalId}]` — the recovery read for a
 lost callback (in-flight states read as `SUBMITTED`; a cancelled registration reads as the extension status

@@ -5,7 +5,7 @@ import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.RegistrationStatus;
 
 /**
- * The read view of a registration served by the (beyond-spec) GET endpoints — everything a lost
+ * BEYOND-SPEC: the read view of a registration served by the extension GET endpoints — everything a lost
  * status callback would have told the OSP, plus the process id the legacy endpoint returned at
  * submission: {@code applicationStatus} and {@code message} mirror the callback payload,
  * {@code bpnl} and {@code did} carry the identities as far as they have been assigned. NON_NULL,

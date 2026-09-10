@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Hands a submitted registration to the {@link OnboardingOrchestrator}, which drives the CX-0006
- * onboarding sequence, and serves the client-scoped read/cancel operations on top (cx-ve
+ * onboarding sequence, and serves the client-scoped read/cancel operations on top (BEYOND-SPEC
  * extensions — the spec declares neither, leaving a lost callback unrecoverable). The endpoints
  * return as soon as the process is created; progression continues asynchronously. The tenant flow
  * (§2.2.2) additionally enforces the spec's per-OSP externalId uniqueness before anything is

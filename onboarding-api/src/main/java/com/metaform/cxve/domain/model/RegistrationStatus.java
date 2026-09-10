@@ -7,13 +7,14 @@ package com.metaform.cxve.domain.model;
  * {@code OSPTenantRegistrationStatus} — whose intersection is SUBMITTED/CONFIRMED/DECLINED, the
  * only values this implementation ever puts on a callback: no portal invitation phase exists
  * (registrations arrive complete via the API), so one wire enum serves both flows.
- * {@link #CANCELLED} is a cx-ve extension surfaced only by the (beyond-spec) read endpoints —
+ * {@link #CANCELLED} is a cx-ve extension surfaced only by the extension read endpoints —
  * cancellation is OSP-initiated, so no callback ever carries it.
  */
 public enum RegistrationStatus {
     SUBMITTED,
     CONFIRMED,
     DECLINED,
+    /** BEYOND-SPEC: appears only in the read view, never on a callback. */
     CANCELLED;
 
     /**
