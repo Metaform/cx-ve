@@ -17,7 +17,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: compliance-tracker-config
+  name: {{ include "cx-ve.fullname" . }}-compliance-tracker-config
   labels:
     {{- include "cx-ve.labels" . | nindent 4 }}
 data:
@@ -40,9 +40,9 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: compliance-tracker
+  name: {{ include "cx-ve.fullname" . }}-compliance-tracker
   labels:
-    app: compliance-tracker
+    app: {{ include "cx-ve.fullname" . }}-compliance-tracker
     {{- include "cx-ve.labels" . | nindent 4 }}
 spec:
   # Single replica on purpose: a second pod would join the same durable consumer and split the
@@ -50,11 +50,11 @@ spec:
   replicas: {{ .Values.complianceTracker.replicas }}
   selector:
     matchLabels:
-      app: compliance-tracker
+      app: {{ include "cx-ve.fullname" . }}-compliance-tracker
   template:
     metadata:
       labels:
-        app: compliance-tracker
+        app: {{ include "cx-ve.fullname" . }}-compliance-tracker
       annotations:
         # Roll the pods whenever the agent config changes
         checksum/config: {{ .Values.complianceTracker.config | toJson | sha256sum }}
@@ -121,7 +121,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: compliance-tracker-config
+            name: {{ include "cx-ve.fullname" . }}-compliance-tracker-config
         {{- if .Values.complianceTracker.natsAuth.enabled }}
         # Pod-private in-memory volume the NKey seed is delivered on (never hits disk)
         - name: nats-nkey

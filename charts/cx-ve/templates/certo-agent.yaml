@@ -8,7 +8,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: certo-agent-config
+  name: {{ include "cx-ve.fullname" . }}-certo-agent-config
   labels:
     {{- include "cx-ve.labels" . | nindent 4 }}
 data:
@@ -30,19 +30,19 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: certo-agent
+  name: {{ include "cx-ve.fullname" . }}-certo-agent
   labels:
-    app: certo-agent
+    app: {{ include "cx-ve.fullname" . }}-certo-agent
     {{- include "cx-ve.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.certoAgent.replicas }}
   selector:
     matchLabels:
-      app: certo-agent
+      app: {{ include "cx-ve.fullname" . }}-certo-agent
   template:
     metadata:
       labels:
-        app: certo-agent
+        app: {{ include "cx-ve.fullname" . }}-certo-agent
       annotations:
         # Roll the pods whenever the agent config changes
         checksum/config: {{ .Values.certoAgent.config | toJson | sha256sum }}
@@ -109,7 +109,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: certo-agent-config
+            name: {{ include "cx-ve.fullname" . }}-certo-agent-config
         # Audience must match jwtlet's `client_audience` (the Kubernetes cluster issuer)
         - name: jwtlet-subject-token
           projected:

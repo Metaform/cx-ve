@@ -173,7 +173,7 @@ config:
       oauth2:
         resourceserver:
           jwt:
-            jwk-set-uri: http://osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
+            jwk-set-uri: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
             issuer-uri: http://cxve.localhost/auth/osp
   # Vault, holding the OSP callback registrations (matches the image defaults; restated so the
   # deployment's trust chain is visible: workload token -> jwtlet exchange (resource = the vault

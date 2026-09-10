@@ -32,7 +32,7 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          jwk-set-uri: http://osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json  # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI
+          jwk-set-uri: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json  # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI
           issuer-uri: http://cxve.localhost/auth/osp                                      # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUERURI
 
 springdoc:

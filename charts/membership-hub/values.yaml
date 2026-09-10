@@ -110,7 +110,7 @@ config:
       oauth2:
         resourceserver:
           jwt:
-            jwk-set-uri: http://osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
+            jwk-set-uri: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
             issuer-uri: http://cxve.localhost/auth/osp
   # Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and
   # springdoc URLs are generated with the external prefix when the route is enabled
@@ -133,11 +133,11 @@ config:
     url: http://cx-ve-onboarding-api.edc-v.svc.cluster.local:8080
     callback:
       url: http://cx-ve-membership-hub.edc-v.svc.cluster.local:8080/api/callbacks/registration-status
-      token-url: http://osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+      token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
       client-id: membership-hub-callback
       client-secret: membership-hub-callback-secret
     auth:
-      token-url: http://osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+      token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
       client-id: membership-hub
       client-secret: membership-hub-secret
       scope: configure_partner_registration

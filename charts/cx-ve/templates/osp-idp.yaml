@@ -12,19 +12,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: osp-idp
+  name: {{ include "cx-ve.fullname" . }}-osp-idp
   labels:
-    app: osp-idp
+    app: {{ include "cx-ve.fullname" . }}-osp-idp
     {{- include "cx-ve.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: osp-idp
+      app: {{ include "cx-ve.fullname" . }}-osp-idp
   template:
     metadata:
       labels:
-        app: osp-idp
+        app: {{ include "cx-ve.fullname" . }}-osp-idp
     spec:
       initContainers:
         # Schema migration; crash-loops until the platform's postgres-init job has created the
@@ -67,12 +67,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: osp-idp
+  name: {{ include "cx-ve.fullname" . }}-osp-idp
   labels:
     {{- include "cx-ve.labels" . | nindent 4 }}
 spec:
   selector:
-    app: osp-idp
+    app: {{ include "cx-ve.fullname" . }}-osp-idp
   ports:
     - name: public
       port: 4444
@@ -86,7 +86,7 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: osp-idp
+  name: {{ include "cx-ve.fullname" . }}-osp-idp
   labels:
     {{- include "cx-ve.labels" . | nindent 4 }}
 spec:
@@ -108,7 +108,7 @@ spec:
               type: ReplacePrefixMatch
               replacePrefixMatch: /
       backendRefs:
-        - name: osp-idp
+        - name: {{ include "cx-ve.fullname" . }}-osp-idp
           port: 4444
           weight: 1
 {{- end }}
