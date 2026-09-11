@@ -13,6 +13,10 @@ const (
 // createTables creates the ledger schema. Idempotent (IF NOT EXISTS / OR REPLACE throughout), so
 // it runs unconditionally at every startup — the repo has no migration tooling yet; schema
 // changes that CREATE cannot express need one.
+//
+// NOTE the membership-hub reads the two views through a read-only datasource (its /api/eventlog
+// endpoints) and its test carries a hand-translated twin of this schema at
+// membership-hub/src/test/resources/eventtracker-schema.sql — mirror any change there.
 func createTables(db *sql.DB) error {
 	if err := createEventTable(db); err != nil {
 		return err

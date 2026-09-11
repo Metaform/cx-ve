@@ -34,6 +34,11 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
     // In-memory stand-in for Postgres in the repository tests (schema is vanilla JPA DDL)
     testRuntimeOnly("com.h2database:h2")
+    // Real Postgres for the eventlog repository test: the tracker's views use jsonb_agg/FILTER,
+    // which H2 cannot emulate (skipped automatically where Docker is unavailable). Versioned
+    // explicitly — the Boot 4 BOM does not manage testcontainers.
+    testImplementation("org.testcontainers:junit-jupiter:1.21.3")
+    testImplementation("org.testcontainers:postgresql:1.21.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
