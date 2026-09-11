@@ -11,10 +11,12 @@ import (
 type ParticipantStore interface {
 	// Open records a started registration. Re-opening an existing participant is a no-op.
 	Open(ctx context.Context, p *Participant) error
-	// LinkParticipantContext attaches the participant context to the still-running registration
-	// of the given DID (the did:web document publication is where the two first appear together).
-	// Matching no participant — a context outside any onboarding, e.g. the operator's own — is
-	// fine.
+	// LinkParticipantContext attaches the participant context to the LIVE (RUNNING or COMPLETED)
+	// registration of the given DID (the did:web document publication is where the two first
+	// appear together). COMPLETED must be linkable: the registration completes synchronously
+	// within the submission nowadays, so its completed event routinely precedes the identity
+	// provisioning that publishes the DID document. Matching no participant — a context outside
+	// any onboarding, e.g. the operator's own — is fine.
 	LinkParticipantContext(ctx context.Context, did, participantContextID string) error
 	// Close marks the registration terminal. Closing one never opened still records what the
 	// closure knows (the tracker may have started mid-flight).
@@ -49,11 +51,16 @@ func (s *postgresParticipantStore) Open(ctx context.Context, p *Participant) err
 }
 
 func (s *postgresParticipantStore) LinkParticipantContext(ctx context.Context, did, participantContextID string) error {
-	// Only the RUNNING registration: a rejected duplicate carries the DID of the participant it
-	// duplicated, and the dead row must not capture the link. Zero matched rows (a context
-	// outside any onboarding, e.g. the operator's own) is not an error.
+	// Only the LIVE registration — RUNNING or COMPLETED, the states that own their identity
+	// permanently (mirroring the participant_event view): a rejected duplicate carries the DID
+	// of the participant it duplicated, and the dead row must not capture the link. COMPLETED is
+	// included because the registration completes within the submission, so the completed event
+	// routinely arrives BEFORE the DID document publication — a RUNNING-only guard would lose
+	// the link (and with it every pcid-correlated event) for every normally-onboarded
+	// participant. Zero matched rows (a context outside any onboarding, e.g. the operator's own)
+	// is not an error.
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
-		UPDATE %s SET participant_context_id = $2 WHERE did = $1 AND STATE = 'RUNNING'
+		UPDATE %s SET participant_context_id = $2 WHERE did = $1 AND STATE IN ('RUNNING', 'COMPLETED')
 	`, participantTable), did, participantContextID)
 	return err
 }
