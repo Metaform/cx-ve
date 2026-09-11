@@ -82,6 +82,8 @@ HOST_OVERRIDES=(
   # The hub validates the Onboarding API's callback bearers against the OSP IdP's external issuer URL.
   --set-string "membership-hub.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "certo.gateway.hostnames={${HOST}}"
+  --set "verification-ui.httpRoute.hostnames={${HOST}}"
+  --set-string "verification-ui.config.verification.dsp-base-url=http://${HOST}/api/dsp"
 )
 
 # Image name -> build context. Both Dockerfiles COPY from their component directory (the same
@@ -90,11 +92,12 @@ IMAGES=(
   "ghcr.io/metaform/cx-ve/onboardingapi:latest onboarding-api"
   "ghcr.io/metaform/cx-ve/compliance-tracker:latest compliance-tracker"
   "ghcr.io/metaform/cx-ve/membership-hub:latest membership-hub"
+  "ghcr.io/metaform/cx-ve/verification-ui:latest verification-ui"
 )
 
 # Deployments running the images built above; restarted after the upgrade because a rebuilt
 # image under an unchanged tag does not change the pod spec, so helm will not roll them.
-DEPLOYMENTS=(cx-ve-onboarding-api cx-ve-compliance-tracker cx-ve-membership-hub)
+DEPLOYMENTS=(cx-ve-onboarding-api cx-ve-compliance-tracker cx-ve-membership-hub cx-ve-verification-ui)
 
 set -x
 

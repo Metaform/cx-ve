@@ -1,0 +1,6 @@
+apiVersion: v2
+name: verification-ui
+description: CX-VE Verification UI — Angular dashboard + BFF that onboards a participant under test, runs the CX-0135 certificate exchange against the permanent verification participant, and judges the run against the compliance tracker's eventlog
+type: application
+version: 0.1.0
+appVersion: "latest"

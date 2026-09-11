@@ -1,0 +1,114 @@
+# Verification runs are held in memory, so a restart forgets them (the verification participant
+# survives in the hub's database, the events in the tracker's ledger). Single replica by design:
+# runs and the participant cache are process-local state.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/metaform/cx-ve/verification-ui
+  # Defaults to the chart's appVersion
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+
+# Remote JVM debugging (JDWP). When enabled the container starts the debug agent (via
+# JAVA_TOOL_OPTIONS, honored by any JVM launcher) and exposes the port on the pod only —
+# deliberately not on the Service. Attach with
+#   kubectl port-forward deploy/<fullname> 5005:5005
+# and an IDE "Remote JVM Debug" run configuration pointed at localhost:5005.
+debug:
+  enabled: true
+  port: 5005
+  # Suspend the JVM until a debugger attaches (to step through startup code). While suspended the
+  # app cannot answer health probes, so enabling this also disables liveness/readiness probes.
+  suspend: false
+
+# The app's workload identity: the jwtlet seed job registers
+# "system:serviceaccount:<namespace>:verification-ui".
+serviceAccount:
+  create: true
+  name: verification-ui
+
+# The platform's JWTlet (RFC 8693 token exchange)
+jwtlet:
+  healthUrl: http://jwtlet.edc-v.svc.cluster.local:8080/health
+  mgmtUrl: http://jwtlet.edc-v.svc.cluster.local:8081/api/v1
+  # Audience of the projected SA token; must match jwtlet's `client_audience`
+  # (the Kubernetes cluster issuer)
+  subjectTokenAudience: https://kubernetes.default.svc.cluster.local
+  subjectTokenExpirationSeconds: 3600
+  # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet — once per
+  # participantContext the app exchanges under. Must agree with the app's config
+  # verification.management.token-* and verification.certo-auth.token-*; the scope mappings
+  # themselves are seeded by the platform (`admin`) and certo (`certo-mgmt-api:*`) seed jobs.
+  seed:
+    enabled: true
+    mappings:
+      # management API: `admin` expands to management-api:admin and friends
+      - participantContext: issuer
+        scopes:
+          - admin
+      # certo validates resource "sudo" itself
+      - participantContext: sudo
+        scopes:
+          - certo-mgmt-api:read
+          - certo-mgmt-api:write
+    # jwtlet participant-token audience (client_audience / bound_audiences)
+    audiences:
+      - edcv
+    image: curlimages/curl:latest
+    hookDeletePolicy: before-hook-creation,hook-succeeded
+    ttlSecondsAfterFinished: 600
+
+# Gateway API exposure (there is deliberately no Ingress template). The UI is an OPERATOR
+# surface with no authentication — the route publishes it as-is; disable it where that is not
+# acceptable (kubectl port-forward for ad-hoc access).
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: edcv-gateway
+      # namespace: gateway-system
+  hostnames:
+    - cxve.localhost
+  # Must match the base-href the Angular app was built with (/ui/).
+  pathPrefix: /ui
+
+resources: {}
+
+# Complete application configuration. Rendered 1:1 into the ConfigMap as application.yaml and
+# mounted over the image's packaged defaults (SPRING_CONFIG_ADDITIONALLOCATION), so every key
+# below overrides the corresponding baked-in value — property names are exactly Spring's.
+config:
+  # Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and
+  # springdoc URLs are generated with the external /ui prefix
+  server:
+    forward-headers-strategy: framework
+  # The Membership Hub: onboarding + the eventlog read API (both unauthenticated in-cluster).
+  membership-hub:
+    url: http://cx-ve-membership-hub.edc-v.svc.cluster.local:8080
+  # The controlplane management API, called cluster-internally on the management port. The
+  # gateway route /api/management rewrites to /api/mgmt — dialing the service directly uses the
+  # in-app path; the jwtlet token (scope `admin`) is validated in-app either way. Switch to the
+  # gateway form (http://cxve.localhost/api/management/v5, resolvable in-cluster via the
+  # CoreDNS rewrites) if direct access ever misbehaves.
+  management-api:
+    url: http://controlplane.edc-v.svc.cluster.local:8081/api/mgmt/v5
+  # Certo's management API at the service root (the gateway route /api/certo strips its prefix).
+  certo:
+    url: http://cx-ve-certo.edc-v.svc.cluster.local:8080/management/v1
+  # Token exchange (RFC 8693): the projected workload token + jwtlet's in-cluster endpoint.
+  token:
+    file:
+      path: /var/run/secrets/jwtlet/token
+    exchange:
+      url: http://jwtlet.edc-v.svc.cluster.local:8080
+      audience: edcv
+  verification:
+    # DSP counterparty addresses stay the EXTERNAL gateway form — the controlplane dereferences
+    # them, and the CoreDNS rewrites (scripts/setup-did-dns.sh) make the hostname resolve in
+    # pods. Host-derived: the install scripts override it for a non-default host.
+    dsp-base-url: http://cxve.localhost/api/dsp
+    # baseUrl of the CCM assets (certo's protocol API): the flow counterparty calls it with a
+    # Siglet flow token, not through the gateway.
+    certo-asset-base-url: http://cx-ve-certo.edc-v.svc.cluster.local:8080

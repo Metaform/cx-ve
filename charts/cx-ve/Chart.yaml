@@ -31,6 +31,10 @@ dependencies:
   - name: membership-hub
     repository: file://../membership-hub
     version: ">=0.0.0-0"
+  # The Verification UI (dashboard + verification-run BFF) application chart from this repository
+  - name: verification-ui
+    repository: file://../verification-ui
+    version: ">=0.0.0-0"
   # Certo (CX-0135 certificate exchange service)
   - name: certo
     repository: oci://ghcr.io/metaform/charts

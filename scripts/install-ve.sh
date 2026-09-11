@@ -110,6 +110,10 @@ HOST_OVERRIDES=(
   # NOTE certo.sigletBaseUrl is deliberately NOT host-derived: certo calls siglet without a
   # bearer token, so it must use the in-cluster siglet service (the checked-in default) — the
   # gateway path sits behind clearglass, which 401s every unauthenticated /tokens/* call.
+  --set "verification-ui.httpRoute.hostnames={${HOST}}"
+  # The verification runs dial DSP counterparties through the gateway (resolvable in-cluster
+  # via the CoreDNS rewrites), so the DSP base follows the host.
+  --set-string "verification-ui.config.verification.dsp-base-url=http://${HOST}/api/dsp"
 )
 
 cleanup() {
@@ -178,10 +182,14 @@ kind load docker-image ghcr.io/metaform/cx-ve/compliance-tracker:latest -n $CLUS
 docker buildx build -t ghcr.io/metaform/cx-ve/membership-hub:latest membership-hub
 kind load docker-image ghcr.io/metaform/cx-ve/membership-hub:latest -n $CLUSTER_NAME
 
+# Build and load the latest version of the Verification UI.
+docker buildx build -t ghcr.io/metaform/cx-ve/verification-ui:latest verification-ui
+kind load docker-image ghcr.io/metaform/cx-ve/verification-ui:latest -n $CLUSTER_NAME
+
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
 # space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> onboarding-api jwtlet
 # mapping (200) -> certo jwtlet mappings (210) -> certo activity/orchestration (220) ->
-# membership-hub jwtlet mapping (230).
+# membership-hub jwtlet mapping (230) -> verification-ui jwtlet mappings (240).
 helm upgrade --install "$RELEASE" "$UMBRELLA_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
   "${HOST_OVERRIDES[@]}" \

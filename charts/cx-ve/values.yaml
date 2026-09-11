@@ -194,6 +194,15 @@ membership-hub:
   image:
     pullPolicy: IfNotPresent
 
+# ---- Verification UI -------------------------------------------------------------------------
+# Angular dashboard + BFF driving the full verification journey (onboard a participant under
+# test, establish the CCM flows, run the CX-0135 certificate exchange, judge the run against
+# the compliance tracker's eventlog through the hub's read API). All URLs in the subchart's
+# defaults already point at the umbrella's in-cluster services.
+verification-ui:
+  image:
+    pullPolicy: IfNotPresent
+
 
 # ---- Certo (CX-0135 certificate exchange) ----------------------------------------------------
 certo:
