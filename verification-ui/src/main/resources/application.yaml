@@ -1,0 +1,105 @@
+# Runtime configuration for the CX-VE Verification UI. Values here are the defaults baked into
+# the image; the local-development defaults point at a VE exposed on cxve.localhost.
+#
+# Every key can be overridden from outside without rebuilding, e.g. from a Kubernetes ConfigMap:
+#   - as environment variables (env/envFrom): the exact variable name is noted next to each key
+#   - or by mounting a yaml file and pointing SPRING_CONFIG_ADDITIONALLOCATION at it
+#     (spring.config.additional-location=/path/to/dir/)
+
+spring:
+  application:
+    name: verification-ui                                       # SPRING_APPLICATION_NAME
+
+# Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and springdoc
+# URLs are generated with the external /ui prefix
+server:
+  forward-headers-strategy: framework                           # SERVER_FORWARDHEADERSSTRATEGY
+
+springdoc:
+  swagger-ui:
+    path: /swagger                                              # SPRINGDOC_SWAGGERUI_PATH
+
+logging:
+  level:
+    com.metaform.cxve.verification: INFO                        # LOGGING_LEVEL_COM_METAFORM_CXVE_VERIFICATION
+
+# The Membership Hub: onboarding of the participant-under-test (and of the permanent
+# verification participant), plus the eventlog read API the verdict is judged against.
+membership-hub:
+  url: http://cxve.localhost/hub                                 # MEMBERSHIPHUB_URL
+
+# The EDC controlplane management API; a token exchanged under verification.management below may
+# operate on any participant context (management-api:admin).
+management-api:
+  url: http://cxve.localhost/api/management/v5                   # MANAGEMENTAPI_URL
+
+# Certo's CX-0135 CCM management API (certo validates the jwtlet bearer itself).
+certo:
+  url: http://cxve.localhost/api/certo/management/v1             # CERTO_URL
+
+# Token exchange (RFC 8693): workload token file + exchange endpoint. For a local run, create
+# the token file with:
+#   kubectl create token verification-ui -n edc-v \
+#     --audience=https://kubernetes.default.svc.cluster.local > token
+token:
+  # user.dir = the process working directory. In Kubernetes point this at the projected token,
+  # e.g. /var/run/secrets/jwtlet/token.
+  file:
+    path: "${user.dir}/token"                                   # TOKEN_FILE_PATH
+  exchange:
+    url: http://cxve.localhost/api/auth                          # TOKEN_EXCHANGE_URL
+    audience: edcv                                              # TOKEN_EXCHANGE_AUDIENCE
+
+verification:
+  # Base of the platform's DSP endpoints; a provider's address is <base>/<pcid>/cx-neptune.
+  # Deliberately the EXTERNAL gateway form even in-cluster (the controlplane dereferences it;
+  # the CoreDNS rewrites installed by scripts/setup-did-dns.sh make it resolve in pods).
+  dsp-base-url: http://cxve.localhost/api/dsp                    # VERIFICATION_DSPBASEURL
+  # baseUrl of the CCM assets (certo's protocol API): the IN-CLUSTER service root — the flow
+  # counterparty calls it with a Siglet flow token, not through the gateway.
+  certo-asset-base-url: http://cx-ve-certo.edc-v.svc.cluster.local:8080  # VERIFICATION_CERTOASSETBASEURL
+  # jwtlet mapping + scope for management-API tokens (scope `admin` expands to
+  # management-api:admin and friends; the chart's jwtlet-seed job registers the mapping).
+  management:
+    token-resource: issuer                                      # VERIFICATION_MANAGEMENT_TOKENRESOURCE
+    token-scope: admin                                          # VERIFICATION_MANAGEMENT_TOKENSCOPE
+  # jwtlet mapping + scope for certo tokens (certo verifies resource "sudo" itself).
+  certo-auth:
+    token-resource: sudo                                        # VERIFICATION_CERTOAUTH_TOKENRESOURCE
+    token-scope: certo-mgmt-api:write                           # VERIFICATION_CERTOAUTH_TOKENSCOPE
+  # The permanent verification participant's fixed identity. The BPN is the rediscovery key
+  # after restarts (hub lookup), so keep it stable; it is pinned rather than hash-derived to be
+  # readable in logs and the UI.
+  participant:
+    name: "Verification Participant"                            # VERIFICATION_PARTICIPANT_NAME
+    short-name: verification-participant                        # VERIFICATION_PARTICIPANT_SHORTNAME
+    bpn: BPNLVERIFY000001                                       # VERIFICATION_PARTICIPANT_BPN
+    vat-id: DEVERIFY0001                                        # VERIFICATION_PARTICIPANT_VATID
+  # The verification participant's permanent CCM inbox asset (the push-flow target).
+  inbox-asset-id: ccm-inbox-verification                        # VERIFICATION_INBOXASSETID
+  # Transfer type of the CCM flows — must be exactly this profile URI; it keys the participant's
+  # siglet transfer-type mapping, the dataplane registration, and the transfer request.
+  transfer-type: HttpData-PULL                                  # VERIFICATION_TRANSFERTYPE
+  timeouts:
+    onboarding: 10m                                             # VERIFICATION_TIMEOUTS_ONBOARDING
+    catalog: 2m                                                 # VERIFICATION_TIMEOUTS_CATALOG
+    negotiation: 3m                                             # VERIFICATION_TIMEOUTS_NEGOTIATION
+    transfer: 3m                                                # VERIFICATION_TIMEOUTS_TRANSFER
+    certo: 2m                                                   # VERIFICATION_TIMEOUTS_CERTO
+    events: 3m                                                  # VERIFICATION_TIMEOUTS_EVENTS
+  poll-interval: 2s                                             # VERIFICATION_POLLINTERVAL
+  # The verdict's expected-events checklist: eventlog subject -> minimum count on the
+  # participant-under-test's log. The >=2 counts assume the provider-side controlplane events of
+  # both CCM flows carry the participant-under-test's context id — tune here (chart-overridable,
+  # no rebuild) if a live run shows different attribution.
+  expected-events:
+    "[events.onboarding.started]": 1
+    "[events.onboarding.completed]": 1
+    "[events.participantcontext.created]": 1
+    "[events.diddocument.published]": 1
+    "[events.keypair.added]": 1
+    "[events.issuance.credential.delivered]": 1
+    "[events.contract.negotiation.finalized]": 2
+    "[events.transfer.process.started]": 2
+    "[events.certificate.exchange.fulfilled]": 1
+    "[events.certificate.exchange.accepted]": 1

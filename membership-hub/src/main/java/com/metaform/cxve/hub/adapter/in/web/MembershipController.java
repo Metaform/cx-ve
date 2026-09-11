@@ -4,6 +4,7 @@ import com.metaform.cxve.hub.application.MembershipService;
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.NoSuchElementException;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -40,6 +42,16 @@ public class MembershipController {
     @GetMapping("/{externalId}")
     public Membership get(@PathVariable String externalId) {
         return membershipService.get(externalId);
+    }
+
+    /**
+     * The memberships registered under a BPN — a list, because rejected/failed attempts do not
+     * retire their BPN. The filter is required (there is deliberately no unpaged list-everything),
+     * and unlike {@link #get} this is a plain read without a Tenant Manager refresh.
+     */
+    @GetMapping
+    public List<Membership> findByBpn(@RequestParam String bpn) {
+        return membershipService.findByBpn(bpn);
     }
 
     @ExceptionHandler(NoSuchElementException.class)

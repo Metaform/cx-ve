@@ -11,8 +11,11 @@ dependencies:
 - name: membership-hub
   repository: file://../membership-hub
   version: 0.1.0
+- name: verification-ui
+  repository: file://../verification-ui
+  version: 0.1.0
 - name: certo
   repository: oci://ghcr.io/metaform/charts
   version: 0.0.6
-digest: sha256:8a81cb7235a1b4dacac41e68520e6576845f0f394949ea18922a16792988c04b
-generated: "2026-09-10T09:20:00.735512+02:00"
+digest: sha256:61e62467598922a91e4b3d83e5540ff0d1d3642d4e3b725041cd72bea4e69d2a
+generated: "2026-09-10T12:52:33.643457+02:00"

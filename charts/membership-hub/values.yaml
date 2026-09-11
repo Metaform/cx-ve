@@ -171,3 +171,13 @@ config:
       endpoint-type: HTTP
       endpoint: http://cx-ve-certo.edc-v.svc.cluster.local:8080
       token-source: provider
+  # Read-only second datasource on the compliance tracker's event ledger, enabling the hub's
+  # /api/eventlog endpoints (unset in the image defaults — setting the url here is what turns
+  # them on). The hub only SELECTs from the tracker's views; the `event_tracker` database is
+  # provisioned by the platform's postgres-init job from the umbrella's postgresql.databases
+  # list, so unlike spring.datasource above there is no seed block in this chart for it.
+  eventtracker:
+    datasource:
+      url: jdbc:postgresql://cx-ve-postgresql.edc-v.svc.cluster.local:5432/event_tracker
+      username: event_tracker
+      password: event_tracker

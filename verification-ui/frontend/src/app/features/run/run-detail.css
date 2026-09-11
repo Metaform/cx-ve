@@ -1,0 +1,379 @@
+.back {
+  display: inline-block;
+  font-size: 13px;
+  margin-bottom: 14px;
+  color: var(--ink-soft);
+}
+
+.muted {
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+.small {
+  font-size: 13px;
+}
+
+/* --- header: identity left, verdict right --- */
+.run-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+
+.who h1 {
+  font-size: 24px;
+  margin: 4px 0 6px;
+}
+
+.idline {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.verdict-slot {
+  flex: none;
+  padding: 6px 12px 0 0;
+}
+
+.live {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.live-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--run);
+  position: relative;
+  flex: none;
+}
+
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid var(--run);
+  animation: pulse 1.6s ease-out infinite;
+}
+
+.live-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.live-step {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+/* --- outcome banners --- */
+.banner {
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  font-size: 14px;
+}
+
+.ok-banner {
+  background: var(--verify-soft);
+  border: 1px solid rgba(14, 123, 91, 0.3);
+  color: var(--verify-deep);
+}
+
+.fail-banner {
+  background: var(--fail-soft);
+  border: 1px solid rgba(178, 58, 46, 0.3);
+  color: var(--fail);
+}
+
+.fail-banner .reason {
+  color: var(--ink);
+  display: block;
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+.fail-banner .missing {
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+/* --- layout --- */
+.run-grid {
+  display: grid;
+  grid-template-columns: minmax(380px, 1fr) 460px;
+  gap: 20px;
+  align-items: start;
+}
+
+.col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- step rail: the run IS a sequence; the rail renders it --- */
+.rail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+.rail::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: var(--line);
+}
+
+.steprow {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  padding: 9px 0;
+}
+
+.node {
+  position: relative;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex: none;
+  margin-top: 1px;
+  background: var(--panel);
+  border: 2px solid var(--line-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.steprow.ok .node {
+  background: var(--verify);
+  border-color: var(--verify);
+}
+
+.steprow.ok .node::after {
+  content: '✓';
+  color: #fff;
+}
+
+.steprow.failed .node {
+  background: var(--fail);
+  border-color: var(--fail);
+}
+
+.steprow.failed .node::after {
+  content: '×';
+  color: #fff;
+}
+
+.steprow.running .node {
+  border-color: var(--run);
+}
+
+.steprow.running .node::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--run);
+  animation: pulse 1.6s ease-out infinite;
+}
+
+.steprow.skipped .node {
+  border-style: dashed;
+}
+
+.steprow.skipped .steptitle,
+.steprow.pending .steptitle {
+  color: var(--ink-soft);
+}
+
+.stepbody {
+  min-width: 0;
+  flex: 1;
+}
+
+.steptitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.steprow.failed .steptitle {
+  color: var(--fail);
+}
+
+.dur {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.stepdetail {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  word-break: break-word;
+  margin-top: 2px;
+}
+
+.steprow.failed .stepdetail {
+  color: var(--ink);
+}
+
+/* --- checklist --- */
+.checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.checklist li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.checklist li:last-child {
+  border-bottom: none;
+}
+
+.checklist .mark {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.checklist .sat .mark,
+.checklist li.sat .mark {
+  color: var(--verify);
+}
+
+.checklist li.unsat .mark {
+  color: var(--line-strong);
+}
+
+.checklist .subject {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.checklist li.unsat .subject {
+  color: var(--ink-soft);
+}
+
+.checklist .count {
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.checklist .placeholder {
+  color: var(--ink-soft);
+  border-bottom: none;
+}
+
+/* --- ledger --- */
+.ledger-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ledger-head h2 {
+  margin: 0;
+}
+
+.ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.ledger li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.ledger li:last-child {
+  border-bottom: none;
+}
+
+.ledger time {
+  flex: none;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.ledger .subject {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.ledger .source {
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+@keyframes pulse {
+  from {
+    transform: scale(0.55);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.45);
+    opacity: 0;
+  }
+}
+
+@media (max-width: 1060px) {
+  .run-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .run-head {
+    flex-direction: column;
+  }
+
+  .verdict-slot {
+    padding: 0;
+  }
+}

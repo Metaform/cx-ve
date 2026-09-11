@@ -32,6 +32,8 @@ jobs:
             context: compliance-tracker
           - name: membership-hub
             context: membership-hub
+          - name: verification-ui
+            context: verification-ui
     steps:
       - uses: actions/checkout@v4
 
@@ -117,6 +119,9 @@ jobs:
           helm lint charts/membership-hub
           helm template charts/membership-hub > /dev/null
           helm package charts/membership-hub --destination dist --version "$version" --app-version "$version"
+          helm lint charts/verification-ui
+          helm template charts/verification-ui > /dev/null
+          helm package charts/verification-ui --destination dist --version "$version" --app-version "$version"
           helm dependency update charts/cx-ve
           helm lint charts/cx-ve
           helm template charts/cx-ve > /dev/null

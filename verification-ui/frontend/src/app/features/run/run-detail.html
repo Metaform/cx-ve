@@ -1,0 +1,118 @@
+@if (notFound) {
+  <section class="panel">
+    <h2>Run not found</h2>
+    <p class="muted">This run is not known to the backend — runs live in memory and are
+      forgotten when it restarts. The event ledger keeps the durable record.</p>
+    <a routerLink="/">Back to the dashboard</a>
+  </section>
+} @else if (run; as r) {
+
+  <a class="back" routerLink="/">← Dashboard</a>
+
+  <header class="run-head">
+    <div class="who">
+      <span class="eyebrow">Verification run <span class="mono">#{{ r.id }}</span></span>
+      <h1>{{ r.participant.name }}</h1>
+      <div class="idline mono">
+        {{ r.participant.bpn }}
+        @if (r.participant.did) { · {{ r.participant.did }} }
+      </div>
+    </div>
+    <div class="verdict-slot">
+      @if (r.state === 'RUNNING') {
+        <div class="live">
+          <span class="live-dot" aria-hidden="true"></span>
+          <div>
+            <div class="live-count">Step {{ stepNumber }} of {{ r.steps.length }}</div>
+            <div class="live-step">{{ stepLabel(runningStep?.step ?? null) }}</div>
+          </div>
+        </div>
+      } @else if (r.state === 'SUCCEEDED') {
+        <span class="stamp verified" role="status">Verified</span>
+      } @else {
+        <span class="stamp failed-stamp" role="status">Failed</span>
+      }
+    </div>
+  </header>
+
+  @if (r.state === 'SUCCEEDED') {
+    <div class="banner ok-banner">
+      Onboarding and certificate transfer completed — all {{ r.checklist.length }} expected
+      event subjects are in the ledger.
+    </div>
+  } @else if (r.state === 'FAILED') {
+    <div class="banner fail-banner">
+      <strong>{{ r.failedStep ? stepLabel(r.failedStep) : 'Run' }} failed.</strong>
+      @if (r.failureReason) { <span class="reason">{{ r.failureReason }}</span> }
+      @if (missing.length > 0) {
+        <div class="missing">Missing events:
+          @for (item of missing; track item.subject) {
+            <span class="mono">{{ item.subject }} ({{ item.actualCount }}/{{ item.minCount }})</span>
+          }
+        </div>
+      }
+    </div>
+  }
+
+  <div class="run-grid">
+    <section class="panel steps-panel">
+      <h2>Steps</h2>
+      <ol class="rail">
+        @for (step of r.steps; track step.step) {
+          <li class="steprow {{ step.status.toLowerCase() }}">
+            <span class="node" aria-hidden="true"></span>
+            <div class="stepbody">
+              <div class="steptitle">
+                <span>{{ stepLabel(step.step) }}</span>
+                @if (duration(step); as d) { <span class="dur mono">{{ d }}</span> }
+              </div>
+              @if (step.detail) {
+                <div class="stepdetail">{{ step.detail }}</div>
+              }
+            </div>
+          </li>
+        }
+      </ol>
+    </section>
+
+    <div class="col-right">
+      <section class="panel">
+        <h2>Expected events</h2>
+        <ul class="checklist">
+          @for (item of r.checklist; track item.subject) {
+            <li class="{{ item.satisfied ? 'sat' : 'unsat' }}">
+              <span class="mark" aria-hidden="true">{{ item.satisfied ? '✓' : '·' }}</span>
+              <span class="subject mono">{{ item.subject }}</span>
+              <span class="count mono">{{ item.actualCount }}/{{ item.minCount }}</span>
+            </li>
+          } @empty {
+            <li class="placeholder">Evaluated at the end of the run.</li>
+          }
+        </ul>
+      </section>
+
+      <section class="panel">
+        <div class="ledger-head">
+          <h2>Event ledger</h2>
+          <span class="muted small">{{ events.length }} attributed</span>
+        </div>
+        @if (events.length === 0) {
+          <p class="muted">No events attributed to this participant yet.</p>
+        } @else {
+          <ul class="ledger">
+            @for (event of events; track event.source + event.eventId) {
+              <li>
+                <time class="mono">{{ event.occurredAt | date: 'HH:mm:ss' }}</time>
+                <span class="subject mono">{{ event.subject }}</span>
+                <span class="source">{{ event.source }}</span>
+              </li>
+            }
+          </ul>
+        }
+      </section>
+    </div>
+  </div>
+
+} @else {
+  <section class="panel"><p class="muted">Loading run…</p></section>
+}

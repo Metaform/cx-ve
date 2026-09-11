@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.port.MembershipRepository;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
@@ -50,6 +51,12 @@ public class JpaMembershipRepository implements MembershipRepository {
     @Transactional(readOnly = true)
     public Optional<Membership> findByExternalId(String externalId) {
         return repository.findById(externalId).map(this::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Membership> findByBpn(String bpn) {
+        return repository.findByBpn(bpn).stream().map(this::toDomain).toList();
     }
 
     @Override

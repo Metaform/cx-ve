@@ -78,9 +78,9 @@ func TestParticipant_RedeliveredStarted_DoesNotReopenAClosedRegistration(t *test
 	assert.Equal(t, "REJECTED", readParticipant(t, "proc-redeliver").state)
 }
 
-func TestParticipant_Link_ReachesOnlyTheRunningRegistration(t *testing.T) {
+func TestParticipant_Link_ReachesTheLiveRegistrationNotDeadRows(t *testing.T) {
 	// A rejected duplicate carries the DID of the participant it duplicated; the link must land
-	// on the running registration, not the dead row.
+	// on the live registration, not the dead row.
 	sut := newPostgresParticipantStore(testDB)
 	require.NoError(t, sut.Open(context.Background(), participant("proc-link-dup", "did:web:link")))
 	require.NoError(t, sut.Close(context.Background(), &ParticipantClosure{
@@ -94,6 +94,25 @@ func TestParticipant_Link_ReachesOnlyTheRunningRegistration(t *testing.T) {
 
 	assert.Equal(t, "pctx-link", readParticipant(t, "proc-link-run").pctx.String)
 	assert.False(t, readParticipant(t, "proc-link-dup").pctx.Valid)
+}
+
+func TestParticipant_Link_ReachesACompletedRegistration(t *testing.T) {
+	// The production ordering: the registration completes synchronously within the submission,
+	// so the completed event (which carries no participant context) closes the row BEFORE the
+	// DID document publication delivers the link. A COMPLETED registration owns its identity
+	// permanently, so the late link must still land — otherwise every pcid-correlated event of a
+	// normally-onboarded participant stays unattributed forever.
+	sut := newPostgresParticipantStore(testDB)
+	require.NoError(t, sut.Open(context.Background(), participant("proc-link-done", "did:web:link-done")))
+	require.NoError(t, sut.Close(context.Background(), &ParticipantClosure{
+		ProcessID: "proc-link-done", State: "COMPLETED", CompletedAt: t0,
+	}))
+
+	require.NoError(t, sut.LinkParticipantContext(context.Background(), "did:web:link-done", "pctx-late"))
+
+	linked := readParticipant(t, "proc-link-done")
+	assert.Equal(t, "COMPLETED", linked.state)
+	assert.Equal(t, "pctx-late", linked.pctx.String)
 }
 
 func TestParticipant_Close_WithoutAnOpen_RecordsWhatItKnows(t *testing.T) {

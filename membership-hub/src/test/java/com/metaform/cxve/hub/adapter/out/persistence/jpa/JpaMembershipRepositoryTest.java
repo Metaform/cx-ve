@@ -61,6 +61,20 @@ class JpaMembershipRepositoryTest {
     }
 
     @Test
+    void findByBpn_listsEveryAttemptUnderTheBpn() {
+        var data = payload();
+        repository.create(Membership.submitted("ext-1", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), data);
+        // a second attempt under the SAME BPN (e.g. after a rejected registration) must show up too
+        repository.create(Membership.submitted("ext-2", "Acme Corp", "did:web:acme2", "BPNL0000000000XY"), data);
+        repository.create(Membership.submitted("ext-3", "Other Corp", "did:web:other", "BPNLOTHER0000001"), data);
+
+        assertThat(repository.findByBpn("BPNL0000000000XY"))
+                .extracting(Membership::externalId)
+                .containsExactlyInAnyOrder("ext-1", "ext-2");
+        assertThat(repository.findByBpn("BPNLUNKNOWN00001")).isEmpty();
+    }
+
+    @Test
     void save_transitionsTheMembershipWithoutLosingThePayload() {
         var data = payload();
         var membership = Membership.submitted("ext-1", data.name(), "did:web:acme", data.bpn());

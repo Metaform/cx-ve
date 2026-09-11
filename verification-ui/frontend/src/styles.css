@@ -1,0 +1,270 @@
+/* CX-VE Verification — design tokens & shared primitives.
+   Cool "control room" light theme: ink-blue text on a cool neutral ground, emerald as the
+   tool's identity (the color of a verification seal), brick red strictly for failure and
+   amber strictly for in-flight. Identifiers (DIDs, BPNs, states, event subjects) are the
+   protocol's own vocabulary and always render in mono. */
+
+:root {
+  --paper: #F4F6F8;
+  --panel: #FFFFFF;
+  --ink: #17222E;
+  --ink-soft: #5C6B7A;
+  --line: #DCE2E8;
+  --line-strong: #B7C2CC;
+
+  --verify: #0E7B5B;
+  --verify-deep: #0A5C44;
+  --verify-soft: #E1F1EA;
+  --fail: #B23A2E;
+  --fail-soft: #F8E8E5;
+  --run: #96690A;
+  --run-soft: #F7EED9;
+  --skip: #8B98A5;
+
+  --display: 'Sora', 'Avenir Next', system-ui, sans-serif;
+  --body: 'Instrument Sans', 'Helvetica Neue', Arial, system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(23, 34, 46, 0.05), 0 4px 14px rgba(23, 34, 46, 0.05);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: var(--display);
+  margin: 0;
+}
+
+a {
+  color: var(--verify-deep);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--verify);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  word-break: break-all;
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.panel > h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+/* --- state chips: the run/step vocabulary, always mono-uppercase --- */
+.chip {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.chip.ok, .chip.succeeded, .chip.provisioned {
+  color: var(--verify-deep);
+  background: var(--verify-soft);
+  border-color: rgba(14, 123, 91, 0.25);
+}
+
+.chip.failed, .chip.rejected {
+  color: var(--fail);
+  background: var(--fail-soft);
+  border-color: rgba(178, 58, 46, 0.25);
+}
+
+.chip.running, .chip.pending-state {
+  color: var(--run);
+  background: var(--run-soft);
+  border-color: rgba(150, 105, 10, 0.3);
+}
+
+.chip.neutral {
+  color: var(--ink-soft);
+  background: var(--paper);
+  border-color: var(--line);
+}
+
+/* --- buttons --- */
+.btn {
+  font-family: var(--body);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.btn.primary {
+  background: var(--verify);
+  color: #fff;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--verify-deep);
+}
+
+.btn.quiet {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.btn.quiet:hover:not(:disabled) {
+  border-color: var(--ink-soft);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* --- forms --- */
+label.field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+label.field .label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+input[type="text"] {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+input[type="text"]:disabled {
+  background: var(--paper);
+  color: var(--ink-soft);
+}
+
+input[type="text"]::placeholder {
+  color: var(--line-strong);
+}
+
+/* --- key/value identity rows --- */
+.kv {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+
+.kv dt {
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+.kv dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* --- the verdict stamp: the one loud element on the page --- */
+.stamp {
+  display: inline-block;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 26px;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em; /* balance the tracking */
+  text-transform: uppercase;
+  padding: 10px 26px;
+  border: 6px double currentColor;
+  border-radius: 12px;
+  transform: rotate(-5deg);
+  animation: stamp-in 380ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.stamp.verified {
+  color: var(--verify);
+}
+
+.stamp.failed-stamp {
+  color: var(--fail);
+}
+
+@keyframes stamp-in {
+  from {
+    transform: rotate(-5deg) scale(1.7);
+    opacity: 0;
+  }
+  65% {
+    transform: rotate(-5deg) scale(0.96);
+    opacity: 1;
+  }
+  to {
+    transform: rotate(-5deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
