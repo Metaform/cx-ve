@@ -32,6 +32,10 @@ public class MembershipController {
         this.membershipService = membershipService;
     }
 
+    /**
+     * Submits the member and returns as soon as the registration is on its way — typically in
+     * SUBMITTED; confirmation and provisioning arrive asynchronously (poll {@link #get}).
+     */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public Membership onboard(@Valid @RequestBody MemberData data) {

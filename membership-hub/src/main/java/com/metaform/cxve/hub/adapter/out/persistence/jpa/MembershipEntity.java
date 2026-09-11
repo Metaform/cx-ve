@@ -7,6 +7,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -58,6 +59,18 @@ public class MembershipEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload")
     private String payload;
+
+    /**
+     * Optimistic-lock token, bumped by Hibernate on every update. Fresh schemas get the column
+     * from ddl-auto's CREATE; a POPULATED table from before this column needs a manual
+     * {@code ALTER TABLE membership ADD COLUMN version bigint; UPDATE membership SET version = 0}
+     * (Hibernate's own NOT NULL ALTER cannot land there, and a NULL version never satisfies the
+     * versioned-update WHERE clause) — acceptable while the schema is dev-grade and recreated on
+     * every install; a migration tool owns this once that changes.
+     */
+    @Version
+    @Column(name = "version")
+    private Long version;
 
     public String getExternalId() {
         return externalId;
@@ -145,5 +158,9 @@ public class MembershipEntity {
 
     public void setPayload(String payload) {
         this.payload = payload;
+    }
+
+    public Long getVersion() {
+        return version;
     }
 }

@@ -33,8 +33,9 @@ public class MembershipHubApi {
 
     /**
      * Submits the member and returns the created membership record — the hub mints the
-     * {@code externalId}. The call is synchronous through registration AND profile deployment,
-     * so it may take a while; a rejected or failed membership fails here.
+     * {@code externalId}. The hub answers as soon as the registration is submitted (typically in
+     * SUBMITTED); confirmation and provisioning land asynchronously — poll
+     * {@link #awaitProvisioned}. A membership already dead on arrival fails here.
      */
     public JsonNode onboard(String name, String shortName, String bpn, String vatId) {
         var response = given()

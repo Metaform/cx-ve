@@ -6,8 +6,10 @@ import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.port.MembershipRepository;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.context.annotation.Profile;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +17,13 @@ import org.springframework.transaction.annotation.Transactional;
  * Postgres-backed {@link MembershipRepository} — the default: durable across restarts. The
  * {@code test} profile swaps in the in-memory store instead (complementary profile expressions,
  * so exactly one of the two exists in any context).
+ *
+ * <p>{@link #save} is a compare-and-swap on the record's {@code version}: the caller's snapshot
+ * must still match the stored row, otherwise an {@link OptimisticLockingFailureException} tells
+ * it to reload and re-apply. That is what lets the submitting thread, the callback and the
+ * provisioning worker write concurrently without eating each other's updates — Hibernate's own
+ * flush-time check alone would not help, since this repository loads the managed entity fresh
+ * inside the saving transaction.
  */
 @Repository
 @Profile("!test")
@@ -43,6 +52,11 @@ public class JpaMembershipRepository implements MembershipRepository {
         // Load-then-update, NOT a fresh entity: a fresh one would merge null over the payload
         // column written at create.
         var entity = repository.findById(membership.externalId()).orElseGet(MembershipEntity::new);
+        if (entity.getExternalId() != null && !Objects.equals(entity.getVersion(), membership.version())) {
+            throw new OptimisticLockingFailureException(
+                    "Membership %s changed concurrently (stored version %s, snapshot version %s) — reload and re-apply"
+                            .formatted(membership.externalId(), entity.getVersion(), membership.version()));
+        }
         updateEntity(entity, membership);
         repository.save(entity);
     }
@@ -91,7 +105,8 @@ public class JpaMembershipRepository implements MembershipRepository {
                 entity.getTenantId(),
                 entity.getParticipantProfileId(),
                 entity.getParticipantContextId(),
-                entity.getFailureReason());
+                entity.getFailureReason(),
+                entity.getVersion());
     }
 
     private String writePayload(MemberData payload) {

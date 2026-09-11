@@ -9,7 +9,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 
+import org.springframework.dao.OptimisticLockingFailureException;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Exercises {@link JpaMembershipRepository} through the port against a real EntityManager
@@ -43,11 +46,13 @@ class JpaMembershipRepositoryTest {
     @Test
     void createAndFindByExternalId_roundTripsEveryField() {
         var membership = new Membership("ext-1", "Acme Corp", "did:web:acme", "BPNL0000000000XY",
-                MembershipState.PROVISIONING, "process-1", "tenant-1", "profile-1", "pctx-1", "why not");
+                MembershipState.PROVISIONING, "process-1", "tenant-1", "profile-1", "pctx-1", "why not", null);
 
         repository.create(membership, payload());
+        springData.flush();
 
-        assertThat(repository.findByExternalId("ext-1")).contains(membership);
+        // the stored row carries the initial lock version; every other field round-trips as-is
+        assertThat(repository.findByExternalId("ext-1")).contains(membership.withVersion(0L));
         assertThat(repository.findByExternalId("no-such")).isEmpty();
     }
 
@@ -77,14 +82,40 @@ class JpaMembershipRepositoryTest {
     @Test
     void save_transitionsTheMembershipWithoutLosingThePayload() {
         var data = payload();
-        var membership = Membership.submitted("ext-1", data.name(), "did:web:acme", data.bpn());
-        repository.create(membership, data);
+        repository.create(Membership.submitted("ext-1", data.name(), "did:web:acme", data.bpn()), data);
+        springData.flush();
 
-        repository.save(membership.withOnboardingProcessId("process-1").withState(MembershipState.CONFIRMED));
+        // save wants the STORED snapshot (its version is the lock token), not the pre-create one
+        var current = repository.findByExternalId("ext-1").orElseThrow();
+        repository.save(current.withOnboardingProcessId("process-1").withState(MembershipState.CONFIRMED));
 
         var stored = repository.findByExternalId("ext-1").orElseThrow();
         assertThat(stored.state()).isEqualTo(MembershipState.CONFIRMED);
         assertThat(stored.onboardingProcessId()).isEqualTo("process-1");
         assertThat(repository.findPayload("ext-1")).contains(data);
+    }
+
+    @Test
+    void save_rejectsAStaleSnapshot() {
+        var data = payload();
+        repository.create(Membership.submitted("ext-1", data.name(), "did:web:acme", data.bpn()), data);
+        springData.flush();
+        var snapshot = repository.findByExternalId("ext-1").orElseThrow();
+
+        // another writer advances the row; the flush bumps the stored version
+        repository.save(snapshot.withState(MembershipState.CONFIRMED));
+        springData.flush();
+
+        // the stale snapshot must be refused — its blind write would eat the CONFIRMED
+        assertThatThrownBy(() -> repository.save(snapshot.withOnboardingProcessId("process-1")))
+                .isInstanceOf(OptimisticLockingFailureException.class);
+        assertThat(repository.findByExternalId("ext-1").orElseThrow().state())
+                .isEqualTo(MembershipState.CONFIRMED);
+
+        // a fresh snapshot goes through
+        var fresh = repository.findByExternalId("ext-1").orElseThrow();
+        repository.save(fresh.withOnboardingProcessId("process-1"));
+        assertThat(repository.findByExternalId("ext-1").orElseThrow().onboardingProcessId())
+                .isEqualTo("process-1");
     }
 }

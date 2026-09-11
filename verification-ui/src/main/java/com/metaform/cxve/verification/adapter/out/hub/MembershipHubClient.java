@@ -50,8 +50,9 @@ public class MembershipHubClient {
 
     /**
      * Submits the member and returns the created membership record — the hub mints the
-     * externalId. The call is synchronous through registration AND profile deployment, so it may
-     * take a while; a rejected or failed membership fails here.
+     * externalId and answers as soon as the registration is submitted (typically in SUBMITTED);
+     * confirmation and provisioning land asynchronously — poll {@link #awaitProvisioned}. A
+     * membership already dead on arrival fails here.
      */
     public Membership onboard(String name, String shortName, String bpn, String vatId) {
         var body = """
