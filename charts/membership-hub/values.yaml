@@ -1,6 +1,7 @@
 # Membership state is durable in Postgres, so a restart no longer loses in-flight memberships.
-# Single replica by default: the CONFIRMED-callback handling is not guarded by a database
-# constraint, so concurrent replicas could double-provision.
+# Concurrent writers (callback, provisioning worker, replicas) are serialized by an
+# optimistic-lock compare-and-swap in the database, and the CONFIRMED->PROVISIONING claim makes
+# provisioning at-most-once across replicas — one replica simply remains the tested default.
 replicaCount: 1
 
 image:

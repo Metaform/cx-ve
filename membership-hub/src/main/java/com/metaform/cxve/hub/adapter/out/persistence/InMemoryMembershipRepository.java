@@ -8,12 +8,15 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.context.annotation.Profile;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 
 /**
  * In-memory {@link MembershipRepository}, active only under the {@code test} profile. State is
  * lost on restart; everywhere else the durable {@code JpaMembershipRepository} is the default
- * (complementary profile expressions, so exactly one of the two exists in any context).
+ * (complementary profile expressions, so exactly one of the two exists in any context) — and
+ * the two must stay interchangeable, so {@link #save} mirrors the JPA store's version
+ * compare-and-swap exactly.
  */
 @Repository
 @Profile("test")
@@ -29,8 +32,15 @@ public class InMemoryMembershipRepository implements MembershipRepository {
     }
 
     @Override
-    public void save(Membership membership) {
-        memberships.put(membership.externalId(), membership);
+    public synchronized void save(Membership membership) {
+        var stored = memberships.get(membership.externalId());
+        if (stored != null && !Objects.equals(stored.version(), membership.version())) {
+            throw new OptimisticLockingFailureException(
+                    "Membership %s changed concurrently (stored version %s, snapshot version %s) — reload and re-apply"
+                            .formatted(membership.externalId(), stored.version(), membership.version()));
+        }
+        var nextVersion = stored == null || stored.version() == null ? 0L : stored.version() + 1;
+        memberships.put(membership.externalId(), membership.withVersion(nextVersion));
     }
 
     @Override

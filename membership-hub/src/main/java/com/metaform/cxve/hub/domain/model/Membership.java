@@ -1,6 +1,6 @@
 package com.metaform.cxve.hub.domain.model;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 /**
  * One partner's membership as it moves through {@link MembershipState} — and the correlation
@@ -13,7 +13,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * registration runs under AND what the participant profile is deployed as — the two legs agree by
  * construction.
  *
- * <p>Immutable — each transition returns a new instance via the {@code with*} helpers.
+ * <p>Immutable — each transition returns a new instance via the {@code with*} helpers. The
+ * {@code version} is the optimistic-lock token of the snapshot this instance was loaded from
+ * (null before the first persist): saving compares it against the stored row, so two writers —
+ * the submitting thread, the callback, the provisioning worker — cannot silently overwrite each
+ * other. Persistence-internal, never serialized to clients.
  */
 public record Membership(
         String externalId,
@@ -25,31 +29,33 @@ public record Membership(
         String tenantId,
         String participantProfileId,
         String participantContextId,
-        String failureReason
+        String failureReason,
+        @JsonIgnore Long version
 ) {
 
     public static Membership submitted(String externalId, String name, String did, String bpn) {
-        return new Membership(externalId, name, did, bpn, MembershipState.SUBMITTED, null, null, null, null, null);
+        return new Membership(externalId, name, did, bpn, MembershipState.SUBMITTED,
+                null, null, null, null, null, null);
     }
 
     public Membership withState(MembershipState newState) {
         return new Membership(externalId, name, did, bpn, newState, onboardingProcessId, tenantId,
-                participantProfileId, participantContextId, failureReason);
+                participantProfileId, participantContextId, failureReason, version);
     }
 
     public Membership withOnboardingProcessId(String processId) {
         return new Membership(externalId, name, did, bpn, state, processId, tenantId,
-                participantProfileId, participantContextId, failureReason);
+                participantProfileId, participantContextId, failureReason, version);
     }
 
     public Membership provisioning(String tenantId, String participantProfileId) {
         return new Membership(externalId, name, did, bpn, MembershipState.PROVISIONING,
-                onboardingProcessId, tenantId, participantProfileId, participantContextId, failureReason);
+                onboardingProcessId, tenantId, participantProfileId, participantContextId, failureReason, version);
     }
 
     public Membership withParticipantContextId(String participantContextId) {
         return new Membership(externalId, name, did, bpn, state, onboardingProcessId, tenantId,
-                participantProfileId, participantContextId, failureReason);
+                participantProfileId, participantContextId, failureReason, version);
     }
 
     public Membership provisioned() {
@@ -58,12 +64,18 @@ public record Membership(
 
     public Membership rejected(String reason) {
         return new Membership(externalId, name, did, bpn, MembershipState.REJECTED,
-                onboardingProcessId, tenantId, participantProfileId, participantContextId, reason);
+                onboardingProcessId, tenantId, participantProfileId, participantContextId, reason, version);
     }
 
     public Membership failed(String reason) {
         return new Membership(externalId, name, did, bpn, MembershipState.FAILED,
-                onboardingProcessId, tenantId, participantProfileId, participantContextId, reason);
+                onboardingProcessId, tenantId, participantProfileId, participantContextId, reason, version);
+    }
+
+    /** The stored snapshot's lock token — set by the repositories on load and save. */
+    public Membership withVersion(Long version) {
+        return new Membership(externalId, name, did, bpn, state, onboardingProcessId, tenantId,
+                participantProfileId, participantContextId, failureReason, version);
     }
 
     public boolean isTerminal() {

@@ -7,6 +7,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -58,6 +59,16 @@ public class MembershipEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload")
     private String payload;
+
+    /**
+     * Optimistic-lock token, bumped by Hibernate on every update. For tables that predate it,
+     * {@code VersionBackfill} adds the column (nullable — Hibernate's own NOT NULL ALTER cannot
+     * land on a populated table) and zeroes the legacy rows at startup, since a NULL version can
+     * never satisfy the versioned-update WHERE clause.
+     */
+    @Version
+    @Column(name = "version")
+    private Long version;
 
     public String getExternalId() {
         return externalId;
@@ -145,5 +156,9 @@ public class MembershipEntity {
 
     public void setPayload(String payload) {
         this.payload = payload;
+    }
+
+    public Long getVersion() {
+        return version;
     }
 }
