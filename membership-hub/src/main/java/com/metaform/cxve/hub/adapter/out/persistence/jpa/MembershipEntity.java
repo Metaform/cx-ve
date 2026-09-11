@@ -61,10 +61,12 @@ public class MembershipEntity {
     private String payload;
 
     /**
-     * Optimistic-lock token, bumped by Hibernate on every update. For tables that predate it,
-     * {@code VersionBackfill} adds the column (nullable — Hibernate's own NOT NULL ALTER cannot
-     * land on a populated table) and zeroes the legacy rows at startup, since a NULL version can
-     * never satisfy the versioned-update WHERE clause.
+     * Optimistic-lock token, bumped by Hibernate on every update. Fresh schemas get the column
+     * from ddl-auto's CREATE; a POPULATED table from before this column needs a manual
+     * {@code ALTER TABLE membership ADD COLUMN version bigint; UPDATE membership SET version = 0}
+     * (Hibernate's own NOT NULL ALTER cannot land there, and a NULL version never satisfies the
+     * versioned-update WHERE clause) — acceptable while the schema is dev-grade and recreated on
+     * every install; a migration tool owns this once that changes.
      */
     @Version
     @Column(name = "version")
