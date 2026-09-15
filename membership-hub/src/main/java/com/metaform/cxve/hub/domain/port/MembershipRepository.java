@@ -27,6 +27,14 @@ public interface MembershipRepository {
      */
     List<Membership> findByBpn(String bpn);
 
+    /**
+     * All memberships carrying the given DID, same multiplicity rule as {@link #findByBpn}. This
+     * is how a caller holding only an externally hosted member's identity finds the membership it
+     * already has: the Onboarding API refuses to register a DID that is already registered, so
+     * onboarding such a member a second time would be declined rather than repeated.
+     */
+    List<Membership> findByDid(String did);
+
     /** The request payload the membership was created from. */
     Optional<MemberData> findPayload(String externalId);
 }

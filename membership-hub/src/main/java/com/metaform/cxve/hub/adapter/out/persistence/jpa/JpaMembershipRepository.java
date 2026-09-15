@@ -75,6 +75,12 @@ public class JpaMembershipRepository implements MembershipRepository {
 
     @Override
     @Transactional(readOnly = true)
+    public List<Membership> findByDid(String did) {
+        return repository.findByDid(did).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Optional<MemberData> findPayload(String externalId) {
         return repository.findById(externalId)
                 .map(MembershipEntity::getPayload)

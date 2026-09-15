@@ -47,9 +47,30 @@ class MembershipControllerTest {
     }
 
     @Test
-    void findByBpn_requiresTheFilter() throws Exception {
+    void findByDid_returnsTheMatches() throws Exception {
+        // The lookup an externally hosted member's operator can actually perform: it knows the
+        // DID, not the external id this hub minted.
+        when(membershipService.findByDid("did:web:sut.example.com")).thenReturn(List.of(
+                Membership.submitted("ext-9", "SUT GmbH", "did:web:sut.example.com", "BPNL0000000000SU", true)));
+
+        mvc.perform(get("/api/members").param("did", "did:web:sut.example.com"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].externalId").value("ext-9"))
+                .andExpect(jsonPath("$[0].externallyHosted").value(true));
+    }
+
+    @Test
+    void find_requiresExactlyOneFilter() throws Exception {
         mvc.perform(get("/api/members"))
                 .andExpect(status().isBadRequest());
+
+        // Two filters would leave the intended semantics of the combination ambiguous.
+        mvc.perform(get("/api/members")
+                        .param("bpn", "BPNLONE000000001")
+                        .param("did", "did:web:sut.example.com"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(membershipService);
     }
 
     @Test

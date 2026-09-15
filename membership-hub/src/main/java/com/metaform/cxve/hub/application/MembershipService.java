@@ -167,6 +167,17 @@ public class MembershipService {
     }
 
     /**
+     * All memberships registered under the given DID, with the same read semantics as
+     * {@link #findByBpn}. This is the lookup for an externally hosted member, whose DID is the
+     * one identity its operator knows up front — and the one a repeat onboarding would collide
+     * with, since the Onboarding API refuses to register an already-registered DID. A caller
+     * about to onboard such a member looks here first and reuses what it finds.
+     */
+    public List<Membership> findByDid(String did) {
+        return repository.findByDid(did);
+    }
+
+    /**
      * The membership by its external id. When a participant profile has been deployed for it,
      * its current state is read from the Tenant Manager (resolved via the stored profile id) —
      * that is where the participant context id appears and deployment errors surface.

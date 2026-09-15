@@ -58,6 +58,22 @@ class JpaMembershipRepositoryTest {
     }
 
     @Test
+    void findByDid_listsEveryAttemptUnderTheDid() {
+        var data = payload();
+        repository.create(Membership.submitted("ext-1", "SUT GmbH", "did:web:sut.example.com",
+                "BPNL0000000000SU", true), data);
+        // a second attempt under the SAME DID (e.g. after a failed one) must show up too
+        repository.create(Membership.submitted("ext-2", "SUT GmbH", "did:web:sut.example.com",
+                "BPNL0000000000SU", true), data);
+        repository.create(Membership.submitted("ext-3", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), data);
+
+        assertThat(repository.findByDid("did:web:sut.example.com"))
+                .extracting(Membership::externalId)
+                .containsExactlyInAnyOrder("ext-1", "ext-2");
+        assertThat(repository.findByDid("did:web:nobody")).isEmpty();
+    }
+
+    @Test
     void externallyHosted_roundTripsAndDefaultsToFalse() {
         repository.create(Membership.submitted("ext-ext", "SUT GmbH", "did:web:sut.example.com",
                 "BPNL0000000000SU", true), payload());
