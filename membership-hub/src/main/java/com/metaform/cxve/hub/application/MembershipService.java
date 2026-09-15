@@ -3,6 +3,7 @@ package com.metaform.cxve.hub.application;
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.model.MembershipState;
+import com.metaform.cxve.hub.domain.port.CredentialOfferService;
 import com.metaform.cxve.hub.domain.port.MembershipRepository;
 import com.metaform.cxve.hub.domain.port.OnboardingApi;
 import com.metaform.cxve.hub.domain.port.TenantManager;
@@ -25,21 +26,27 @@ import static java.util.Optional.ofNullable;
  * Drives a membership's two legs ASYNCHRONOUSLY, each from the thread that carries its
  * triggering signal: {@link #onboard} persists the record and submits the registration — and
  * that is ALL it does; the outcome arrives exclusively through the Onboarding API's status
- * callback ({@link #onRegistrationStatus}), whose CONFIRMED triggers the EDC provisioning on a
- * background worker (the stored request payload supplies the agreements). No assumption is made
- * about WHEN the callback arrives — within the submitting call (how the current Onboarding API
- * behaves), later, or redelivered.
+ * callback ({@link #onRegistrationStatus}), whose CONFIRMED triggers the post-confirmation work
+ * on a background worker. No assumption is made about WHEN the callback arrives — within the
+ * submitting call (how the current Onboarding API behaves), later, or redelivered.
+ *
+ * <p>What that work IS depends on the member. For one this environment hosts, it is provisioning
+ * the EDC resources through the Tenant Manager (the stored request payload supplies the
+ * agreements). For an externally hosted one — resources already running elsewhere, reachable
+ * only through its DID document — there is nothing to provision, and the hub instead has the
+ * IssuerService offer the membership credentials to the member's own wallet. That offer is the
+ * step the CFM orchestration would otherwise have driven from the member's side.
  *
  * <p>Concurrent writers — the submitting thread recording the process id, the callback, the
  * provisioning worker, a {@link #get} refresh — are serialized by two mechanisms working
  * together: every write is an optimistic-lock compare-and-swap retried on a fresh snapshot
  * ({@link #update}), so no writer ever overwrites another's fields; and state changes go through
  * the monotonic transition table ({@link MembershipState#canAdvanceTo}), so a late or duplicate
- * signal is ignored instead of moving a record backwards. Provisioning runs AT MOST ONCE per
- * membership: the CONFIRMED→PROVISIONING claim is the gate, and only the writer that wins it
- * deploys — which also makes duplicate callbacks the recovery path for a confirmation whose
- * provisioning never started (e.g. a crash in between), and holds across replicas because the
- * version check is in the database.
+ * signal is ignored instead of moving a record backwards. The post-confirmation work runs AT
+ * MOST ONCE per membership: the CONFIRMED→PROVISIONING claim is the gate, and only the writer
+ * that wins it deploys (or offers) — which also makes duplicate callbacks the recovery path for
+ * a confirmation whose work never started (e.g. a crash in between), and holds across replicas
+ * because the version check is in the database.
  */
 @Service
 public class MembershipService {
@@ -50,27 +57,32 @@ public class MembershipService {
     private final MembershipRepository repository;
     private final OnboardingApi onboardingApi;
     private final TenantManager tenantManager;
+    private final CredentialOfferService credentialOfferService;
     private final String didTemplate;
     private final Executor provisioningExecutor;
 
     public MembershipService(MembershipRepository repository,
                              OnboardingApi onboardingApi,
                              TenantManager tenantManager,
+                             CredentialOfferService credentialOfferService,
                              @Value("${participant.did.template:did:web:identity.cxve.localhost:}") String didTemplate,
                              @Qualifier("provisioningExecutor") Executor provisioningExecutor) {
         this.repository = repository;
         this.onboardingApi = onboardingApi;
         this.tenantManager = tenantManager;
+        this.credentialOfferService = credentialOfferService;
         this.didTemplate = didTemplate;
         this.provisioningExecutor = provisioningExecutor;
     }
 
     /**
      * Creates the membership and submits its registration, then returns — typically in
-     * SUBMITTED; provisioning is driven entirely by the status callback. The DID is resolved
-     * here — caller-supplied or template-derived, the SAME rule the Onboarding API applies — and
-     * passed explicitly with the registration, so the identity the holder is registered under
-     * and the identity the profile is deployed as cannot drift. The record is persisted BEFORE
+     * SUBMITTED; everything past the registration is driven by the status callback. The DID is
+     * resolved here — caller-supplied or template-derived, the SAME rule the Onboarding API
+     * applies — and passed explicitly with the registration, so the identity the holder is
+     * registered under and the identity the profile is deployed as cannot drift. An externally
+     * hosted member always supplies its own (the request shape requires it), which is what makes
+     * the holder the IssuerService creates addressable by the offer later. The record is persisted BEFORE
      * the submission because the callback can arrive on another thread while the submitting call
      * is still on the wire — the handler must find the record (and may well have advanced it by
      * the time this method returns; the process id is recorded under the compare-and-swap either
@@ -79,7 +91,7 @@ public class MembershipService {
     public Membership onboard(MemberData data) {
         var externalId = UUID.randomUUID().toString();
         var did = ofNullable(data.did()).orElseGet(() -> didTemplate + data.shortName());
-        var membership = Membership.submitted(externalId, data.name(), did, data.bpn());
+        var membership = Membership.submitted(externalId, data.name(), did, data.bpn(), data.hostedExternally());
         repository.create(membership, data);
         log.info("Starting membership '{}' for participant \"{}\" (did={})", externalId, data.name(), did);
         String processId;
@@ -169,17 +181,22 @@ public class MembershipService {
     }
 
     /**
-     * The provisioning leg, on the background worker: claim, deploy, record. Never throws —
-     * failures land on the record.
+     * The post-confirmation leg, on the background worker: claim, then do the work the member
+     * calls for — deploy its EDC resources, or offer credentials to an externally hosted one.
+     * Never throws — failures land on the record.
      */
     private void provision(String externalId) {
         try {
             var claimed = claim(externalId);
             if (claimed.isEmpty()) {
-                log.debug("Membership '{}' was claimed elsewhere or has moved on — nothing to provision", externalId);
+                log.debug("Membership '{}' was claimed elsewhere or has moved on — nothing to do", externalId);
                 return;
             }
             var membership = claimed.get();
+            if (membership.externallyHosted()) {
+                offerCredentials(membership);
+                return;
+            }
             var payload = repository.findPayload(externalId).orElse(null);
             if (payload == null) {
                 update(externalId, current -> current.state().canAdvanceTo(MembershipState.FAILED)
@@ -208,6 +225,33 @@ public class MembershipService {
             // the worker must never die silently — but there is also no caller to throw to
             log.error("Membership '{}': provisioning aborted unexpectedly", externalId, e);
         }
+    }
+
+    /**
+     * The externally hosted branch: no resources to deploy, so the work is the credential offer —
+     * the first move towards the member's wallet, which no orchestration here will make for it.
+     * The membership ends at CREDENTIALS_OFFERED; whether the member then requests and receives
+     * the credentials shows up on the issuance events, not on this record.
+     */
+    private void offerCredentials(Membership membership) {
+        var externalId = membership.externalId();
+        log.info("Membership '{}' confirmed — offering credentials to the externally hosted member (did={})",
+                externalId, membership.did());
+        try {
+            credentialOfferService.sendOffer(membership);
+        } catch (RuntimeException e) {
+            // Typically the member's DID document or Credential Service being unreachable from
+            // here: a real failure of the membership, not a transient of ours to hide.
+            log.error("Membership '{}' failed to have its credentials offered", externalId, e);
+            update(externalId, current -> current.state().canAdvanceTo(MembershipState.FAILED)
+                    ? current.failed("Credential offer failed: " + e.getMessage())
+                    : current);
+            return;
+        }
+        update(externalId, current -> current.state().canAdvanceTo(MembershipState.CREDENTIALS_OFFERED)
+                ? current.credentialsOffered()
+                : current);
+        log.info("Membership '{}' has been offered its credentials", externalId);
     }
 
     /**

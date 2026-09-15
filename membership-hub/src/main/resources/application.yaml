@@ -66,9 +66,22 @@ onboarding-api:
 # The CFM Tenant Manager, where the member's EDC resources are provisioned. token-resource is the
 # jwtlet mapping (RFC 8693 `resource`) the workload token is exchanged under; its scopes must
 # include tenant-manager-api:read/write (the chart's jwtlet-seed job registers it).
+# Not used for externally hosted members — nothing is provisioned for those.
 tenant-manager:
   url: http://cxve.localhost/api/tm                              # TENANT_MANAGER_URL
   token-resource: issuer                                        # TENANT_MANAGER_TOKEN_RESOURCE
+
+# The IssuerService Admin API, where credential offers for EXTERNALLY HOSTED members are
+# triggered (their wallets live elsewhere, so the issuer makes the first move). token-resource is
+# a SECOND jwtlet mapping, distinct from the Tenant Manager one above: its scopes must include
+# issuer-admin-api:admin, which is what passes the IssuerService's caller resolution.
+# credential-definition-ids must name definitions seeded with the issuer — the defaults are the
+# ids the Catena-X profile chart seeds.
+issuer-service:
+  url: http://cxve.localhost/api/issuer/admin                    # ISSUER_SERVICE_URL
+  issuer-context-id: issuer                                     # ISSUER_SERVICE_ISSUERCONTEXTID
+  token-resource: sudo                                          # ISSUER_SERVICE_TOKENRESOURCE
+  credential-definition-ids: membership-credential-def,bpn-credential-def,gov-credential-def  # ISSUER_SERVICE_CREDENTIALDEFINITIONIDS
 
 # Token exchange (RFC 8693): workload token file + exchange endpoint
 token:

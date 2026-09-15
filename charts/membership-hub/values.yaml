@@ -39,16 +39,26 @@ jwtlet:
   # (the Kubernetes cluster issuer)
   subjectTokenAudience: https://kubernetes.default.svc.cluster.local
   subjectTokenExpirationSeconds: 3600
-  # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet
+  # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet — one
+  # mapping per participant context the app exchanges under. The scope mappings themselves are
+  # seeded by the platform; this job only registers the SA.
   seed:
     enabled: true
-    # The mapping the Tenant Manager tokens are exchanged under. Must agree with the app's
-    # config tenant-manager.token-resource; the scopes cover exactly what TenantManagerClient
-    # requests.
-    participantContext: issuer
-    scopes:
-      - tenant-manager-api:read
-      - tenant-manager-api:write
+    mappings:
+      # Tenant Manager tokens (provisioning an internally hosted member's EDC resources). Must
+      # agree with the app's config tenant-manager.token-resource; the scopes cover exactly what
+      # TenantManagerClient requests.
+      - participantContext: issuer
+        scopes:
+          - tenant-manager-api:read
+          - tenant-manager-api:write
+      # IssuerService Admin API tokens (offering credentials to an externally hosted member).
+      # Must agree with issuer-service.token-resource. The admin scope is what passes the
+      # IssuerService's caller resolution — the same mapping the onboarding-api registers
+      # holders under.
+      - participantContext: sudo
+        scopes:
+          - issuer-admin-api:admin
     # jwtlet participant-token audience (client_audience / bound_audiences)
     audiences:
       - edcv
@@ -142,10 +152,18 @@ config:
       client-id: membership-hub
       client-secret: membership-hub-secret
       scope: configure_partner_registration
-  # The CFM Tenant Manager. token-resource must agree with jwtlet.seed.participantContext above.
+  # The CFM Tenant Manager. token-resource must agree with a jwtlet.seed.mappings entry above.
   tenant-manager:
     url: http://tenant-manager.edc-v.svc.cluster.local:8080/api/v1alpha1
     token-resource: issuer
+  # The IssuerService Admin API, where credential offers for externally hosted members are
+  # triggered. token-resource must agree with a jwtlet.seed.mappings entry above;
+  # credential-definition-ids must name definitions the catenax-profile chart seeded.
+  issuer-service:
+    url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
+    issuer-context-id: issuer
+    token-resource: sudo
+    credential-definition-ids: membership-credential-def,bpn-credential-def,gov-credential-def
   # Token exchange (RFC 8693): workload token file + exchange endpoint
   token:
     file:

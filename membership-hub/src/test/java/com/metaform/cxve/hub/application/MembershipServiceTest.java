@@ -4,6 +4,7 @@ import com.metaform.cxve.hub.adapter.out.persistence.InMemoryMembershipRepositor
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.model.MembershipState;
+import com.metaform.cxve.hub.domain.port.CredentialOfferService;
 import com.metaform.cxve.hub.domain.port.OnboardingApi;
 import com.metaform.cxve.hub.domain.port.TenantManager;
 import java.util.ArrayList;
@@ -17,9 +18,10 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 
 /**
  * The asynchronous choreography: {@code onboard} only submits, the status callback drives the
- * outcome, CONFIRMED triggers provisioning on the worker. The worker executor is swappable per
- * test — direct execution for determinism, a dropping executor to simulate a crash between
- * confirmation and claim.
+ * outcome, CONFIRMED triggers the post-confirmation work on the worker — deploying the member's
+ * resources, or offering credentials to an externally hosted one. The worker executor is
+ * swappable per test — direct execution for determinism, a dropping executor to simulate a crash
+ * between confirmation and claim.
  */
 class MembershipServiceTest {
 
@@ -94,12 +96,27 @@ class MembershipServiceTest {
         }
     }
 
+    /** Records the offers it was asked to send; can be told to fail. */
+    private static class RecordingCredentialOffers implements CredentialOfferService {
+        final List<Membership> offered = new ArrayList<>();
+        boolean failOffer;
+
+        @Override
+        public void sendOffer(Membership membership) {
+            if (failOffer) {
+                throw new RuntimeException("could not resolve the holder's credential service");
+            }
+            offered.add(membership);
+        }
+    }
+
     private final RecordingOnboardingApi onboardingApi = new RecordingOnboardingApi();
     private final RecordingTenantManager tenantManager = new RecordingTenantManager();
+    private final RecordingCredentialOffers credentialOffers = new RecordingCredentialOffers();
     // swappable per test; the service holds the indirection, not the executor itself
     private Executor provisioningExecutor = Runnable::run;
     private final MembershipService service = new MembershipService(repository, onboardingApi, tenantManager,
-            DID_TEMPLATE, task -> provisioningExecutor.execute(task));
+            credentialOffers, DID_TEMPLATE, task -> provisioningExecutor.execute(task));
 
     private static MemberData request(String did) {
         return new MemberData("Acme Corp", "Acme", "BPNL0000000000XY",
@@ -108,11 +125,24 @@ class MembershipServiceTest {
                 List.of("ACTIVE_PARTICIPANT"),
                 List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE"),
                         new MemberData.AgreementConsent("agreement-2", "INACTIVE")),
-                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")));
+                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")),
+                null);
+    }
+
+    /** A member whose resources run elsewhere: its own DID, nothing for this hub to provision. */
+    private static MemberData externalRequest() {
+        var internal = request(SUT_DID);
+        return new MemberData(internal.name(), internal.shortName(), internal.bpn(), internal.city(),
+                internal.streetName(), internal.countryAlpha2Code(), internal.region(), internal.did(),
+                internal.uniqueIds(), internal.companyRoles(), internal.agreements(), internal.userDetails(),
+                Boolean.TRUE);
     }
 
     /** The DID the resolver derives for {@link #request}'s short name. */
     private static final String ACME_DID = DID_TEMPLATE + "Acme";
+
+    /** The DID an externally hosted member brings with it. */
+    private static final String SUT_DID = "did:web:sut.example.com";
 
     private Membership stored(String externalId) {
         return repository.findByExternalId(externalId).orElseThrow();
@@ -174,6 +204,76 @@ class MembershipServiceTest {
         var provisioned = stored(membership.externalId());
         assertThat(provisioned.state()).isEqualTo(MembershipState.PROVISIONED);
         assertThat(provisioned.participantContextId()).isEqualTo("pctx-1");
+    }
+
+    @Test
+    void anExternallyHostedMember_isOfferedCredentialsInsteadOfBeingProvisioned() {
+        // Its connector and wallet already run elsewhere; the only thing this environment can do
+        // for it is have the issuer offer the credentials to that wallet.
+        var membership = service.onboard(externalRequest());
+
+        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+
+        var offered = stored(membership.externalId());
+        assertThat(offered.state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+        assertThat(offered.isTerminal()).isTrue();
+        assertThat(credentialOffers.offered).hasSize(1);
+        assertThat(credentialOffers.offered.get(0).did()).isEqualTo(SUT_DID);
+        // Nothing was deployed, so none of the provisioning identifiers exist — and their
+        // absence is explained by the flag, not by the membership being unfinished.
+        assertThat(tenantManager.deployed).isEmpty();
+        assertThat(offered.externallyHosted()).isTrue();
+        assertThat(offered.tenantId()).isNull();
+        assertThat(offered.participantProfileId()).isNull();
+        assertThat(offered.participantContextId()).isNull();
+    }
+
+    @Test
+    void anExternallyHostedMember_isOfferedCredentialsAtMostOnce() {
+        var membership = service.onboard(externalRequest());
+        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+
+        // Redelivered and contradictory callbacks alike leave the terminal outcome alone.
+        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+        service.onRegistrationStatus(membership.externalId(), "DECLINED", "too late");
+
+        assertThat(credentialOffers.offered).hasSize(1);
+        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+    }
+
+    @Test
+    void aFailedCredentialOffer_landsOnTheRecord() {
+        // Typically the member's DID document or Credential Service being unreachable from here —
+        // a failure of the membership, not something to hide from the operator.
+        credentialOffers.failOffer = true;
+        var membership = service.onboard(externalRequest());
+
+        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+
+        var failed = stored(membership.externalId());
+        assertThat(failed.state()).isEqualTo(MembershipState.FAILED);
+        assertThat(failed.failureReason()).contains("could not resolve the holder's credential service");
+        assertThat(tenantManager.deployed).isEmpty();
+    }
+
+    @Test
+    void anExternallyHostedMember_isNeverReadThroughTheTenantManager() {
+        var membership = service.onboard(externalRequest());
+        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+
+        assertThat(service.get(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+        assertThat(tenantManager.refreshCount).isZero();
+    }
+
+    @Test
+    void anInternallyHostedMember_isNeverOfferedCredentials() {
+        // Its wallet requests them itself, as the last step of the provisioning orchestration.
+        var membership = service.onboard(request(null));
+
+        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+
+        assertThat(tenantManager.deployed).hasSize(1);
+        assertThat(credentialOffers.offered).isEmpty();
     }
 
     @Test

@@ -12,12 +12,17 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** Web-slice test of the member lookup: the BPN filter is required, unknown ids map to 404. */
+/**
+ * Web-slice test of the member lookup: the BPN filter is required, unknown ids map to 404 — plus
+ * the one request-shape rule the onboarding flow cannot enforce for itself.
+ */
 // Security exclusion: see EventlogControllerTest — same slice, same reason.
 @WebMvcTest(controllers = MembershipController.class,
         excludeAutoConfiguration = OAuth2ResourceServerWebSecurityAutoConfiguration.class)
@@ -45,6 +50,31 @@ class MembershipControllerTest {
     void findByBpn_requiresTheFilter() throws Exception {
         mvc.perform(get("/api/members"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void onboard_rejectsAnExternallyHostedMemberWithoutADid() throws Exception {
+        // Without a DID the hub would mint one under THIS environment's authority — an identity
+        // a member hosted elsewhere does not control, and one the credential offer could never
+        // reach. Rejected at the boundary rather than onboarded into a dead end.
+        mvc.perform(post("/api/members")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "SUT GmbH", "shortName": "sut", "bpn": "BPNL0000000000SU",
+                                  "city": "Munich", "streetName": "Otto-Hahn-Ring",
+                                  "countryAlpha2Code": "DE", "region": "BY",
+                                  "externallyHosted": true,
+                                  "uniqueIds": [ { "type": "VAT_ID", "value": "DE987654321" } ],
+                                  "companyRoles": [ "ACTIVE_PARTICIPANT" ],
+                                  "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
+                                  "userDetails": [ { "providerId": "prov-9", "firstName": "Jane",
+                                                     "lastName": "Doe", "email": "jane.doe@sut.example" } ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(membershipService);
     }
 
     @Test

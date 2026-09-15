@@ -3,6 +3,7 @@ package com.metaform.cxve.hub.domain.model;
 import org.junit.jupiter.api.Test;
 
 import static com.metaform.cxve.hub.domain.model.MembershipState.CONFIRMED;
+import static com.metaform.cxve.hub.domain.model.MembershipState.CREDENTIALS_OFFERED;
 import static com.metaform.cxve.hub.domain.model.MembershipState.FAILED;
 import static com.metaform.cxve.hub.domain.model.MembershipState.PROVISIONED;
 import static com.metaform.cxve.hub.domain.model.MembershipState.PROVISIONING;
@@ -19,6 +20,16 @@ class MembershipStateTest {
         assertThat(SUBMITTED.canAdvanceTo(CONFIRMED)).isTrue();
         assertThat(CONFIRMED.canAdvanceTo(PROVISIONING)).isTrue();
         assertThat(PROVISIONING.canAdvanceTo(PROVISIONED)).isTrue();
+    }
+
+    @Test
+    void anExternallyHostedMembershipEndsAtItsOwnSuccess() {
+        // Same claim gate, different success: nothing is provisioned, the credentials are offered.
+        assertThat(PROVISIONING.canAdvanceTo(CREDENTIALS_OFFERED)).isTrue();
+        assertThat(CREDENTIALS_OFFERED.canAdvanceTo(PROVISIONED)).isFalse();
+        // and it is never an entry point — the claim is the only way in
+        assertThat(CONFIRMED.canAdvanceTo(CREDENTIALS_OFFERED)).isFalse();
+        assertThat(SUBMITTED.canAdvanceTo(CREDENTIALS_OFFERED)).isFalse();
     }
 
     @Test
@@ -41,7 +52,7 @@ class MembershipStateTest {
     void nothingMovesBackwardsAndTerminalsAreFinal() {
         assertThat(PROVISIONING.canAdvanceTo(CONFIRMED)).isFalse();
         assertThat(CONFIRMED.canAdvanceTo(SUBMITTED)).isFalse();
-        for (var terminal : new MembershipState[] { PROVISIONED, REJECTED, FAILED }) {
+        for (var terminal : new MembershipState[] { PROVISIONED, CREDENTIALS_OFFERED, REJECTED, FAILED }) {
             for (var next : MembershipState.values()) {
                 assertThat(terminal.canAdvanceTo(next)).as("%s -> %s", terminal, next).isFalse();
             }

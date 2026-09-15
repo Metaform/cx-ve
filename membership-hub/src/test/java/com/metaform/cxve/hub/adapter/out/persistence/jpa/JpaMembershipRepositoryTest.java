@@ -40,13 +40,14 @@ class JpaMembershipRepositoryTest {
                 List.of(new MemberData.UniqueId("VAT_ID", "DE123456789")),
                 List.of("ACTIVE_PARTICIPANT"),
                 List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE")),
-                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")));
+                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")),
+                null);
     }
 
     @Test
     void createAndFindByExternalId_roundTripsEveryField() {
         var membership = new Membership("ext-1", "Acme Corp", "did:web:acme", "BPNL0000000000XY",
-                MembershipState.PROVISIONING, "process-1", "tenant-1", "profile-1", "pctx-1", "why not", null);
+                MembershipState.PROVISIONING, "process-1", "tenant-1", "profile-1", "pctx-1", "why not", null, false);
 
         repository.create(membership, payload());
         springData.flush();
@@ -54,6 +55,17 @@ class JpaMembershipRepositoryTest {
         // the stored row carries the initial lock version; every other field round-trips as-is
         assertThat(repository.findByExternalId("ext-1")).contains(membership.withVersion(0L));
         assertThat(repository.findByExternalId("no-such")).isEmpty();
+    }
+
+    @Test
+    void externallyHosted_roundTripsAndDefaultsToFalse() {
+        repository.create(Membership.submitted("ext-ext", "SUT GmbH", "did:web:sut.example.com",
+                "BPNL0000000000SU", true), payload());
+        repository.create(Membership.submitted("ext-int", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), payload());
+        springData.flush();
+
+        assertThat(repository.findByExternalId("ext-ext").orElseThrow().externallyHosted()).isTrue();
+        assertThat(repository.findByExternalId("ext-int").orElseThrow().externallyHosted()).isFalse();
     }
 
     @Test
