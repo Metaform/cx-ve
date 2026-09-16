@@ -54,6 +54,10 @@ CLUSTER_NAME=cxve
 VERIFY_ONLY=false
 PRE=false
 HOST=cxve.localhost
+# Hostnames of systems OUTSIDE this cluster that its pods must resolve (see --sut).
+SUT_ENTRIES=()
+SUT_SET=false
+SUT_CLEAR=false
 
 # Fixed, as in install-ve.sh: the CFM agents hardcode system:serviceaccount:edc-v:… client ids
 NAMESPACE=edc-v
@@ -70,7 +74,8 @@ PROBE_IMAGE=debian:stable-slim
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-c|--cluster <name>] [--pre] [-H|--host <host>] [--verify-only] [-h|--help]
+Usage: $(basename "$0") [-c|--cluster <name>] [--pre] [-H|--host <host>] [--verify-only]
+                       [--sut <hostname>=<ip>]... [--sut-none] [-h|--help]
 
 Options:
   -c, --cluster <name>  KinD cluster whose CoreDNS is configured (default: cxve). Kubeconfig is
@@ -80,6 +85,16 @@ Options:
   -H, --host <host>     the VE hostname the derived list is built from (default: cxve.localhost;
                         only used with --pre)
       --verify-only     run the checks without modifying CoreDNS
+      --sut <host>=<ip> make an EXTERNAL system under test resolvable from this cluster's pods,
+                        e.g. --sut sut.vendor.example=192.168.1.50. Repeatable. Verification
+                        resolves the SUT's did:web and dials its endpoints FROM INSIDE the
+                        cluster, so a name only the operator's machine can resolve is not
+                        enough. Use the address the pods can route to (for a SUT on the host
+                        machine that is the host's LAN IP, not 127.0.0.1 — loopback inside a
+                        pod is the pod itself).
+                        Replaces the managed SUT block; runs without it leave the block alone,
+                        so re-installing does not drop your entries.
+      --sut-none        remove the managed SUT block
   -h, --help            show this help
 EOF
 }
@@ -93,6 +108,11 @@ while [[ $# -gt 0 ]]; do
         -H|--host) HOST="$2" ;;
       esac
       shift 2 ;;
+    --sut)
+      [[ $# -ge 2 ]] || { echo "Error: --sut requires <hostname>=<ip>" >&2; usage >&2; exit 1; }
+      [[ "$2" == *=* ]] || { echo "Error: --sut expects <hostname>=<ip>, got '$2'" >&2; exit 1; }
+      SUT_ENTRIES+=("$2"); SUT_SET=true; shift 2 ;;
+    --sut-none) SUT_CLEAR=true; shift ;;
     --pre) PRE=true; shift ;;
     --verify-only) VERIFY_ONLY=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -102,6 +122,11 @@ done
 
 if [[ "$PRE" == "true" && "$VERIFY_ONLY" == "true" ]]; then
   echo "Error: --pre and --verify-only are mutually exclusive (--pre exists to patch before install)" >&2
+  exit 1
+fi
+
+if [[ "$SUT_SET" == "true" && "$SUT_CLEAR" == "true" ]]; then
+  echo "Error: --sut and --sut-none are mutually exclusive" >&2
   exit 1
 fi
 
@@ -273,6 +298,56 @@ verify_did_document() { # <did-host>
       fi'
 }
 
+# ---- make external systems under test resolvable from inside the cluster --------------------
+
+# A SUT lives outside this cluster, so its name cannot be rewritten to an in-cluster Service the
+# way the VE's own hostnames are: it needs an address. CoreDNS's `hosts` plugin answers for the
+# listed names and falls through for everything else, so the rest of DNS is untouched.
+#
+# This matters more than it looks: every check the VE makes about a SUT runs from inside the
+# cluster — the issuer resolves the SUT's did:web to deliver credential offers, the control plane
+# dials its DSP endpoint. A name that only the operator's machine resolves fails all of that, and
+# fails it as "the SUT is unreachable", which reads as a finding against the vendor.
+apply_sut_block() { # <kubeconfig>
+  local kubeconfig="$1"
+  local begin_marker="# BEGIN cx-ve did-dns:sut (managed by setup-did-dns.sh)"
+  local end_marker="# END cx-ve did-dns:sut"
+
+  if [[ "$SUT_CLEAR" == "true" ]]; then
+    corefile "$kubeconfig" | strip_block "$begin_marker" "$end_marker" > "$GEN_DIR/Corefile.sut"
+    apply_corefile "$GEN_DIR/Corefile.sut" "removal of the external SUT entries"
+    echo
+    return
+  fi
+  [[ "$SUT_SET" == "true" ]] || return 0
+
+  local entry host ip
+  printf '    %s\n' "$begin_marker" > "$GEN_DIR/sutblock"
+  printf '    hosts {\n' >> "$GEN_DIR/sutblock"
+  for entry in "${SUT_ENTRIES[@]}"; do
+    host="${entry%%=*}"; ip="${entry#*=}"
+    [[ -n "$host" && -n "$ip" ]] || { echo "Error: malformed --sut entry '$entry'" >&2; exit 1; }
+    printf '      %s %s\n' "$ip" "$host" >> "$GEN_DIR/sutblock"
+  done
+  # Without fallthrough the plugin answers NXDOMAIN for everything it does not list, which would
+  # take out cluster DNS entirely.
+  printf '      fallthrough\n    }\n' >> "$GEN_DIR/sutblock"
+  printf '    %s\n' "$end_marker" >> "$GEN_DIR/sutblock"
+
+  corefile "$kubeconfig" \
+    | strip_block "$begin_marker" "$end_marker" \
+    | sed "/^\\.:53 {/r ${GEN_DIR}/sutblock" \
+    > "$GEN_DIR/Corefile.sut"
+  apply_corefile "$GEN_DIR/Corefile.sut" "external SUT entries (${SUT_ENTRIES[*]})"
+  echo
+
+  echo ">> verifying the SUT hostnames resolve from inside the cluster"
+  for entry in "${SUT_ENTRIES[@]}"; do
+    verify_dns "${entry#*=}" "${entry%%=*}"
+  done
+  echo
+}
+
 # ---- rewrite the cluster's hostnames to its own Traefik -------------------------------------
 
 run_own_mode() {
@@ -350,3 +425,9 @@ run_own_mode() {
 # ---- main -----------------------------------------------------------------------------------
 
 run_own_mode
+
+# After the VE's own block, so a Corefile read here already includes it: both blocks are managed
+# independently and must survive each other.
+if [[ "$VERIFY_ONLY" == "false" ]]; then
+  apply_sut_block "$KUBECONFIG_FILE"
+fi

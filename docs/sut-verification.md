@@ -31,10 +31,36 @@ Because the harness may not introspect the SUT, the SUT declares:
 | Issuer DID (if the SUT brings its own issuer) | ve1's trust anchor config: `edc.controlplane.trustedIssuers` **plus** the `supportedtypes` entry (see connect-ves.sh — without it presentations fail with "credential types not supported for issuer") |
 | BPN of the SUT participant | Pinning the `BusinessPartnerNumber` policy constraint in offers made to the SUT |
 | Supported DSP profile | Must include the dataspace profile in use (`cx-neptune`) |
-| Network reachability + DNS | ve1 must resolve and reach the SUT's endpoints; the kind-specific routes/CoreDNS forwarding of connect-ves.sh are the lab instantiation of this |
+| Network reachability + DNS | ve1 must resolve and reach the SUT's endpoints **from inside its cluster** — see below |
 
 Conversely the harness publishes ve1's participant DID, issuer DID and gateway-independent
 DSP/DCP endpoints to the SUT.
+
+### Reachability, in both directions
+
+Every check ve1 makes about a SUT is made by a pod: the issuer resolves the SUT's `did:web` to
+deliver credential offers, the control plane dials its `ProtocolEndpoint`. A name that only the
+operator's machine resolves therefore fails verification, and fails it as "the SUT is
+unreachable" — a finding against the vendor. Make the SUT resolvable from the cluster with:
+
+```bash
+./scripts/setup-did-dns.sh --sut sut.vendor.example=192.168.1.50
+```
+
+Use an address the pods can route to. For a SUT on the operator's own machine that is the host's
+LAN address, never `127.0.0.1`: loopback inside a pod is the pod.
+
+The reverse direction is the `-H` install flag. The default host `cxve.localhost` resolves to
+loopback on every machine, so a SUT anywhere but ve1's host cannot reach ve1 at all; install with
+a hostname that resolves for both parties (`./scripts/install-ve.sh -H ve1.example.com`), which
+carries through to every advertised URL and DID.
+
+**Everything is plain HTTP — a known constraint, not an oversight.** `edc.iam.did.web.use.https`
+is pinned false across the runtimes and the gateway terminates HTTP only, so ve1 resolves
+`did:web` over `http://` and publishes `http://` endpoints and DIDs. A SUT must therefore serve
+its DID document over HTTP and accept ve1's HTTP endpoints — note this contradicts the did:web
+method's default of HTTPS, so a SUT that only serves HTTPS cannot be verified today. TLS is an
+all-or-nothing change across the runtimes and the gateway, and is deferred.
 
 ## Checkpoints and obligations
 

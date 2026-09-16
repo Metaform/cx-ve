@@ -181,14 +181,21 @@ config:
     # via the cfm.dataplane VPA properties; the mapping key (transfer-type) becomes the catalog
     # distribution format of the member's assets. It serves the CCM certificate exchanges
     # (CX-0135): the endpoint is Certo's protocol API, which lives at the server root of the
-    # in-cluster service (release-derived name, <release>-certo) — NOT the gateway path, since
-    # the flow counterparty calls it with a Siglet flow token, not a jwtlet management token.
+    # service and is reached through the gateway's /api/certo route.
+    #
+    # COUNTERPARTY-FACING, so it must be the EXTERNAL address: the flow counterparty calls this
+    # endpoint itself, carrying a Siglet flow token. An in-cluster address works only while both
+    # parties are in this cluster; a participant running anywhere else cannot resolve it. The
+    # gateway form works from both sides — the CoreDNS rewrites make the host resolve in-cluster
+    # too — and the /api/certo route carries no clearglass middleware, so the flow token (which
+    # is not a jwtlet management token) is not rejected on the way in. Host-derived: the install
+    # scripts override it for a non-default host.
     # (The generic `participant.dataplane` mapping stays disabled — its app default has an empty
     # endpoint — so this is the only mapping.)
     ccm:
       transfer-type: "HttpData-PULL"
       endpoint-type: HTTP
-      endpoint: http://cx-ve-certo.edc-v.svc.cluster.local:8080
+      endpoint: http://cxve.localhost/api/certo
       token-source: provider
   # Read-only second datasource on the compliance tracker's event ledger, enabling the hub's
   # /api/eventlog endpoints (unset in the image defaults — setting the url here is what turns

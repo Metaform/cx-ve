@@ -84,6 +84,12 @@ HOST_OVERRIDES=(
   --set "certo.gateway.hostnames={${HOST}}"
   --set "verification-ui.httpRoute.hostnames={${HOST}}"
   --set-string "verification-ui.config.verification.dsp-base-url=http://${HOST}/api/dsp"
+  # Certo's protocol API is COUNTERPARTY-FACING — the flow counterparty calls it itself with a
+  # Siglet flow token — so both the CCM transfer-type mapping installed on each member's data
+  # plane and the baseUrl of the CCM assets must be the external address, not an in-cluster one
+  # a participant outside this cluster could never resolve.
+  --set-string "membership-hub.config.participant.ccm.endpoint=http://${HOST}/api/certo"
+  --set-string "verification-ui.config.verification.certo-asset-base-url=http://${HOST}/api/certo"
 )
 
 # Image name -> build context. Both Dockerfiles COPY from their component directory (the same
