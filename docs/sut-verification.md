@@ -47,9 +47,17 @@ its business), what ve1 does, and which wire exchanges occur (numbers reference 
 **SUT obligations (state):**
 - Participant DID document served and resolvable from ve1 (#1), advertising `ProtocolEndpoint`
   and `CredentialService`.
+- Those endpoints must be the ones the SUT actually serves. The DID document is the *only* way
+  ve1 can discover where to reach a SUT, so an advertised endpoint that does not answer is a
+  conformance failure and is reported as one — ve1 offers no way to override the address by
+  hand. Note that the DSP endpoint's path identifies a dataspace profile, and the profile in
+  use here is `cx-neptune`: a connector advertising a different binding than it serves (the EDC
+  default `http-dsp-profile-2025-1` is the easy mistake) fails this checkpoint.
 - Issuer DID document resolvable from ve1 (#3), if the SUT brings its own issuer.
 
-**Verified by:** ve1 resolving both DID documents. No DSP traffic yet.
+**Verified by:** ve1 resolving both DID documents, and — at checkpoint 2 — the first DSP request
+to the advertised `ProtocolEndpoint`. A counterparty answering `404`/`405` there fails the run
+immediately, naming the address dialled, rather than being waited out as a slow offer.
 
 ### Checkpoint 1 — credentials & trust
 
