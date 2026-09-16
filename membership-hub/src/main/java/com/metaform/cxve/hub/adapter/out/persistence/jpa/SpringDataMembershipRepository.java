@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface SpringDataMembershipRepository extends JpaRepository<MembershipEntity, String> {
 
     List<MembershipEntity> findByBpn(String bpn);
+
+    List<MembershipEntity> findByDid(String did);
 }

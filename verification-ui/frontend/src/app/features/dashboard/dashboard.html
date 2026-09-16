@@ -52,11 +52,26 @@
       <div class="panel-head">
         <h2>Start a verification run</h2>
       </div>
-      <p class="muted small">
-        Onboards a participant under test as data provider, establishes both CCM flows and
-        runs the certificate exchange. Leave fields empty to auto-generate an identity.
-      </p>
+      @if (external) {
+        <p class="muted small">
+          Verifies a system that already runs elsewhere: its DID is onboarded without provisioning
+          anything here, the issuer offers it credentials, and this environment then consumes its
+          certificate offer. Seeding the offer and pushing the certificate are the system's own
+          obligations — the run waits for them.
+        </p>
+      } @else {
+        <p class="muted small">
+          Onboards a participant under test as data provider, establishes both CCM flows and
+          runs the certificate exchange. Leave fields empty to auto-generate an identity.
+        </p>
+      }
       <form (ngSubmit)="startRun()">
+        <label class="field">
+          <span class="label">Participant DID</span>
+          <input type="text" name="did" [(ngModel)]="did" spellcheck="false" autocomplete="off"
+                 placeholder="empty — onboard a participant into this environment">
+          <span class="hint">Set it to verify an external system under test, hosted elsewhere.</span>
+        </label>
         <label class="field">
           <span class="label">Participant name</span>
           <input type="text" name="name" [(ngModel)]="name" placeholder="auto-generated" autocomplete="off">
@@ -104,6 +119,9 @@
               <span class="mono runid">#{{ run.id }}</span>
               <span class="run-name">
                 {{ run.name }}
+                @if (run.externallyHosted) {
+                  <span class="tag">external</span>
+                }
                 <span class="mono sub">{{ run.bpn }}</span>
               </span>
               <span class="run-step">

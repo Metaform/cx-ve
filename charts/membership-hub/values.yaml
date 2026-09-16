@@ -39,16 +39,26 @@ jwtlet:
   # (the Kubernetes cluster issuer)
   subjectTokenAudience: https://kubernetes.default.svc.cluster.local
   subjectTokenExpirationSeconds: 3600
-  # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet
+  # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet — one
+  # mapping per participant context the app exchanges under. The scope mappings themselves are
+  # seeded by the platform; this job only registers the SA.
   seed:
     enabled: true
-    # The mapping the Tenant Manager tokens are exchanged under. Must agree with the app's
-    # config tenant-manager.token-resource; the scopes cover exactly what TenantManagerClient
-    # requests.
-    participantContext: issuer
-    scopes:
-      - tenant-manager-api:read
-      - tenant-manager-api:write
+    mappings:
+      # Tenant Manager tokens (provisioning an internally hosted member's EDC resources). Must
+      # agree with the app's config tenant-manager.token-resource; the scopes cover exactly what
+      # TenantManagerClient requests.
+      - participantContext: issuer
+        scopes:
+          - tenant-manager-api:read
+          - tenant-manager-api:write
+      # IssuerService Admin API tokens (offering credentials to an externally hosted member).
+      # Must agree with issuer-service.token-resource. The admin scope is what passes the
+      # IssuerService's caller resolution — the same mapping the onboarding-api registers
+      # holders under.
+      - participantContext: sudo
+        scopes:
+          - issuer-admin-api:admin
     # jwtlet participant-token audience (client_audience / bound_audiences)
     audiences:
       - edcv
@@ -142,10 +152,18 @@ config:
       client-id: membership-hub
       client-secret: membership-hub-secret
       scope: configure_partner_registration
-  # The CFM Tenant Manager. token-resource must agree with jwtlet.seed.participantContext above.
+  # The CFM Tenant Manager. token-resource must agree with a jwtlet.seed.mappings entry above.
   tenant-manager:
     url: http://tenant-manager.edc-v.svc.cluster.local:8080/api/v1alpha1
     token-resource: issuer
+  # The IssuerService Admin API, where credential offers for externally hosted members are
+  # triggered. token-resource must agree with a jwtlet.seed.mappings entry above;
+  # credential-definition-ids must name definitions the catenax-profile chart seeded.
+  issuer-service:
+    url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
+    issuer-context-id: issuer
+    token-resource: sudo
+    credential-definition-ids: membership-credential-def,bpn-credential-def,gov-credential-def
   # Token exchange (RFC 8693): workload token file + exchange endpoint
   token:
     file:
@@ -163,14 +181,21 @@ config:
     # via the cfm.dataplane VPA properties; the mapping key (transfer-type) becomes the catalog
     # distribution format of the member's assets. It serves the CCM certificate exchanges
     # (CX-0135): the endpoint is Certo's protocol API, which lives at the server root of the
-    # in-cluster service (release-derived name, <release>-certo) — NOT the gateway path, since
-    # the flow counterparty calls it with a Siglet flow token, not a jwtlet management token.
+    # service and is reached through the gateway's /api/certo route.
+    #
+    # COUNTERPARTY-FACING, so it must be the EXTERNAL address: the flow counterparty calls this
+    # endpoint itself, carrying a Siglet flow token. An in-cluster address works only while both
+    # parties are in this cluster; a participant running anywhere else cannot resolve it. The
+    # gateway form works from both sides — the CoreDNS rewrites make the host resolve in-cluster
+    # too — and the /api/certo route carries no clearglass middleware, so the flow token (which
+    # is not a jwtlet management token) is not rejected on the way in. Host-derived: the install
+    # scripts override it for a non-default host.
     # (The generic `participant.dataplane` mapping stays disabled — its app default has an empty
     # endpoint — so this is the only mapping.)
     ccm:
       transfer-type: "HttpData-PULL"
       endpoint-type: HTTP
-      endpoint: http://cx-ve-certo.edc-v.svc.cluster.local:8080
+      endpoint: http://cxve.localhost/api/certo
       token-source: provider
   # Read-only second datasource on the compliance tracker's event ledger, enabling the hub's
   # /api/eventlog endpoints (unset in the image defaults — setting the url here is what turns

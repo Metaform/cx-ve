@@ -100,6 +100,17 @@ core-platform-distribution:
       #     - name: cxtck
       #       id: "did:web:cx-tck.edc-v.svc.cluster.local:issuer"
       trustedIssuers: []
+      dataspaceProfiles:
+        # The profile name each participant's DID document advertises its DSP endpoint under
+        # (the `ProtocolEndpoint` service entry). The controlplane serves one protocol context
+        # per REGISTERED profile at /api/dsp/<participantContextId>/<profile name>, and the only
+        # profile this VE registers is the Catena-X one the catenax-profile chart seeds —
+        # `cx-neptune`. Left at the platform default (`http-dsp-profile-2025-1`, the built-in
+        # profile this VE does not register) every participant would publish an endpoint that
+        # 404s. Harmless between participants of THIS environment, which address each other by
+        # the profile they both know they use, and fatal for an external counterparty, whose
+        # only way to find the endpoint is the DID document.
+        advertisedProfile: cx-neptune
     identityhub:
       scopes:
         - name: membership

@@ -30,6 +30,7 @@ export class Dashboard implements OnInit, OnDestroy {
   name = '';
   shortName = '';
   bpn = '';
+  did = '';
   deriveBpn = true;
 
   readonly stepLabel = stepLabel;
@@ -64,6 +65,11 @@ export class Dashboard implements OnInit, OnDestroy {
     return this.shortName.trim() ? bpnFor(this.shortName.trim()) : '';
   }
 
+  /** A DID means the participant already runs elsewhere — this environment only verifies it. */
+  get external(): boolean {
+    return this.did.trim().length > 0;
+  }
+
   ensure(): void {
     this.ensuring = true;
     this.error = '';
@@ -82,7 +88,10 @@ export class Dashboard implements OnInit, OnDestroy {
   startRun(): void {
     this.starting = true;
     this.error = '';
-    const request: { name?: string; shortName?: string; bpn?: string } = {};
+    const request: { name?: string; shortName?: string; bpn?: string; did?: string } = {};
+    if (this.did.trim()) {
+      request.did = this.did.trim();
+    }
     if (this.name.trim()) {
       request.name = this.name.trim();
     }
@@ -105,7 +114,7 @@ export class Dashboard implements OnInit, OnDestroy {
   }
 
   membershipChip(state: string): string {
-    if (state === 'PROVISIONED') {
+    if (state === 'PROVISIONED' || state === 'CREDENTIALS_OFFERED') {
       return 'ok';
     }
     if (state === 'REJECTED' || state === 'FAILED') {

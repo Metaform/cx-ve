@@ -11,15 +11,10 @@ import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
-import java.util.Set;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-
-import static com.metaform.cxve.verification.application.ChecklistEvaluator.missing;
-import static com.metaform.cxve.verification.application.ChecklistEvaluator.satisfied;
 
 /**
  * The verification run: CX-0135 v3.0.0 Flow B (provider-initiated certificate push), the exact
@@ -46,67 +41,67 @@ public class CertificateExchangeFlow {
     private final ManagementApiClient management;
     private final CertoClient certo;
     private final VerificationParticipantService participantService;
-    private final ChecklistEvaluator evaluator;
+    private final RunFlowSupport support;
     private final VerificationProperties properties;
 
     public CertificateExchangeFlow(MembershipHubClient hub,
                                    ManagementApiClient management,
                                    CertoClient certo,
                                    VerificationParticipantService participantService,
-                                   ChecklistEvaluator evaluator,
+                                   RunFlowSupport support,
                                    VerificationProperties properties) {
         this.hub = hub;
         this.management = management;
         this.certo = certo;
         this.participantService = participantService;
-        this.evaluator = evaluator;
+        this.support = support;
         this.properties = properties;
     }
 
     public void execute(VerificationRun run) {
         log.info("run {} starting: participant \"{}\" ({}, {})", run.id(), run.name(), run.shortName(), run.bpn());
         try {
-            var vp = step(run, RunStep.ENSURE_VERIFICATION_PARTICIPANT, () -> {
+            var vp = support.step(run, RunStep.ENSURE_VERIFICATION_PARTICIPANT, () -> {
                 var participant = participantService.ensure();
                 run.verificationParticipant(participant);
                 return participant;
             }, participant -> "%s (pcid %s)".formatted(participant.bpn(), participant.participantContextId()));
 
-            var submitted = step(run, RunStep.ONBOARD_PARTICIPANT, () -> {
+            var submitted = support.step(run, RunStep.ONBOARD_PARTICIPANT, () -> {
                 var membership = hub.onboard(run.name(), run.shortName(), run.bpn(), run.vatId());
                 run.onSubmitted(membership.externalId());
                 return membership;
             }, membership -> "externalId " + membership.externalId());
 
-            var put = step(run, RunStep.AWAIT_PROVISIONED, () -> {
+            var put = support.step(run, RunStep.AWAIT_PROVISIONED, () -> {
                 var membership = hub.awaitProvisioned(submitted.externalId());
                 run.onProvisioned(membership.did(), membership.participantContextId(), membership.onboardingProcessId());
                 return membership;
             }, membership -> "pcid %s (process %s)".formatted(
                     membership.participantContextId(), membership.onboardingProcessId()));
 
-            step(run, RunStep.AWAIT_CERTO_CONTEXT, () -> {
+            support.step(run, RunStep.AWAIT_CERTO_CONTEXT, () -> {
                 certo.awaitParticipantContext(put.participantContextId());
                 return "certo tenant " + put.participantContextId();
             }, Function.identity());
 
             var providerAssetId = "ccm-api-" + run.id();
-            step(run, RunStep.SEED_PROVIDER_OFFER, () -> {
+            support.step(run, RunStep.SEED_PROVIDER_OFFER, () -> {
                 seedCcmOffer(put.participantContextId(), providerAssetId, run.id());
                 return "asset '%s' offered".formatted(providerAssetId);
             }, Function.identity());
 
             // "pull" flow: verification participant -> participant-under-test (retrieve + verdict)
-            var flowIdPull = step(run, RunStep.ESTABLISH_PULL_FLOW,
+            var flowIdPull = support.step(run, RunStep.ESTABLISH_PULL_FLOW,
                     () -> establishCcmFlow(vp.participantContextId(), put.participantContextId(), put.did(), providerAssetId),
                     flowId -> "flowId " + flowId);
             // "push" flow: participant-under-test -> verification participant (publish notification)
-            var flowIdPush = step(run, RunStep.ESTABLISH_PUSH_FLOW,
+            var flowIdPush = support.step(run, RunStep.ESTABLISH_PUSH_FLOW,
                     () -> establishCcmFlow(put.participantContextId(), vp.participantContextId(), vp.did(), properties.inboxAssetId()),
                     flowId -> "flowId " + flowId);
 
             var documentContent = certificateDocument();
-            var published = step(run, RunStep.PUBLISH_CERTIFICATE, () -> {
+            var published = support.step(run, RunStep.PUBLISH_CERTIFICATE, () -> {
                 var documentId = certo.addDocument(put.participantContextId(), "application/pdf", documentContent);
                 var certificateId = certo.addCertificate(put.participantContextId(), put.bpn(), documentId,
                         "CXVE-VUI-9001-" + run.id());
@@ -114,7 +109,7 @@ public class CertificateExchangeFlow {
                 return new Published(documentId, certificateId, exchangeId);
             }, result -> "exchange %s (certificate %s)".formatted(result.exchangeId(), result.certificateId()));
 
-            step(run, RunStep.RETRIEVE_AND_VERIFY, () -> {
+            support.step(run, RunStep.RETRIEVE_AND_VERIFY, () -> {
                 var retrieved = certo.retrieve(vp.participantContextId(), published.exchangeId(), flowIdPull);
                 var retrievedCertificateId = retrieved.path("certificate").path("certificateId").asText();
                 if (!published.certificateId().equals(retrievedCertificateId)) {
@@ -137,7 +132,7 @@ public class CertificateExchangeFlow {
                 return "document verified byte-for-byte (%d bytes)".formatted(downloaded.length);
             }, Function.identity());
 
-            step(run, RunStep.ACCEPT, () -> {
+            support.step(run, RunStep.ACCEPT, () -> {
                 // the acceptance report to the provider is best-effort (post-commit), so the
                 // verdict is re-driven until the PROVIDER's recorded view shows it — certo's
                 // documented recovery for a lost report (no state change, re-report)
@@ -156,7 +151,8 @@ public class CertificateExchangeFlow {
                 return "exchange %s closed: FULFILLED / ACCEPTED".formatted(published.exchangeId());
             }, Function.identity());
 
-            step(run, RunStep.EVALUATE_EVENTS, () -> evaluateEvents(run), Function.identity());
+            support.step(run, RunStep.EVALUATE_EVENTS,
+                    () -> support.evaluateEvents(run, properties.expectedEvents()), Function.identity());
 
             run.succeed();
             log.info("run {} SUCCEEDED", run.id());
@@ -166,30 +162,6 @@ public class CertificateExchangeFlow {
             run.fail(e.getMessage() == null ? e.toString() : e.getMessage());
             log.error("run {} FAILED: {}", run.id(), e.getMessage(), e);
         }
-    }
-
-    /**
-     * Polls the participant-under-test's eventlog until every expected event is there; keeps the
-     * latest checklist on the run either way, so a timeout still shows exactly what was missing.
-     */
-    private String evaluateEvents(VerificationRun run) {
-        var processId = run.onboardingProcessId();
-        try {
-            Poller.poll("expected events of participant %s in the eventlog".formatted(processId),
-                    properties.timeouts().events(), properties.pollInterval(), () -> {
-                        var rollup = hub.eventlog(processId).orElse(null);
-                        var checklist = evaluator.evaluate(rollup, properties.expectedEvents());
-                        run.checklist(checklist);
-                        if (!satisfied(checklist)) {
-                            throw new Poller.RetryException("missing: " + String.join(", ", missing(checklist)));
-                        }
-                        return checklist;
-                    });
-        } catch (VerificationException e) {
-            throw new VerificationException("expected events did not all arrive — missing: "
-                    + String.join(", ", missing(run.checklist())), e);
-        }
-        return "all %d expected event subjects present".formatted(properties.expectedEvents().size());
     }
 
     /**
@@ -210,28 +182,10 @@ public class CertificateExchangeFlow {
         management.createContractDefinitionIdempotent(pcid, "vui-ccm-cd-" + uniqueId, accessPolicyId, contractPolicyId);
     }
 
-    /**
-     * Catalog → negotiation → transfer of the CCM transfer type, as {@code consumerPcid} against
-     * {@code providerPcid}'s asset. Returns the CONSUMER-side transfer process id once STARTED —
-     * the id under which Siglet cached the flow token, i.e. the {@code flowId} certo management
-     * calls placed BY that consumer side must carry.
-     */
+    /** This side consuming the other's CCM asset, at the DSP address its context is served on. */
     private String establishCcmFlow(String consumerPcid, String providerPcid, String providerDid, String assetId) {
-        var providerDsp = properties.dspAddressOf(providerPcid);
-        var offer = management.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, assetId);
-        var negotiationId = management.startNegotiation(consumerPcid, providerDsp, providerDid, assetId, offer);
-        var negotiation = management.awaitState(
-                "/participants/%s/contractnegotiations/%s".formatted(consumerPcid, negotiationId),
-                properties.timeouts().negotiation(), Set.of("FINALIZED"));
-        var agreementId = negotiation.path("contractAgreementId").asText();
-        if (agreementId.isEmpty()) {
-            throw new VerificationException("FINALIZED negotiation %s carries no contractAgreementId".formatted(negotiationId));
-        }
-        var transferId = management.startTransfer(consumerPcid, agreementId, providerDsp, properties.transferType());
-        management.awaitState("/participants/%s/transferprocesses/%s".formatted(consumerPcid, transferId),
-                properties.timeouts().transfer(), Set.of("STARTED"));
-        log.info("CCM flow established: {} -> {} (asset '{}', flowId {})", consumerPcid, providerPcid, assetId, transferId);
-        return transferId;
+        return support.establishCcmFlow(consumerPcid, properties.dspAddressOf(providerPcid), providerDid, assetId,
+                properties.timeouts().catalog());
     }
 
     /** The sample certificate document packaged with the app (a small single-page PDF). */
@@ -243,19 +197,6 @@ public class CertificateExchangeFlow {
             return stream.readAllBytes();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
-        }
-    }
-
-    /** Executes one step, recording start/ok/failure (with the exception message) on the run. */
-    private <T> T step(VerificationRun run, RunStep runStep, Supplier<T> body, Function<T, String> detail) {
-        run.stepStarted(runStep);
-        try {
-            var result = body.get();
-            run.stepOk(runStep, detail == null || result == null ? null : detail.apply(result));
-            return result;
-        } catch (RuntimeException e) {
-            run.stepFailed(runStep, e.getMessage() == null ? e.toString() : e.getMessage());
-            throw e;
         }
     }
 

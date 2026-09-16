@@ -55,6 +55,20 @@ public class MembershipHubClient {
      * membership already dead on arrival fails here.
      */
     public Membership onboard(String name, String shortName, String bpn, String vatId) {
+        return onboard(name, shortName, bpn, vatId, null);
+    }
+
+    /**
+     * As above, but for a participant whose resources already run elsewhere: its own {@code did}
+     * is declared and the hub is told not to provision anything for it, offering it credentials
+     * instead. The DID is mandatory in that mode — without it the hub would mint one under this
+     * environment's authority, which the participant does not control.
+     */
+    public Membership onboard(String name, String shortName, String bpn, String vatId, String externalDid) {
+        var identity = externalDid == null ? "" : """
+                ,
+                  "did": "%s",
+                  "externallyHosted": true""".formatted(externalDid);
         var body = """
                 {
                   "name": "%s",
@@ -71,8 +85,8 @@ public class MembershipHubClient {
                     "providerId": "vui-user-%s",
                     "firstName": "Verification", "lastName": "Runner",
                     "email": "vui-%s@example.com"
-                  } ]
-                }""".formatted(name, shortName, bpn, vatId, vatId, vatId);
+                  } ]%s
+                }""".formatted(name, shortName, bpn, vatId, vatId, vatId, identity);
         var response = RestCalls.post(hubRestClient, "/api/members", null, body);
         if (response.status() != 201) {
             throw new VerificationException("membership submission for '%s' failed with HTTP %d: %s"
@@ -95,10 +109,25 @@ public class MembershipHubClient {
 
     /** The memberships registered under a BPN — the hub's rediscovery endpoint. */
     public List<Membership> findByBpn(String bpn) {
-        var response = RestCalls.get(hubRestClient, "/api/members?bpn=" + bpn, null);
+        return findBy("bpn", bpn);
+    }
+
+    /**
+     * The memberships registered under a DID. This is how a repeat run against the same external
+     * participant finds what it already has: the Onboarding API refuses to register a DID that is
+     * already registered, so onboarding it again would be declined rather than repeated.
+     */
+    public List<Membership> findByDid(String did) {
+        return findBy("did", did);
+    }
+
+    private List<Membership> findBy(String filter, String value) {
+        // The value goes in as a URI variable, NOT pre-encoded into the path: the client encodes
+        // what it expands, so encoding it here too would escape a did:web's own '%' twice.
+        var response = RestCalls.get(hubRestClient, "/api/members?" + filter + "={value}", null, value);
         if (response.status() != 200) {
-            throw new VerificationException("membership lookup by BPN %s failed with HTTP %d: %s"
-                    .formatted(bpn, response.status(), response.body()));
+            throw new VerificationException("membership lookup by %s %s failed with HTTP %d: %s"
+                    .formatted(filter, value, response.status(), response.body()));
         }
         try {
             return mapper.readValue(response.body(), new TypeReference<List<Membership>>() { });
@@ -134,6 +163,30 @@ public class MembershipHubClient {
         }
         log.info("membership {} PROVISIONED (pcid={}, did={})", externalId,
                 membership.participantContextId(), membership.did());
+        return membership;
+    }
+
+    /**
+     * Polls an externally hosted membership until the hub reports CREDENTIALS_OFFERED — its
+     * terminal success: nothing was provisioned, and the issuer has been asked to offer the
+     * membership credentials to the participant's own wallet. Dead ends fail immediately.
+     */
+    public Membership awaitCredentialsOffered(String externalId) {
+        var membership = Poller.poll("membership %s to have its credentials offered".formatted(externalId),
+                properties.timeouts().onboarding(), ONBOARDING_POLL_INTERVAL, () -> {
+                    Membership current;
+                    try {
+                        current = get(externalId);
+                    } catch (ResourceAccessException e) {
+                        throw new Poller.RetryException("hub unreachable: " + e.getMessage(), e);
+                    }
+                    failOnDeadEnd(current);
+                    if (!current.isCredentialsOffered()) {
+                        throw new Poller.RetryException("membership %s in state %s".formatted(externalId, current.state()));
+                    }
+                    return current;
+                });
+        log.info("membership {} has been offered its credentials (did={})", externalId, membership.did());
         return membership;
     }
 

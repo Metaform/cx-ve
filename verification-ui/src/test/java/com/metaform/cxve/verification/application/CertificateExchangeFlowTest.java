@@ -58,9 +58,11 @@ class CertificateExchangeFlowTest {
 
     @BeforeEach
     void setUp() {
-        flow = new CertificateExchangeFlow(hub, management, certo, participantService, new ChecklistEvaluator(),
-                TestFixtures.props(Map.of("events.onboarding.started", 1)));
-        run = new VerificationRun("r1", "Participant r1", "put-r1", "BPNLPUT000000001", "DEPUT0001");
+        var properties = TestFixtures.props(Map.of("events.onboarding.started", 1));
+        var support = new RunFlowSupport(management, hub, new ChecklistEvaluator(), properties);
+        flow = new CertificateExchangeFlow(hub, management, certo, participantService, support, properties);
+        run = new VerificationRun("r1", "Participant r1", "put-r1", "BPNLPUT000000001", "DEPUT0001",
+                null, RunStep.MANAGED);
     }
 
     /** Stubs the whole happy choreography; individual tests break the link they exercise. */
@@ -71,7 +73,7 @@ class CertificateExchangeFlowTest {
                 .thenReturn(TestFixtures.membership("put-ext", "SUBMITTED", null, null, null));
         when(hub.awaitProvisioned("put-ext"))
                 .thenReturn(TestFixtures.membership("put-ext", "PROVISIONED", "did:web:put", "pctx-put", "proc-1"));
-        when(management.awaitCatalogOffer(anyString(), anyString(), anyString(), anyString()))
+        when(management.awaitCatalogOffer(anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(new ManagementApiClient.CatalogOffer(
                         mapper.createObjectNode().put("@id", "offer-1"), mapper.createArrayNode()));
         when(management.startNegotiation(anyString(), anyString(), anyString(), anyString(), any()))

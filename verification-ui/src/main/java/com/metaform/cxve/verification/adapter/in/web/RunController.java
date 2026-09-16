@@ -30,15 +30,20 @@ public class RunController {
         this.runService = runService;
     }
 
-    /** All fields are optional — absent ones are derived (see {@link RunService#start}). */
-    public record StartRunRequest(String name, String shortName, String bpn) {
+    /**
+     * All fields are optional — absent ones are derived (see {@link RunService#start}). The
+     * {@code did} is the one with a consequence beyond naming: supplying it declares that the
+     * participant is a third-party system already running under that identity, and selects the
+     * run that only drives this environment's own half of the exchange.
+     */
+    public record StartRunRequest(String name, String shortName, String bpn, String did) {
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public VerificationRun.Snapshot start(@RequestBody(required = false) StartRunRequest request) {
-        var body = request == null ? new StartRunRequest(null, null, null) : request;
-        return runService.start(body.name(), body.shortName(), body.bpn());
+        var body = request == null ? new StartRunRequest(null, null, null, null) : request;
+        return runService.start(body.name(), body.shortName(), body.bpn(), body.did());
     }
 
     @GetMapping

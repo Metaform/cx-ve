@@ -56,6 +56,13 @@ public class InMemoryMembershipRepository implements MembershipRepository {
     }
 
     @Override
+    public List<Membership> findByDid(String did) {
+        return memberships.values().stream()
+                .filter(membership -> Objects.equals(membership.did(), did))
+                .toList();
+    }
+
+    @Override
     public Optional<MemberData> findPayload(String externalId) {
         return Optional.ofNullable(payloads.get(externalId));
     }

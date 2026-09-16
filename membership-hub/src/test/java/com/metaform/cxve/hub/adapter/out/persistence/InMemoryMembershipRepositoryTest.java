@@ -25,7 +25,7 @@ class InMemoryMembershipRepositoryTest {
                 List.of(new MemberData.UniqueId("VAT_ID", "DE123456789")),
                 List.of("ACTIVE_PARTICIPANT"),
                 List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE")),
-                List.of());
+                List.of(), null);
     }
 
     @Test

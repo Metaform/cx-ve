@@ -31,10 +31,36 @@ Because the harness may not introspect the SUT, the SUT declares:
 | Issuer DID (if the SUT brings its own issuer) | ve1's trust anchor config: `edc.controlplane.trustedIssuers` **plus** the `supportedtypes` entry (see connect-ves.sh — without it presentations fail with "credential types not supported for issuer") |
 | BPN of the SUT participant | Pinning the `BusinessPartnerNumber` policy constraint in offers made to the SUT |
 | Supported DSP profile | Must include the dataspace profile in use (`cx-neptune`) |
-| Network reachability + DNS | ve1 must resolve and reach the SUT's endpoints; the kind-specific routes/CoreDNS forwarding of connect-ves.sh are the lab instantiation of this |
+| Network reachability + DNS | ve1 must resolve and reach the SUT's endpoints **from inside its cluster** — see below |
 
 Conversely the harness publishes ve1's participant DID, issuer DID and gateway-independent
 DSP/DCP endpoints to the SUT.
+
+### Reachability, in both directions
+
+Every check ve1 makes about a SUT is made by a pod: the issuer resolves the SUT's `did:web` to
+deliver credential offers, the control plane dials its `ProtocolEndpoint`. A name that only the
+operator's machine resolves therefore fails verification, and fails it as "the SUT is
+unreachable" — a finding against the vendor. Make the SUT resolvable from the cluster with:
+
+```bash
+./scripts/setup-did-dns.sh --sut sut.vendor.example=192.168.1.50
+```
+
+Use an address the pods can route to. For a SUT on the operator's own machine that is the host's
+LAN address, never `127.0.0.1`: loopback inside a pod is the pod.
+
+The reverse direction is the `-H` install flag. The default host `cxve.localhost` resolves to
+loopback on every machine, so a SUT anywhere but ve1's host cannot reach ve1 at all; install with
+a hostname that resolves for both parties (`./scripts/install-ve.sh -H ve1.example.com`), which
+carries through to every advertised URL and DID.
+
+**Everything is plain HTTP — a known constraint, not an oversight.** `edc.iam.did.web.use.https`
+is pinned false across the runtimes and the gateway terminates HTTP only, so ve1 resolves
+`did:web` over `http://` and publishes `http://` endpoints and DIDs. A SUT must therefore serve
+its DID document over HTTP and accept ve1's HTTP endpoints — note this contradicts the did:web
+method's default of HTTPS, so a SUT that only serves HTTPS cannot be verified today. TLS is an
+all-or-nothing change across the runtimes and the gateway, and is deferred.
 
 ## Checkpoints and obligations
 
@@ -47,9 +73,17 @@ its business), what ve1 does, and which wire exchanges occur (numbers reference 
 **SUT obligations (state):**
 - Participant DID document served and resolvable from ve1 (#1), advertising `ProtocolEndpoint`
   and `CredentialService`.
+- Those endpoints must be the ones the SUT actually serves. The DID document is the *only* way
+  ve1 can discover where to reach a SUT, so an advertised endpoint that does not answer is a
+  conformance failure and is reported as one — ve1 offers no way to override the address by
+  hand. Note that the DSP endpoint's path identifies a dataspace profile, and the profile in
+  use here is `cx-neptune`: a connector advertising a different binding than it serves (the EDC
+  default `http-dsp-profile-2025-1` is the easy mistake) fails this checkpoint.
 - Issuer DID document resolvable from ve1 (#3), if the SUT brings its own issuer.
 
-**Verified by:** ve1 resolving both DID documents. No DSP traffic yet.
+**Verified by:** ve1 resolving both DID documents, and — at checkpoint 2 — the first DSP request
+to the advertised `ProtocolEndpoint`. A counterparty answering `404`/`405` there fails the run
+immediately, naming the address dialled, rather than being waited out as a slow offer.
 
 ### Checkpoint 1 — credentials & trust
 
@@ -114,12 +148,34 @@ API, jwtlet/clearglass, the tenant manager, the siglet token-cache API used by
 `dsp-tests.sh` to fetch the EDR on the consumer side — are driver tooling for ve2 and vanish
 from the picture once ve2 is replaced by a real SUT.
 
-## Where the harness stands today
+## Running a verification against a SUT (Verification UI)
 
-`dsp-tests.sh` implements Checkpoint 2+3 with ve2 as a compliant pseudo-SUT: ve2's
-obligations are fulfilled by the platform's own tooling (the Membership Hub's
-`POST /hub/api/members` for credentials/wallet/data plane, the script's seeding steps for
-the offer), and the script
-drives both sides. Evolving it toward this document means extracting the ve2-side operations
-behind a "consumer/provider driver" interface and adding the reversed-role scenario — the
-ve1-side halves stay as they are.
+The Verification UI implements this document for the CX-0135 certificate exchange. Entering a
+**participant DID** on the run form switches it from onboarding a participant into the VE to
+verifying one that already exists elsewhere: nothing is provisioned for that DID, and only the
+VE's own half of the exchange is driven from here.
+
+**Declared up front** (run form): the participant DID, and optionally the company name and the
+BPN the VE should issue credentials for (otherwise derived).
+
+**What the VE does, in order** — each step waits for the SUT rather than acting on it:
+
+| # | VE | SUT obligation to proceed |
+|---|---|---|
+| 1 | Resolves the DID document | Served and reachable from the VE, advertising `ProtocolEndpoint` and `CredentialService` (Checkpoint 0) |
+| 2 | Registers the DID as a credential holder and has its IssuerService send a DCP CredentialOffer to the advertised `CredentialService` | Accept the offer and request the credentials (Checkpoint 1). The VE waits for `events.issuance.credential.delivered` in its ledger — nothing else proves the SUT holds them |
+| 3 | Requests the SUT's catalog as the verification participant, negotiates and starts an `HttpData-PULL` transfer | An asset under the agreed id (`verification.external.provider-asset-id`, default `ccm-api`) fronting its CCM API, gated on the three CX credential constraints (Checkpoint 2) |
+| 4 | Waits for a certificate on the verification participant's inbox | Consume the VE's permanent `ccm-inbox-verification` offer and push a certificate over that flow (Checkpoint 3 + CX-0135 Flow B) |
+| 5 | Retrieves the certificate over the pull flow and reports the `ACCEPTED` verdict | — |
+
+Two consequences worth stating plainly. The VE cannot compare the retrieved document against an
+original, since the SUT authored it; step 5 checks the delivery's internal consistency, and the
+exchange having happened under VE-issued credentials is the finding. And the compliance ledger
+can only attribute a SUT's **onboarding and credential delivery** to it — the exchange's own
+events carry the verification participant's context — so the ledger checklist for an external run
+is deliberately short (`verification.external.expected-events`).
+
+`dsp-tests.sh` remains the older path: it implements Checkpoint 2+3 with ve2 as a compliant
+pseudo-SUT, whose obligations are fulfilled by the platform's own tooling (the Membership Hub's
+`POST /hub/api/members` for credentials/wallet/data plane, the script's seeding steps for the
+offer), driving both sides.

@@ -75,6 +75,12 @@ public class JpaMembershipRepository implements MembershipRepository {
 
     @Override
     @Transactional(readOnly = true)
+    public List<Membership> findByDid(String did) {
+        return repository.findByDid(did).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Optional<MemberData> findPayload(String externalId) {
         return repository.findById(externalId)
                 .map(MembershipEntity::getPayload)
@@ -92,6 +98,7 @@ public class JpaMembershipRepository implements MembershipRepository {
         entity.setParticipantProfileId(membership.participantProfileId());
         entity.setParticipantContextId(membership.participantContextId());
         entity.setFailureReason(membership.failureReason());
+        entity.setExternallyHosted(membership.externallyHosted());
     }
 
     private Membership toDomain(MembershipEntity entity) {
@@ -106,7 +113,9 @@ public class JpaMembershipRepository implements MembershipRepository {
                 entity.getParticipantProfileId(),
                 entity.getParticipantContextId(),
                 entity.getFailureReason(),
-                entity.getVersion());
+                entity.getVersion(),
+                // NULL on rows written before the column existed = hosted here
+                Boolean.TRUE.equals(entity.getExternallyHosted()));
     }
 
     private String writePayload(MemberData payload) {

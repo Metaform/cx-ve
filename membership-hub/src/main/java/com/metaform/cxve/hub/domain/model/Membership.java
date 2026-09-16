@@ -13,6 +13,12 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  * registration runs under AND what the participant profile is deployed as — the two legs agree by
  * construction.
  *
+ * <p>{@code externallyHosted} members are the exception to all of that: their participant
+ * resources live outside this environment, so nothing is provisioned here and
+ * {@code tenantId}/{@code participantProfileId}/{@code participantContextId} stay null for the
+ * record's whole life. The flag is on the wire precisely so a client can tell that absence apart
+ * from "not provisioned yet".
+ *
  * <p>Immutable — each transition returns a new instance via the {@code with*} helpers. The
  * {@code version} is the optimistic-lock token of the snapshot this instance was loaded from
  * (null before the first persist): saving compares it against the stored row, so two writers —
@@ -30,56 +36,72 @@ public record Membership(
         String participantProfileId,
         String participantContextId,
         String failureReason,
-        @JsonIgnore Long version
+        @JsonIgnore Long version,
+        boolean externallyHosted
 ) {
 
-    public static Membership submitted(String externalId, String name, String did, String bpn) {
+    public static Membership submitted(String externalId, String name, String did, String bpn,
+                                       boolean externallyHosted) {
         return new Membership(externalId, name, did, bpn, MembershipState.SUBMITTED,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, externallyHosted);
+    }
+
+    /** A membership whose participant resources this environment provisions — the common case. */
+    public static Membership submitted(String externalId, String name, String did, String bpn) {
+        return submitted(externalId, name, did, bpn, false);
     }
 
     public Membership withState(MembershipState newState) {
         return new Membership(externalId, name, did, bpn, newState, onboardingProcessId, tenantId,
-                participantProfileId, participantContextId, failureReason, version);
+                participantProfileId, participantContextId, failureReason, version, externallyHosted);
     }
 
     public Membership withOnboardingProcessId(String processId) {
         return new Membership(externalId, name, did, bpn, state, processId, tenantId,
-                participantProfileId, participantContextId, failureReason, version);
+                participantProfileId, participantContextId, failureReason, version, externallyHosted);
     }
 
     public Membership provisioning(String tenantId, String participantProfileId) {
         return new Membership(externalId, name, did, bpn, MembershipState.PROVISIONING,
-                onboardingProcessId, tenantId, participantProfileId, participantContextId, failureReason, version);
+                onboardingProcessId, tenantId, participantProfileId, participantContextId, failureReason,
+                version, externallyHosted);
     }
 
     public Membership withParticipantContextId(String participantContextId) {
         return new Membership(externalId, name, did, bpn, state, onboardingProcessId, tenantId,
-                participantProfileId, participantContextId, failureReason, version);
+                participantProfileId, participantContextId, failureReason, version, externallyHosted);
     }
 
     public Membership provisioned() {
         return withState(MembershipState.PROVISIONED);
     }
 
+    /** Terminal success of an externally hosted member: the credential offer reached its wallet. */
+    public Membership credentialsOffered() {
+        return withState(MembershipState.CREDENTIALS_OFFERED);
+    }
+
     public Membership rejected(String reason) {
         return new Membership(externalId, name, did, bpn, MembershipState.REJECTED,
-                onboardingProcessId, tenantId, participantProfileId, participantContextId, reason, version);
+                onboardingProcessId, tenantId, participantProfileId, participantContextId, reason,
+                version, externallyHosted);
     }
 
     public Membership failed(String reason) {
         return new Membership(externalId, name, did, bpn, MembershipState.FAILED,
-                onboardingProcessId, tenantId, participantProfileId, participantContextId, reason, version);
+                onboardingProcessId, tenantId, participantProfileId, participantContextId, reason,
+                version, externallyHosted);
     }
 
     /** The stored snapshot's lock token — set by the repositories on load and save. */
     public Membership withVersion(Long version) {
         return new Membership(externalId, name, did, bpn, state, onboardingProcessId, tenantId,
-                participantProfileId, participantContextId, failureReason, version);
+                participantProfileId, participantContextId, failureReason, version, externallyHosted);
     }
 
     public boolean isTerminal() {
         return state == MembershipState.PROVISIONED
+                || state == MembershipState.CREDENTIALS_OFFERED
                 || state == MembershipState.REJECTED
                 || state == MembershipState.FAILED;
     }

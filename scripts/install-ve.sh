@@ -114,6 +114,12 @@ HOST_OVERRIDES=(
   # The verification runs dial DSP counterparties through the gateway (resolvable in-cluster
   # via the CoreDNS rewrites), so the DSP base follows the host.
   --set-string "verification-ui.config.verification.dsp-base-url=http://${HOST}/api/dsp"
+  # Certo's protocol API is COUNTERPARTY-FACING — the flow counterparty calls it itself with a
+  # Siglet flow token — so both the CCM transfer-type mapping installed on each member's data
+  # plane and the baseUrl of the CCM assets must be the external address, not an in-cluster one
+  # a participant outside this cluster could never resolve.
+  --set-string "membership-hub.config.participant.ccm.endpoint=http://${HOST}/api/certo"
+  --set-string "verification-ui.config.verification.certo-asset-base-url=http://${HOST}/api/certo"
 )
 
 cleanup() {

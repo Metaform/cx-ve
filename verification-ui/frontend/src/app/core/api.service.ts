@@ -22,7 +22,8 @@ export class ApiService {
     return this.http.post<VpStatus>('api/verification-participant', {});
   }
 
-  startRun(request: { name?: string; shortName?: string; bpn?: string }): Observable<RunSnapshot> {
+  /** A `did` makes it a run against a third-party system; without one the participant is onboarded here. */
+  startRun(request: { name?: string; shortName?: string; bpn?: string; did?: string }): Observable<RunSnapshot> {
     return this.http.post<RunSnapshot>('api/runs', request);
   }
 

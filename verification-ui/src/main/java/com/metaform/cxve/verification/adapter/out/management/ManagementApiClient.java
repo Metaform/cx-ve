@@ -8,6 +8,7 @@ import com.metaform.cxve.verification.application.VerificationException;
 import com.metaform.cxve.verification.config.VerificationProperties;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -134,6 +135,16 @@ public class ManagementApiClient {
      * does not satisfy the ACCESS policy — check credentials — or the offer was never seeded).
      */
     public CatalogOffer awaitCatalogOffer(String consumerPcid, String providerDsp, String providerDid, String assetId) {
+        return awaitCatalogOffer(consumerPcid, providerDsp, providerDid, assetId, properties.timeouts().catalog());
+    }
+
+    /**
+     * As above with an explicit budget, for a catalog this environment does not fill itself: when
+     * the provider is a third-party system, the wait is not for a contract definition to settle
+     * but for its operator to seed the offer at all.
+     */
+    public CatalogOffer awaitCatalogOffer(String consumerPcid, String providerDsp, String providerDid,
+                                          String assetId, Duration timeout) {
         var request = """
                 {
                   "@context": ["%s"],
@@ -144,10 +155,17 @@ public class ManagementApiClient {
                 }""".formatted(MANAGEMENT_CONTEXT, providerDsp, providerDid);
         log.info("requesting provider catalog as consumer {}, waiting for dataset '{}'", consumerPcid, assetId);
         var result = Poller.poll("dataset '%s' in the provider catalog".formatted(assetId),
-                properties.timeouts().catalog(), properties.pollInterval(), () -> {
+                timeout, properties.pollInterval(), () -> {
                     var response = postPolled("/participants/%s/catalog/request".formatted(consumerPcid), request,
                             "catalog request");
                     if (response.status() != 200) {
+                        var servesNoDsp = counterPartyServesNoDsp(response.body());
+                        if (servesNoDsp != null) {
+                            throw new VerificationException(("%s answered %s — it serves no DSP catalog there. "
+                                    + "That address is what the counterparty's own DID document advertises as its "
+                                    + "ProtocolEndpoint, and it is the only way to reach it; waiting cannot fix it.")
+                                    .formatted(providerDsp, servesNoDsp));
+                        }
                         throw new Poller.RetryException("catalog request failed with HTTP %d: %s"
                                 .formatted(response.status(), response.body()));
                     }
@@ -164,6 +182,33 @@ public class ManagementApiClient {
                 });
         log.info("catalog offer found for '{}' (offer id {})", assetId, result.offer().path("@id").asText());
         return result;
+    }
+
+    /**
+     * The counterparty's own status, when it says the dialled address serves no DSP catalog:
+     * {@code 404} (nothing there) or {@code 405} (something there, but not this — a catalog
+     * request is a POST and nothing else). Null for anything that could still come good, so a
+     * counterparty that is merely slow, still starting, or refusing our credentials keeps
+     * retrying.
+     *
+     * <p>This is a judgement the verification makes about the SUT, so it must not be reached by
+     * guesswork: the address is a conformance defect only when the far side ITSELF answered, and
+     * the strings matched here come from the control plane's own report of that answer
+     * ("Counter Party responded with Response{... code=404 ...}"). Matching on the control
+     * plane's error text is unpleasant, and it is what the management API leaves us — it wraps
+     * the counterparty's response in a 502 whose only record of the far-side status is that
+     * message.
+     */
+    private static String counterPartyServesNoDsp(String body) {
+        if (body == null || !body.toLowerCase(Locale.ROOT).contains("counter party")) {
+            return null;
+        }
+        for (var status : new String[] { "404", "405" }) {
+            if (body.contains("code=" + status)) {
+                return status;
+            }
+        }
+        return null;
     }
 
     /**
