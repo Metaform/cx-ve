@@ -24,11 +24,19 @@ final class TestFixtures {
                 "HttpData-PULL",
                 new VerificationProperties.Timeouts(tight, tight, tight, tight, tight, tight),
                 Duration.ofMillis(10),
-                expectedEvents);
+                expectedEvents,
+                new VerificationProperties.External("ccm-api", "http", tight, tight, tight,
+                        Map.of("events.issuance.credential.delivered", 1)));
     }
 
     static Membership membership(String externalId, String state, String did, String pcid, String processId) {
         return new Membership(externalId, "Some Participant", did, "BPNLPUT000000001", state,
-                processId, "tenant-1", "profile-1", pcid, null);
+                processId, "tenant-1", "profile-1", pcid, null, false);
+    }
+
+    /** A membership of a participant hosted elsewhere: its own DID, nothing provisioned here. */
+    static Membership externalMembership(String externalId, String state, String did, String processId) {
+        return new Membership(externalId, "Some SUT", did, "BPNLPUT000000001", state,
+                processId, null, null, null, null, true);
     }
 }

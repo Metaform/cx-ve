@@ -16,14 +16,29 @@ public record Membership(
         String tenantId,
         String participantProfileId,
         String participantContextId,
-        String failureReason) {
+        String failureReason,
+        boolean externallyHosted) {
 
     public boolean isProvisioned() {
         return "PROVISIONED".equals(state);
     }
 
+    /**
+     * The terminal success of an externally hosted member: the hub provisioned nothing for it and
+     * had the issuer offer it the membership credentials instead. Whether the member then
+     * requested and received them is a separate question, answered by the event ledger.
+     */
+    public boolean isCredentialsOffered() {
+        return "CREDENTIALS_OFFERED".equals(state);
+    }
+
     /** Terminal failures and never-provisioned registrations — polling them is pointless. */
     public boolean isDeadEnd() {
         return "REJECTED".equals(state) || "FAILED".equals(state) || "REGISTERING".equals(state);
+    }
+
+    /** Usable for a run: not dead, whichever of the two successes it is heading for. */
+    public boolean isReusable() {
+        return !isDeadEnd();
     }
 }

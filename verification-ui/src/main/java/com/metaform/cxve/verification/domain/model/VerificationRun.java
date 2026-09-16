@@ -11,6 +11,10 @@ import java.util.List;
  * threads — every access goes through synchronized methods, and readers only ever see immutable
  * {@link Snapshot}s. State is in-memory by design (v1): a pod restart loses the run record, but
  * nothing durable — the participant lives in the hub's database and the events in the tracker's.
+ *
+ * <p>The ledger holds exactly the steps the run's own sequence declares ({@link RunStep#MANAGED}
+ * or {@link RunStep#EXTERNAL}), so the timeline never shows a step this run was never going to
+ * take.
  */
 public class VerificationRun {
 
@@ -20,6 +24,8 @@ public class VerificationRun {
     private final String shortName;
     private final String bpn;
     private final String vatId;
+    /** The declared DID of an externally hosted participant; null for one this environment hosts. */
+    private final String declaredDid;
     private final EnumMap<RunStep, StepRecord> steps = new EnumMap<>(RunStep.class);
 
     private RunState state = RunState.RUNNING;
@@ -35,13 +41,16 @@ public class VerificationRun {
     private VerificationParticipant verificationParticipant;
     private List<ChecklistItem> checklist = List.of();
 
-    public VerificationRun(String id, String name, String shortName, String bpn, String vatId) {
+    public VerificationRun(String id, String name, String shortName, String bpn, String vatId,
+                           String declaredDid, List<RunStep> sequence) {
         this.id = id;
         this.name = name;
         this.shortName = shortName;
         this.bpn = bpn;
         this.vatId = vatId;
-        for (var step : RunStep.values()) {
+        this.declaredDid = declaredDid;
+        this.did = declaredDid;
+        for (var step : sequence) {
             steps.put(step, new StepRecord());
         }
     }
@@ -64,6 +73,19 @@ public class VerificationRun {
 
     public String vatId() {
         return vatId;
+    }
+
+    /** Non-null exactly when this run verifies a participant hosted outside this environment. */
+    public String declaredDid() {
+        return declaredDid;
+    }
+
+    public boolean externallyHosted() {
+        return declaredDid != null;
+    }
+
+    public synchronized String did() {
+        return did;
     }
 
     public synchronized String externalId() {
@@ -128,6 +150,16 @@ public class VerificationRun {
         this.onboardingProcessId = onboardingProcessId;
     }
 
+    /**
+     * An externally hosted participant's onboarding outcome: it brought its own identity, and this
+     * environment provisioned nothing for it — so there is no participant context id, and its
+     * absence is the normal case rather than a missing value.
+     */
+    public synchronized void onExternallyOnboarded(String did, String onboardingProcessId) {
+        this.did = did;
+        this.onboardingProcessId = onboardingProcessId;
+    }
+
     public synchronized void verificationParticipant(VerificationParticipant participant) {
         this.verificationParticipant = participant;
     }
@@ -145,7 +177,8 @@ public class VerificationRun {
         steps.forEach((step, record) -> stepSnapshots.add(
                 new StepSnapshot(step, record.status, record.detail, record.startedAt, record.finishedAt)));
         return new Snapshot(id, state, startedAt, finishedAt,
-                new ParticipantInfo(name, shortName, bpn, vatId, externalId, did, participantContextId, onboardingProcessId),
+                new ParticipantInfo(name, shortName, bpn, vatId, externalId, did, participantContextId,
+                        onboardingProcessId, externallyHosted()),
                 verificationParticipant, List.copyOf(stepSnapshots), checklist, failureReason, failedStep);
     }
 
@@ -155,7 +188,8 @@ public class VerificationRun {
                 .map(java.util.Map.Entry::getKey)
                 .findFirst()
                 .orElse(null);
-        return new Summary(id, state, current, startedAt, finishedAt, name, shortName, bpn, externalId);
+        return new Summary(id, state, current, startedAt, finishedAt, name, shortName, bpn, externalId,
+                externallyHosted());
     }
 
     private static final class StepRecord {
@@ -179,7 +213,11 @@ public class VerificationRun {
             RunStep failedStep) {
     }
 
-    /** The participant-under-test: the submitted identity plus what provisioning resolved. */
+    /**
+     * The participant-under-test: the submitted identity plus what onboarding resolved. An
+     * externally hosted one carries its DID from the start and never gets a participant context
+     * id — {@code externallyHosted} is what tells a reader that null apart from "not yet".
+     */
     public record ParticipantInfo(
             String name,
             String shortName,
@@ -188,7 +226,8 @@ public class VerificationRun {
             String externalId,
             String did,
             String participantContextId,
-            String onboardingProcessId) {
+            String onboardingProcessId,
+            boolean externallyHosted) {
     }
 
     public record StepSnapshot(RunStep step, StepStatus status, String detail, Instant startedAt, Instant finishedAt) {
@@ -204,6 +243,7 @@ public class VerificationRun {
             String name,
             String shortName,
             String bpn,
-            String externalId) {
+            String externalId,
+            boolean externallyHosted) {
     }
 }

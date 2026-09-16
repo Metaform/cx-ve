@@ -134,6 +134,16 @@ public class ManagementApiClient {
      * does not satisfy the ACCESS policy — check credentials — or the offer was never seeded).
      */
     public CatalogOffer awaitCatalogOffer(String consumerPcid, String providerDsp, String providerDid, String assetId) {
+        return awaitCatalogOffer(consumerPcid, providerDsp, providerDid, assetId, properties.timeouts().catalog());
+    }
+
+    /**
+     * As above with an explicit budget, for a catalog this environment does not fill itself: when
+     * the provider is a third-party system, the wait is not for a contract definition to settle
+     * but for its operator to seed the offer at all.
+     */
+    public CatalogOffer awaitCatalogOffer(String consumerPcid, String providerDsp, String providerDid,
+                                          String assetId, Duration timeout) {
         var request = """
                 {
                   "@context": ["%s"],
@@ -144,7 +154,7 @@ public class ManagementApiClient {
                 }""".formatted(MANAGEMENT_CONTEXT, providerDsp, providerDid);
         log.info("requesting provider catalog as consumer {}, waiting for dataset '{}'", consumerPcid, assetId);
         var result = Poller.poll("dataset '%s' in the provider catalog".formatted(assetId),
-                properties.timeouts().catalog(), properties.pollInterval(), () -> {
+                timeout, properties.pollInterval(), () -> {
                     var response = postPolled("/participants/%s/catalog/request".formatted(consumerPcid), request,
                             "catalog request");
                     if (response.status() != 200) {

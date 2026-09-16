@@ -168,6 +168,25 @@ public class CertoClient {
         log.info("verdict {} recorded and reported for exchange {}", status, exchangeId);
     }
 
+    /**
+     * The consumer's reconciliation query: with {@code awaitingAcceptanceOnly} the exchanges still
+     * needing this client's action (fulfilled and undecided, or decided but whose report never
+     * landed), otherwise every exchange of the tenant.
+     *
+     * <p>This is the only way to find an exchange that a push OPENED on this side: nothing on the
+     * wire hands the receiving tenant an identifier it could be looked up by. When the provider is
+     * a third-party system, it is therefore also the only way to observe that the push happened at
+     * all.
+     */
+    public JsonNode consumerExchanges(String pcid, boolean awaitingAcceptanceOnly) {
+        var body = """
+                {"awaitingAcceptanceOnly": %b}""".formatted(awaitingAcceptanceOnly);
+        var response = postPolled("/participant-contexts/%s/consumer/exchanges/query".formatted(pcid),
+                body, "consumer exchange query");
+        expectSuccessOrRetry(response, "consumer exchange query in " + pcid);
+        return json(response.body());
+    }
+
     /** The provider's recorded view of both exchange phases; same 4xx-abort/5xx-retry contract. */
     public JsonNode getExchange(String pcid, String exchangeId) {
         var response = getPolled("/participant-contexts/%s/certificate-exchanges/%s".formatted(pcid, exchangeId),

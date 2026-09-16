@@ -39,7 +39,21 @@ public final class RestCalls {
     }
 
     public static HttpResult get(RestClient client, String path, String bearerToken) {
-        var request = client.get().uri(path);
+        return get(client, path, bearerToken, new Object[0]);
+    }
+
+    /**
+     * GET with {@code {name}} placeholders in the path, expanded from {@code uriVariables}.
+     *
+     * <p>The ONLY safe way to put a caller-supplied value in a URL here: the client encodes the
+     * expanded variables itself, so a value pre-encoded by the caller would be escaped a second
+     * time. That is not hypothetical — a did:web carrying a port arrives as
+     * {@code did:web:host%3A8080:ctx}, and re-escaping its {@code %} turns the lookup into one
+     * for a participant that does not exist, which reads as "not onboarded yet" rather than as
+     * an error.
+     */
+    public static HttpResult get(RestClient client, String path, String bearerToken, Object... uriVariables) {
+        var request = client.get().uri(path, uriVariables);
         if (bearerToken != null) {
             request = request.header("Authorization", "Bearer " + bearerToken);
         }

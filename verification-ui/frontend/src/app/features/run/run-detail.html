@@ -12,11 +12,22 @@
   <header class="run-head">
     <div class="who">
       <span class="eyebrow">Verification run <span class="mono">#{{ r.id }}</span></span>
-      <h1>{{ r.participant.name }}</h1>
+      <h1>
+        {{ r.participant.name }}
+        @if (r.participant.externallyHosted) {
+          <span class="tag">external</span>
+        }
+      </h1>
       <div class="idline mono">
         {{ r.participant.bpn }}
         @if (r.participant.did) { · {{ r.participant.did }} }
       </div>
+      @if (r.participant.externallyHosted) {
+        <p class="muted small">
+          Hosted outside this environment: nothing was provisioned for it here, and its side of
+          the exchange is its own to drive.
+        </p>
+      }
     </div>
     <div class="verdict-slot">
       @if (r.state === 'RUNNING') {

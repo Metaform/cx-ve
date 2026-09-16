@@ -114,12 +114,34 @@ API, jwtlet/clearglass, the tenant manager, the siglet token-cache API used by
 `dsp-tests.sh` to fetch the EDR on the consumer side — are driver tooling for ve2 and vanish
 from the picture once ve2 is replaced by a real SUT.
 
-## Where the harness stands today
+## Running a verification against a SUT (Verification UI)
 
-`dsp-tests.sh` implements Checkpoint 2+3 with ve2 as a compliant pseudo-SUT: ve2's
-obligations are fulfilled by the platform's own tooling (the Membership Hub's
-`POST /hub/api/members` for credentials/wallet/data plane, the script's seeding steps for
-the offer), and the script
-drives both sides. Evolving it toward this document means extracting the ve2-side operations
-behind a "consumer/provider driver" interface and adding the reversed-role scenario — the
-ve1-side halves stay as they are.
+The Verification UI implements this document for the CX-0135 certificate exchange. Entering a
+**participant DID** on the run form switches it from onboarding a participant into the VE to
+verifying one that already exists elsewhere: nothing is provisioned for that DID, and only the
+VE's own half of the exchange is driven from here.
+
+**Declared up front** (run form): the participant DID, and optionally the company name and the
+BPN the VE should issue credentials for (otherwise derived).
+
+**What the VE does, in order** — each step waits for the SUT rather than acting on it:
+
+| # | VE | SUT obligation to proceed |
+|---|---|---|
+| 1 | Resolves the DID document | Served and reachable from the VE, advertising `ProtocolEndpoint` and `CredentialService` (Checkpoint 0) |
+| 2 | Registers the DID as a credential holder and has its IssuerService send a DCP CredentialOffer to the advertised `CredentialService` | Accept the offer and request the credentials (Checkpoint 1). The VE waits for `events.issuance.credential.delivered` in its ledger — nothing else proves the SUT holds them |
+| 3 | Requests the SUT's catalog as the verification participant, negotiates and starts an `HttpData-PULL` transfer | An asset under the agreed id (`verification.external.provider-asset-id`, default `ccm-api`) fronting its CCM API, gated on the three CX credential constraints (Checkpoint 2) |
+| 4 | Waits for a certificate on the verification participant's inbox | Consume the VE's permanent `ccm-inbox-verification` offer and push a certificate over that flow (Checkpoint 3 + CX-0135 Flow B) |
+| 5 | Retrieves the certificate over the pull flow and reports the `ACCEPTED` verdict | — |
+
+Two consequences worth stating plainly. The VE cannot compare the retrieved document against an
+original, since the SUT authored it; step 5 checks the delivery's internal consistency, and the
+exchange having happened under VE-issued credentials is the finding. And the compliance ledger
+can only attribute a SUT's **onboarding and credential delivery** to it — the exchange's own
+events carry the verification participant's context — so the ledger checklist for an external run
+is deliberately short (`verification.external.expected-events`).
+
+`dsp-tests.sh` remains the older path: it implements Checkpoint 2+3 with ve2 as a compliant
+pseudo-SUT, whose obligations are fulfilled by the platform's own tooling (the Membership Hub's
+`POST /hub/api/members` for credentials/wallet/data plane, the script's seeding steps for the
+offer), driving both sides.

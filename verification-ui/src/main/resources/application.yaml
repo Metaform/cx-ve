@@ -103,3 +103,28 @@ verification:
     "[events.transfer.process.started]": 2
     "[events.certificate.exchange.fulfilled]": 1
     "[events.certificate.exchange.accepted]": 1
+  # A run against a third-party system under test: everything this environment cannot derive
+  # because it belongs to the SUT or was agreed with its operator up front.
+  external:
+    # The asset id the SUT offers its certificate API under — an agreed constant, since this
+    # environment has no way to discover which of a vendor's assets is the one under test.
+    provider-asset-id: ccm-api                                  # VERIFICATION_EXTERNAL_PROVIDERASSETID
+    # Scheme used to fetch a did:web document. The did:web method mandates https, but the
+    # platform's own runtimes are pinned to edc.iam.did.web.use.https=false — this must follow
+    # them, or this app would accept a participant they cannot reach (or reject one they can).
+    did-web-scheme: http                                        # VERIFICATION_EXTERNAL_DIDWEBSCHEME
+    # Budgets for steps the SUT performs in its own time, not this environment's. Generous by
+    # design: a vendor accepting a credential offer or seeding an offer may involve a person.
+    credentials-timeout: 15m                                    # VERIFICATION_EXTERNAL_CREDENTIALSTIMEOUT
+    provider-offer-timeout: 15m                                 # VERIFICATION_EXTERNAL_PROVIDEROFFERTIMEOUT
+    publish-timeout: 15m                                        # VERIFICATION_EXTERNAL_PUBLISHTIMEOUT
+    # The ledger checklist for an external participant. Deliberately short: the identity events
+    # above belong to wallets THIS environment provisions, and the exchange's own events carry the
+    # verification participant's context rather than the SUT's, so they attribute to the
+    # verification participant's log and not the SUT's. What remains is what the tracker can
+    # honestly attribute to a participant hosted elsewhere — and the credential delivery is the
+    # load-bearing one: it proves the SUT accepted this environment's offer over DCP.
+    expected-events:
+      "[events.onboarding.started]": 1
+      "[events.onboarding.completed]": 1
+      "[events.issuance.credential.delivered]": 1

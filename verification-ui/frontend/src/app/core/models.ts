@@ -11,6 +11,7 @@ export interface Membership {
   participantProfileId: string | null;
   participantContextId: string | null;
   failureReason: string | null;
+  externallyHosted: boolean;
 }
 
 export interface VpStatus {
@@ -55,6 +56,8 @@ export interface ParticipantInfo {
   did: string | null;
   participantContextId: string | null;
   onboardingProcessId: string | null;
+  /** True when the participant runs outside this environment — a null context id is then normal. */
+  externallyHosted: boolean;
 }
 
 export interface RunSnapshot {
@@ -80,6 +83,7 @@ export interface RunSummary {
   shortName: string;
   bpn: string;
   externalId: string | null;
+  externallyHosted: boolean;
 }
 
 export interface EventSummary {
@@ -102,11 +106,18 @@ export interface EventlogRollup {
   events: EventSummary[] | null;
 }
 
-/** Friendly labels for the run's step enum — the sequence the timeline renders. */
+/**
+ * Friendly labels for the run's step enum. A run carries only the steps of its own sequence, so
+ * this covers both; unknown keys fall back to the raw name.
+ */
 export const STEP_LABELS: Record<string, string> = {
   ENSURE_VERIFICATION_PARTICIPANT: 'Ensure verification participant',
+  RESOLVE_DID: 'Resolve participant DID',
   ONBOARD_PARTICIPANT: 'Onboard participant',
   AWAIT_PROVISIONED: 'Await provisioning',
+  AWAIT_CREDENTIAL_OFFER: 'Offer credentials',
+  AWAIT_CREDENTIALS: 'Await credential delivery',
+  AWAIT_PUBLISHED_CERTIFICATE: 'Await pushed certificate',
   AWAIT_CERTO_CONTEXT: 'Await certificate tenant',
   SEED_PROVIDER_OFFER: 'Seed provider offer',
   ESTABLISH_PULL_FLOW: 'Establish pull flow',

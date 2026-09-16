@@ -21,7 +21,28 @@ public record VerificationProperties(
         String transferType,
         Timeouts timeouts,
         Duration pollInterval,
-        Map<String, Integer> expectedEvents) {
+        Map<String, Integer> expectedEvents,
+        External external) {
+
+    /**
+     * What a run against a third-party system needs on top of the above. None of it is derivable:
+     * the asset id and the endpoints are the SUT's, agreed up front (see docs/sut-verification.md),
+     * and the timeouts bound steps this environment does not drive — the SUT does them in its own
+     * time, so they are generous by design and the operator can stop a run instead.
+     *
+     * <p>{@code expectedEvents} is its own map because most of the managed checklist can never
+     * hold here: the identity-provisioning events belong to wallets this environment creates, and
+     * the exchange's own events carry the verification participant's context rather than the
+     * SUT's. What remains is what the ledger can honestly attribute to an external participant.
+     */
+    public record External(
+            String providerAssetId,
+            String didWebScheme,
+            Duration credentialsTimeout,
+            Duration providerOfferTimeout,
+            Duration publishTimeout,
+            Map<String, Integer> expectedEvents) {
+    }
 
     /** The jwtlet mapping (RFC 8693 {@code resource}) and scope a token is exchanged under. */
     public record TokenSpec(String tokenResource, String tokenScope) {
