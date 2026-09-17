@@ -2,6 +2,7 @@ package com.metaform.cxve.verification.application;
 
 import com.metaform.cxve.verification.adapter.out.certo.CertoClient;
 import com.metaform.cxve.verification.adapter.out.hub.MembershipHubClient;
+import com.metaform.cxve.verification.adapter.out.management.CcmApi;
 import com.metaform.cxve.verification.adapter.out.management.ManagementApiClient;
 import com.metaform.cxve.verification.config.VerificationProperties;
 import com.metaform.cxve.verification.domain.model.Membership;
@@ -106,7 +107,9 @@ public class VerificationParticipantService {
     private void seedInboxOffer(String pcid) {
         var accessPolicyId = "vui-ccm-access-policy";
         var contractPolicyId = "vui-ccm-contract-policy";
-        management.createAssetIdempotent(pcid, properties.inboxAssetId(), properties.certoAssetBaseUrl());
+        // Declared as the CX-0135 consumer API: a participant pushing to this inbox finds the offer
+        // by that, not by the id, which is this environment's own choice.
+        management.upsertAsset(pcid, properties.inboxAssetId(), CcmApi.consumer(properties.ccmApiVersion()));
         management.createPolicyIdempotent(pcid, accessPolicyId, "access", List.of(MEMBERSHIP_CONSTRAINT));
         management.createPolicyIdempotent(pcid, contractPolicyId, "use",
                 List.of(FRAMEWORK_AGREEMENT_CONSTRAINT, USAGE_PURPOSE_CONSTRAINT, DATA_USAGE_DEFINITION_CONSTRAINT));

@@ -1,0 +1,189 @@
+# Configuration of the vendor stack: a system under test assembled from the VE's own components,
+# installed by vendor-stack/install.sh into its own kind cluster (cluster "vendor", release
+# "vendor-stack", namespace edc-v, host vendor.localhost, gateway port 8080).
+#
+# Everything platform- and profile-related mirrors charts/cx-ve/values.yaml — see the comments
+# there for the why of each block; only what differs for a counterparty living OUTSIDE the VE is
+# explained here. The VE's applications (Onboarding API, Membership Hub, Verification UI,
+# Compliance Tracker, OSP IdP) are deliberately absent: a vendor operates its stack with its own
+# tooling, which here is vendor-stack/scripts/.
+#
+# Host-derived keys are overridden by install.sh from its --host/--http-port options.
+
+global:
+  host: vendor.localhost
+  # Fixed: the CFM agents hardcode system:serviceaccount:edc-v:… client ids.
+  namespace: edc-v
+  gatewayName: edcv-gateway
+  # The gateway is published on port 8080 — the VE's cluster already holds 80 on the host.
+  # Carrying the port in every advertised URL and DID (did:web:identity.vendor.localhost%3A8080:…)
+  # makes the SAME address work from everywhere that dereferences it: the operator's machine
+  # (kind host-port mapping), the VE's pods (CoreDNS hosts entry → this node's IP, where Traefik
+  # binds hostPort 8080) and this cluster's own pods (CoreDNS rewrite → the Traefik Service,
+  # exposed on 8080). A portless identity would resolve to the VE's gateway on the host.
+  external:
+    port: 8080
+    scheme: http
+
+# ---- Core Platform Distribution --------------------------------------------------------------
+core-platform-distribution:
+  prefixWorkloadNames: true
+  nats:
+    auth:
+      # Certo shares the platform's edc-events NATS identity, as in the VE. Helm replaces lists, so
+      # the platform's own service accounts are restated.
+      users:
+        edc-events:
+          serviceAccounts:
+            - controlplane
+            - identityhub
+            - issuerservice
+            - certo
+  edc:
+    controlplane:
+      trustedIssuers: []
+      dataspaceProfiles:
+        # A counterparty finds this stack's DSP endpoint ONLY through the DID document, so it must
+        # advertise the profile the connector actually serves.
+        advertisedProfile: cx-neptune
+    identityhub:
+      scopes:
+        - name: membership
+          pattern: 'org\.eclipse\.tractusx\.vc\.type:(.+):(read|\*|all)'
+          leftOperand: "verifiableCredential.credential.type"
+          operator: "contains"
+          rightOperand: "$1"
+    siglet:
+      # The Data Plane Signaling HTTP transfer profile, pull direction
+      # (https://eclipse-dataplane-signaling.github.io/profiles/HEAD/#transfer-profiles): the
+      # transfer type is the profile value, and the endpointType of the DataAddress Siglet hands
+      # out MUST be that same value.
+      transferTypes:
+        - transferType: "https://w3id.org/dspace-sig/profile/http-pull"
+          endpointType: "https://w3id.org/dspace-sig/profile/http-pull"
+          endpoint: "http://provider:8080/data"
+          tokenSource: "provider"
+          txRenewalSupport: true
+  cfm:
+    agents:
+      jwtlet:
+        clientMappings:
+          - name: controlplane
+            scopes: [read, signaling]
+          - name: identityhub
+            scopes: [read]
+          - name: siglet-sa
+            scopes: [read]
+          - name: certo
+            scopes: [siglet-token]
+  postgresql:
+    # The platform defaults plus certo's database (Helm replaces lists wholesale).
+    databases:
+      - { db: controlplane,  user: cp,      password: cp }
+      - { db: identityhub,   user: ih,      password: ih }
+      - { db: issuerservice, user: issuer,  password: issuer }
+      - { db: dataplane,     user: dp,      password: dp }
+      - { db: cfm,           user: cfm,     password: cfm }
+      - { db: sigletdb,      user: siglet,  password: siglet }
+      - { db: jwtlet,        user: jwtlet,  password: jwtlet }
+      - { db: certo,         user: certo,   password: certo }
+
+# ---- Catena-X profile seeding ----------------------------------------------------------------
+catenax-profile:
+  issuer:
+    # This stack's own issuer — the platform always deploys one and the profile always trusts it.
+    # It issues nothing to the vendor participant: see the orchestration in
+    # templates/certo-activity-seed-job.yaml.
+    did: "did:web:issuer.vendor.localhost%3A8080:issuer"
+    # The VE's issuer. Everything this stack's participant holds, and everything the VE's
+    # verification participant presents to it, is signed by that issuer — without this entry
+    # every DSP request from the VE fails credential verification here.
+    trustedIssuers:
+      - "did:web:issuer.cxve.localhost:issuer"
+
+# ---- Certo (CX-0135 certificate exchange) ----------------------------------------------------
+certo:
+  enabled: true
+  gateway:
+    name: edcv-gateway
+    namespace: edc-v
+    hostnames:
+      - vendor.localhost
+    pathPrefix: /api/certo
+  # In-cluster on purpose: certo calls siglet without a bearer token (see charts/cx-ve/values.yaml).
+  sigletBaseUrl: "http://siglet.edc-v.svc.cluster.local:8080"
+  tokenExchange:
+    enabled: true
+    url: http://jwtlet.edc-v.svc.cluster.local:8080/token
+    audience: edcv
+    scope: siglet-token
+    verifyResource: sudo
+    subjectTokenAudience: https://kubernetes.default.svc.cluster.local
+  events:
+    nats:
+      enabled: true
+      url: nats://vendor-stack-nats.edc-v.svc.cluster.local:4222
+      stream: edc-events
+      createStream: false
+  natsAuth:
+    enabled: true
+    vaultUrl: http://vendor-stack-vault.edc-v.svc.cluster.local:8200
+    vaultRole: nats-edc-events
+    vaultSecretPath: secret/nats/edc-events
+    image: hashicorp/vault:latest
+  extraEnv:
+    - name: CERTO_MGMT_ISSUER_URI
+      value: http://jwtlet.edc-v.svc.cluster.local:8080
+    - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI
+      value: http://jwtlet.edc-v.svc.cluster.local:8080/.well-known/jwks.json
+  database:
+    url: jdbc:postgresql://vendor-stack-postgresql.edc-v.svc.cluster.local:5432/certo
+    username: certo
+    password: certo
+    ddlAuto: update
+  serviceAccount:
+    create: true
+    name: certo
+
+# ---- jwtlet registration (see templates/certo-jwtlet-seed-job.yaml) ---------------------------
+jwtlet:
+  healthUrl: http://jwtlet.edc-v.svc.cluster.local:8080/health
+  mgmtUrl: http://jwtlet.edc-v.svc.cluster.local:8081/api/v1
+  subjectTokenAudience: https://kubernetes.default.svc.cluster.local
+  subjectTokenExpirationSeconds: 3600
+  seed:
+    enabled: true
+    audiences:
+      - edcv
+    image: curlimages/curl:latest
+    hookDeletePolicy: before-hook-creation,hook-succeeded
+    ttlSecondsAfterFinished: 600
+
+# ---- Certo CFM agent -------------------------------------------------------------------------
+certoAgent:
+  enabled: true
+  replicas: 1
+  image:
+    repository: ghcr.io/eclipse-cfm/cfm/certoagent
+    tag: 0.0.3
+    pullPolicy: IfNotPresent
+  resources: {}
+  natsAuth:
+    enabled: true
+    vaultUrl: http://vendor-stack-vault.edc-v.svc.cluster.local:8200
+    vaultRole: nats-cfm-agents
+    vaultSecretPath: secret/nats/cfm-agents
+    image: hashicorp/vault:latest
+  seed:
+    enabled: true
+    pmUrl: http://provision-manager.edc-v.svc.cluster.local:8080
+    image: curlimages/curl:latest
+    hookDeletePolicy: before-hook-creation,hook-succeeded
+    ttlSecondsAfterFinished: 600
+  config:
+    natsUrl: nats://vendor-stack-nats.edc-v.svc.cluster.local:4222
+    bucket: cfm-bucket
+    stream: cfm-stream
+    certoUrl: http://vendor-stack-certo.edc-v.svc.cluster.local:8080
+    tokenExchangeUrl: http://jwtlet.edc-v.svc.cluster.local:8080
+    tokenExchangeAudience: edcv

@@ -113,15 +113,15 @@ request — the consumer's own `/api/dsp/<cons-ctx>/cx-neptune` base). Both dire
 | 10 | ve1 → ve2 | `POST /negotiations/{consumerPid}/agreement` | `ContractAgreementMessage` callback. |
 | 11 | ve2 → ve1 | `POST /negotiations/{providerPid}/agreement/verification` | `ContractAgreementVerificationMessage`. |
 | 12 | ve1 → ve2 | `POST /negotiations/{consumerPid}/events` | `ContractNegotiationEventMessage` (FINALIZED). |
-| 13 | ve2 → ve1 | `POST /transfers/request` | `TransferRequestMessage` (`HttpData-PULL`). |
+| 13 | ve2 → ve1 | `POST /transfers/request` | `TransferRequestMessage` (`https://w3id.org/dspace-sig/profile/http-pull`). |
 | 14 | ve1 → ve2 | `POST /transfers/{consumerPid}/start` | `TransferStartMessage` — carries the **EDR** (data address: endpoint + provider-siglet-minted access token). The consumer control plane hands it to its siglet via data-plane signaling (intra-VE). |
 | — | either | `POST /negotiations/{pid}/termination`, `POST /transfers/{pid}/termination` | Error/termination paths, when an exchange is aborted. |
 
-## Layer 4 — data plane (DSP HttpData-PULL profile, steady state after STARTED)
+## Layer 4 — data plane (Data Plane Signaling HTTP transfer profile, pull; steady state after STARTED)
 
 | # | From → To | Request | Purpose |
 |---|---|---|---|
-| 15 | siglet (ve2) → siglet (ve1) `:8082` | `POST /token` (OAuth2-style refresh, endpoint from `SIGLET__TOKEN__REFRESH_ENDPOINT`, e.g. `http://siglet.edc-v.svc.ve1.local:8082/token`) | Automatic renewal of the EDR access token when a cached token nears expiry (`tx_renewal_support = true` for `HttpData-PULL`). The consumer siglet does this transparently for applications reading `GET /tokens/{ctx}/{transfer-id}`. |
+| 15 | siglet (ve2) → siglet (ve1) `:8082` | `POST /token` (OAuth2-style refresh, endpoint from `SIGLET__TOKEN__REFRESH_ENDPOINT`, e.g. `http://siglet.edc-v.svc.ve1.local:8082/token`) | Automatic renewal of the EDR access token when a cached token nears expiry (`tx_renewal_support = true` for the http-pull transfer type). The consumer siglet does this transparently for applications reading `GET /tokens/{ctx}/{transfer-id}`. |
 | 16 | application → EDR endpoint | `GET <endpoint>` with `Authorization: Bearer <EDR token>` | The actual data pull. In the demo deployment the endpoint is the external sample source (`https://jsonplaceholder.typicode.com/todos/1`), so this request leaves both VEs; with a provider-hosted data source it would be another ve2 → ve1 flow. |
 
 ## What does *not* cross the VE boundary
@@ -174,7 +174,7 @@ sequenceDiagram
     CP1->>CP2: POST /negotiations/{pid}/events (FINALIZED)
 
     Note over CP2,SIG1: transfer + data
-    CP2->>CP1: POST /transfers/request (HttpData-PULL)
+    CP2->>CP1: POST /transfers/request (http-pull)
     CP1->>CP2: POST /transfers/{pid}/start (EDR)
     CP2->>SIG2: DPS on_started (intra-VE) — EDR cached
     SIG2->>SIG1: POST /token :8082 (renewal, near expiry)

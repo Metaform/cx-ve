@@ -36,7 +36,7 @@
 #      routed) and additionally verifies the issuer DID document.
 #
 # Usage:
-#   ./scripts/setup-did-dns.sh [-c|--cluster <name>] [--pre] [-H|--host <host>]
+#   ./scripts/setup-did-dns.sh [-c|--cluster <name>] [--pre] [-H|--host <host>] [-p|--port <port>]
 #                              [--verify-only] [-h|--help]
 #
 #   -c, --cluster <name>   KinD cluster whose CoreDNS is configured (default: cxve). The
@@ -45,6 +45,10 @@
 #                          (not yet existing) HTTPRoutes, and skip the DID document check
 #   -H, --host <host>      the VE's hostname the derived list is built from (default:
 #                          cxve.localhost; only used with --pre)
+#   -p, --port <port>      the gateway port the cluster advertises in its URLs and DIDs (the
+#                          platform's global.external.port; default: 80). Used by the DID
+#                          document check, which must dial — and name in the Host header — the
+#                          same authority the DID encodes (did:web:issuer.<host>%3A<port>:issuer)
 #       --verify-only      run the checks without touching CoreDNS
 #   -h, --help             show usage and exit
 
@@ -54,6 +58,7 @@ CLUSTER_NAME=cxve
 VERIFY_ONLY=false
 PRE=false
 HOST=cxve.localhost
+PORT=80
 # Hostnames of systems OUTSIDE this cluster that its pods must resolve (see --sut).
 SUT_ENTRIES=()
 SUT_SET=false
@@ -74,8 +79,8 @@ PROBE_IMAGE=debian:stable-slim
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-c|--cluster <name>] [--pre] [-H|--host <host>] [--verify-only]
-                       [--sut <hostname>=<ip>]... [--sut-none] [-h|--help]
+Usage: $(basename "$0") [-c|--cluster <name>] [--pre] [-H|--host <host>] [-p|--port <port>]
+                       [--verify-only] [--sut <hostname>=<ip>]... [--sut-none] [-h|--help]
 
 Options:
   -c, --cluster <name>  KinD cluster whose CoreDNS is configured (default: cxve). Kubeconfig is
@@ -84,6 +89,8 @@ Options:
                         existing) HTTPRoutes; skips the DID document check
   -H, --host <host>     the VE hostname the derived list is built from (default: cxve.localhost;
                         only used with --pre)
+  -p, --port <port>     gateway port the cluster advertises in its URLs and DIDs (default: 80);
+                        the DID document check dials it and expects it in the DID
       --verify-only     run the checks without modifying CoreDNS
       --sut <host>=<ip> make an EXTERNAL system under test resolvable from this cluster's pods,
                         e.g. --sut sut.vendor.example=192.168.1.50. Repeatable. Verification
@@ -101,11 +108,12 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -c|--cluster|-H|--host)
+    -c|--cluster|-H|--host|-p|--port)
       [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
       case "$1" in
         -c|--cluster) CLUSTER_NAME="$2" ;;
         -H|--host) HOST="$2" ;;
+        -p|--port) PORT="$2" ;;
       esac
       shift 2 ;;
     --sut)
@@ -265,20 +273,28 @@ verify_did_document() { # <did-host>
   # "issuer" is the issuer's participantContextId, created by the platform's issuerservice-seed
   # job and hardcoded across cx-ve (see issuer.id in the reg/onboarding agent configs).
   local path="/issuer/did.json"
-  local expect="\"id\":\"did:web:${did_host}:issuer\""
+  # A non-default port is part of the authority: in the Host header (the DID is reconstructed from
+  # it) and, percent-encoded, in the DID itself.
+  local authority="$did_host" did_authority="$did_host"
+  if [[ "$PORT" != 80 ]]; then
+    authority="${did_host}:${PORT}"
+    did_authority="${did_host}%3A${PORT}"
+  fi
+  local expect="\"id\":\"did:web:${did_authority}:issuer\""
 
-  echo ">> verifying DID resolution: did:web:${did_host}:issuer"
+  echo ">> verifying DID resolution: did:web:${did_authority}:issuer"
   # bash rather than sh: the probe image ships no HTTP client, and bash's /dev/tcp needs no extra
   # image. The explicit Host header is the whole point — it is what the DID is reconstructed from.
   # Retries for the same reason as verify_dns — and a dnscheck pass does not cover this probe:
   # CoreDNS runs two replicas, so this lookup may hit a replica the dnscheck never exercised.
   kubectl run "didcheck-$RANDOM" --rm -i --restart=Never --image="$PROBE_IMAGE" \
-    --env="DID_HOST=$did_host" --env="DID_PATH=$path" --env="EXPECT=$expect" \
+    --env="DID_HOST=$did_host" --env="DID_PORT=$PORT" --env="DID_AUTHORITY=$authority" \
+    --env="DID_PATH=$path" --env="EXPECT=$expect" \
     --timeout=300s --command -- bash -c '
       for attempt in $(seq 1 36); do
         response=""
-        if { exec 3<>"/dev/tcp/$DID_HOST/80"; } 2>/dev/null; then
-          printf "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n" "$DID_PATH" "$DID_HOST" >&3
+        if { exec 3<>"/dev/tcp/$DID_HOST/$DID_PORT"; } 2>/dev/null; then
+          printf "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n" "$DID_PATH" "$DID_AUTHORITY" >&3
           response=$(cat <&3)
           exec 3<&-
         fi
@@ -286,7 +302,7 @@ verify_did_document() { # <did-host>
         [ "$attempt" -lt 36 ] && { echo "     ...  document not served yet, retrying ($attempt/36)"; sleep 5; }
       done
       if [ -z "$response" ]; then
-        echo "     FAIL could not connect to $DID_HOST:80"; exit 1
+        echo "     FAIL could not connect to $DID_HOST:$DID_PORT"; exit 1
       fi
       printf "     %s\n" "$(printf "%s" "$response" | head -1 | tr -d "\r")"
       if printf "%s" "$response" | grep -qF "$EXPECT"; then

@@ -37,12 +37,12 @@ public class CfmTenantManager implements TenantManager {
     private final String ccmTokenSource;
 
     public CfmTenantManager(TenantManagerClient client,
-                            @Value("${participant.dataplane.transfer-type:HttpData-PULL}") String dataplaneTransferType,
-                            @Value("${participant.dataplane.endpoint-type:HTTP}") String dataplaneEndpointType,
+                            @Value("${participant.dataplane.transfer-type:https://w3id.org/dspace-sig/profile/http-pull}") String dataplaneTransferType,
+                            @Value("${participant.dataplane.endpoint-type:https://w3id.org/dspace-sig/profile/http-pull}") String dataplaneEndpointType,
                             @Value("${participant.dataplane.endpoint:}") String dataplaneEndpoint,
                             @Value("${participant.dataplane.token-source:provider}") String dataplaneTokenSource,
-                            @Value("${participant.ccm.transfer-type:HttpData-PULL}") String ccmTransferType,
-                            @Value("${participant.ccm.endpoint-type:HTTP}") String ccmEndpointType,
+                            @Value("${participant.ccm.transfer-type:https://w3id.org/dspace-sig/profile/http-pull}") String ccmTransferType,
+                            @Value("${participant.ccm.endpoint-type:https://w3id.org/dspace-sig/profile/http-pull}") String ccmEndpointType,
                             @Value("${participant.ccm.endpoint:}") String ccmEndpoint,
                             @Value("${participant.ccm.token-source:provider}") String ccmTokenSource) {
         this.client = client;

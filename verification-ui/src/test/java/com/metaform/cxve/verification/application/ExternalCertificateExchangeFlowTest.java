@@ -3,6 +3,7 @@ package com.metaform.cxve.verification.application;
 import com.metaform.cxve.verification.adapter.out.certo.CertoClient;
 import com.metaform.cxve.verification.adapter.out.did.DidWebResolver;
 import com.metaform.cxve.verification.adapter.out.hub.MembershipHubClient;
+import com.metaform.cxve.verification.adapter.out.management.CcmApi;
 import com.metaform.cxve.verification.adapter.out.management.ManagementApiClient;
 import com.metaform.cxve.verification.domain.model.DidDocument;
 import com.metaform.cxve.verification.domain.model.RunState;
@@ -84,16 +85,16 @@ class ExternalCertificateExchangeFlowTest {
                 .thenReturn(TestFixtures.externalMembership("sut-ext", "CREDENTIALS_OFFERED", SUT_DID, "proc-1"));
         when(hub.eventlog("proc-1"))
                 .thenReturn(Optional.of(rollup("events.issuance.credential.delivered")));
-        when(management.awaitCatalogOffer(anyString(), anyString(), anyString(), anyString(), any()))
-                .thenReturn(new ManagementApiClient.CatalogOffer(
+        when(management.awaitCatalogOffer(anyString(), anyString(), anyString(), any(CcmApi.class), any()))
+                .thenReturn(new ManagementApiClient.CatalogOffer("vendor-named-asset",
                         mapper.createObjectNode().put("@id", "offer-1"), mapper.createArrayNode()));
-        when(management.startNegotiation(anyString(), anyString(), anyString(), anyString(), any()))
+        when(management.startNegotiation(anyString(), anyString(), anyString(), any()))
                 .thenReturn("neg-1");
         when(management.awaitState(contains("contractnegotiations"), any(), any()))
                 .thenReturn(mapper.createObjectNode().put("state", "FINALIZED").put("contractAgreementId", "agr-1"));
         when(management.awaitState(contains("transferprocesses"), any(), any()))
                 .thenReturn(mapper.createObjectNode().put("state", "STARTED"));
-        when(management.startTransfer(anyString(), eq("agr-1"), anyString(), eq("HttpData-PULL")))
+        when(management.startTransfer(anyString(), eq("agr-1"), anyString(), eq("https://w3id.org/dspace-sig/profile/http-pull")))
                 .thenReturn("flow-pull");
         when(certo.consumerExchanges("pctx-vp", true)).thenReturn(exchangePage("ex-sut", null));
         when(certo.consumerExchanges("pctx-vp", false)).thenReturn(exchangePage("ex-sut", "ACCEPTED"));
@@ -124,7 +125,7 @@ class ExternalCertificateExchangeFlowTest {
         verify(certo, never()).addDocument(anyString(), anyString(), any());
         verify(certo, never()).addCertificate(anyString(), anyString(), anyString(), anyString());
         verify(certo, never()).publish(anyString(), anyString(), anyString(), anyString(), anyString());
-        verify(management, never()).createAssetIdempotent(anyString(), anyString(), anyString());
+        verify(management, never()).upsertAsset(anyString(), anyString(), any());
         verify(certo).accept("pctx-vp", "ex-sut", "ACCEPTED", "flow-pull");
     }
 
@@ -136,8 +137,22 @@ class ExternalCertificateExchangeFlowTest {
 
         // The counterparty address comes from the SUT's DID document; a synthesized one would
         // point back into this cluster and verify the wrong system.
-        verify(management).awaitCatalogOffer(eq("pctx-vp"), eq(SUT_DSP), eq(SUT_DID), eq("ccm-api"), any());
-        verify(management).startNegotiation(eq("pctx-vp"), eq(SUT_DSP), eq(SUT_DID), eq("ccm-api"), any());
+        verify(management).awaitCatalogOffer(eq("pctx-vp"), eq(SUT_DSP), eq(SUT_DID), any(CcmApi.class), any());
+        verify(management).startNegotiation(eq("pctx-vp"), eq(SUT_DSP), eq(SUT_DID), any());
+    }
+
+    @Test
+    void theSutsOfferIsLookedUpByTheProviderApiItDeclares_notByAnAgreedId() {
+        happyStubs();
+
+        flow.execute(run);
+
+        // CX-0135 identifies the offer by dct:subject + cx-common:version; the vendor names the
+        // asset as it likes, and the step reports the name it chose.
+        verify(management).awaitCatalogOffer(anyString(), anyString(), anyString(), eq(CcmApi.provider("3.0")), any());
+        assertThat(run.snapshot().steps()).filteredOn(step -> step.step() == RunStep.ESTABLISH_PULL_FLOW)
+                .singleElement()
+                .satisfies(step -> assertThat(step.detail()).contains("flow-pull").contains("vendor-named-asset"));
     }
 
     @Test
@@ -195,7 +210,7 @@ class ExternalCertificateExchangeFlowTest {
             assertThat(item.subject()).isEqualTo("events.issuance.credential.delivered");
             assertThat(item.satisfied()).isFalse();
         });
-        verify(management, never()).awaitCatalogOffer(anyString(), anyString(), anyString(), anyString(), any());
+        verify(management, never()).awaitCatalogOffer(anyString(), anyString(), anyString(), any(CcmApi.class), any());
     }
 
     @Test

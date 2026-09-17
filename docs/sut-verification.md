@@ -11,9 +11,9 @@ Two principles follow:
 1. **The only interactions between the clusters are DSP and DCP.** The complete request
    catalogue lives in [cross-ve-communication.md](cross-ve-communication.md): layers 1–2 are
    DCP (did:web resolution + presentation exchange), layers 3–4 are DSP and the agreed
-   data-plane profile (HttpData-PULL incl. EDR token refresh). Anything else crossing the
-   boundary is a harness artifact, not part of the surface — a candidate that needs more than
-   DSP + DCP to interoperate fails by construction.
+   data-plane profile (the Data Plane Signaling HTTP transfer profile, pull direction, incl. EDR
+   token refresh). Anything else crossing the boundary is a harness artifact, not part of the
+   surface — a candidate that needs more than DSP + DCP to interoperate fails by construction.
 2. **How the SUT reaches a required state is immaterial.** Seeding assets, issuing
    credentials, provisioning wallets, registering data planes — the SUT does this with
    whatever management APIs, consoles or scripts it has. Verification only requires that at
@@ -54,6 +54,13 @@ The reverse direction is the `-H` install flag. The default host `cxve.localhost
 loopback on every machine, so a SUT anywhere but ve1's host cannot reach ve1 at all; install with
 a hostname that resolves for both parties (`./scripts/install-ve.sh -H ve1.example.com`), which
 carries through to every advertised URL and DID.
+
+What the SUT must reach on ve1 is more than its DIDs and DSP endpoint: every credential ve1's
+issuer signs names its **status list** (`http://<host>/statuslist/<id>`), and the SUT's wallet
+downloads it before presenting the credential, as does its connector when verifying ve1's
+participant. An unreachable status list makes the credential unverifiable, and one unverifiable
+credential rejects the whole presentation — both directions of DSP then fail with 401. (Core
+platform ≥ 0.0.29 publishes the external URL; earlier versions wrote the in-cluster one.)
 
 **Everything is plain HTTP — a known constraint, not an oversight.** `edc.iam.did.web.use.https`
 is pinned false across the runtimes and the gateway terminates HTTP only, so ve1 resolves
@@ -105,7 +112,12 @@ verifies ve1's VP and vice versa) before asserting anything content-related.
 ### Checkpoint 2 — SUT as provider (ve1 fires the requests)
 
 **SUT obligations (state):**
-- An agreed-upon asset exists with an `HttpData-PULL` distribution and a backing data source.
+- An agreed-upon asset exists with a distribution of format
+  `https://w3id.org/dspace-sig/profile/http-pull` — the Data Plane Signaling HTTP
+  [transfer profile](https://eclipse-dataplane-signaling.github.io/profiles/HEAD/#transfer-profiles)
+  value for pull, which is also the `endpointType` of the DataAddress its data plane hands out —
+  and a backing data source. The asset itself carries no address: the data plane owns the
+  endpoint.
 - Access + contract policy gate the asset on the three CX credential constraints
   (`Membership`, `FrameworkAgreement == DataExchangeGovernance:1.0`,
   `BusinessPartnerNumber == <ve1 participant's BPN>`).
@@ -117,7 +129,8 @@ verifies ve1's VP and vice versa) before asserting anything content-related.
    negative probe: a consumer without the credentials must NOT see the offer).
 2. Contract negotiation mirroring the offer → SUT must callback agreement (#10), accept the
    verification (#11) and finalize (#12).
-3. Transfer request (`HttpData-PULL`) → SUT must send TransferStart with a working EDR (#14).
+3. Transfer request (transfer type `https://w3id.org/dspace-sig/profile/http-pull`) → SUT must send TransferStart with a
+   working EDR (#14).
 4. Data pull with the EDR token → payload bytes; renewal via the SUT's refresh endpoint where
    advertised (#15/#16 mirrored).
 
@@ -130,7 +143,7 @@ all observable through ve1's management API and the downloaded bytes.
 offer (what `dsp-tests.sh` seeds today), the SUT must at some point initiate and complete:
 1. Catalog request to ve1's DSP endpoint (#8) and locate the offer.
 2. Negotiation mirroring the offer policy exactly (#9, #11) through to FINALIZED (#10, #12).
-3. An `HttpData-PULL` transfer (#13) to STARTED (#14).
+3. A transfer of type `https://w3id.org/dspace-sig/profile/http-pull` (#13) to STARTED (#14).
 4. The data pull using the EDR from the TransferStartMessage (#16), with refresh against
    ve1's siglet where needed (#15).
 
@@ -164,8 +177,8 @@ BPN the VE should issue credentials for (otherwise derived).
 |---|---|---|
 | 1 | Resolves the DID document | Served and reachable from the VE, advertising `ProtocolEndpoint` and `CredentialService` (Checkpoint 0) |
 | 2 | Registers the DID as a credential holder and has its IssuerService send a DCP CredentialOffer to the advertised `CredentialService` | Accept the offer and request the credentials (Checkpoint 1). The VE waits for `events.issuance.credential.delivered` in its ledger — nothing else proves the SUT holds them |
-| 3 | Requests the SUT's catalog as the verification participant, negotiates and starts an `HttpData-PULL` transfer | An asset under the agreed id (`verification.external.provider-asset-id`, default `ccm-api`) fronting its CCM API, gated on the three CX credential constraints (Checkpoint 2) |
-| 4 | Waits for a certificate on the verification participant's inbox | Consume the VE's permanent `ccm-inbox-verification` offer and push a certificate over that flow (Checkpoint 3 + CX-0135 Flow B) |
+| 3 | Requests the SUT's catalog as the verification participant, negotiates and starts a `https://w3id.org/dspace-sig/profile/http-pull` transfer | An asset fronting its CCM API, declaring the CX-0135 provider API — `dct:type` `cx-taxo:CCMAPI`, `dct:subject` `cx-taxo:CompanyCertificateManagementProviderApi`, `cx-common:version` (`verification.ccm-api-version`, default `3.0`) — gated on the three CX credential constraints (Checkpoint 2). The VE finds it by those properties, whatever its id; a catalog offering the API twice fails the run, since CX-0135 allows one offer per API and version |
+| 4 | Waits for a certificate on the verification participant's inbox | Find the VE's permanent inbox offer — the dataset declaring the CX-0135 consumer API (`cx-taxo:CompanyCertificateManagementConsumerApi`) — consume it and push a certificate over that flow (Checkpoint 3 + CX-0135 Flow B) |
 | 5 | Retrieves the certificate over the pull flow and reports the `ACCEPTED` verdict | — |
 
 Two consequences worth stating plainly. The VE cannot compare the retrieved document against an
@@ -174,6 +187,10 @@ exchange having happened under VE-issued credentials is the finding. And the com
 can only attribute a SUT's **onboarding and credential delivery** to it — the exchange's own
 events carry the verification participant's context — so the ledger checklist for an external run
 is deliberately short (`verification.external.expected-events`).
+
+**A reference SUT** to run this against lives in [vendor-stack/](../vendor-stack/README.md): the
+VE's own components in a separate kind cluster, provisioned without credentials of their own, with
+scripts for every obligation in the table above.
 
 `dsp-tests.sh` remains the older path: it implements Checkpoint 2+3 with ve2 as a compliant
 pseudo-SUT, whose obligations are fulfilled by the platform's own tooling (the Membership Hub's

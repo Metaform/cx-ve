@@ -74,16 +74,16 @@ class CertificateExchangeFlowTest {
         when(hub.awaitProvisioned("put-ext"))
                 .thenReturn(TestFixtures.membership("put-ext", "PROVISIONED", "did:web:put", "pctx-put", "proc-1"));
         when(management.awaitCatalogOffer(anyString(), anyString(), anyString(), anyString(), any()))
-                .thenReturn(new ManagementApiClient.CatalogOffer(
+                .thenReturn(new ManagementApiClient.CatalogOffer("dataset-1",
                         mapper.createObjectNode().put("@id", "offer-1"), mapper.createArrayNode()));
-        when(management.startNegotiation(anyString(), anyString(), anyString(), anyString(), any()))
+        when(management.startNegotiation(anyString(), anyString(), anyString(), any()))
                 .thenReturn("neg-1");
         when(management.awaitState(contains("contractnegotiations"), any(), any()))
                 .thenReturn(mapper.createObjectNode().put("state", "FINALIZED").put("contractAgreementId", "agr-1"));
         when(management.awaitState(contains("transferprocesses"), any(), any()))
                 .thenReturn(mapper.createObjectNode().put("state", "STARTED"));
         // pull flow is established first, push flow second
-        when(management.startTransfer(anyString(), eq("agr-1"), anyString(), eq("HttpData-PULL")))
+        when(management.startTransfer(anyString(), eq("agr-1"), anyString(), eq("https://w3id.org/dspace-sig/profile/http-pull")))
                 .thenReturn("flow-pull", "flow-push");
         when(certo.addDocument(eq("pctx-put"), eq("application/pdf"), any())).thenReturn("doc-1");
         when(certo.addCertificate(eq("pctx-put"), eq("BPNLPUT000000001"), eq("doc-1"), anyString()))

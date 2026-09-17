@@ -13,12 +13,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "verification")
 public record VerificationProperties(
         String dspBaseUrl,
-        String certoAssetBaseUrl,
         TokenSpec management,
         TokenSpec certoAuth,
         ParticipantIdentity participant,
         String inboxAssetId,
         String transferType,
+        String ccmApiVersion,
         Timeouts timeouts,
         Duration pollInterval,
         Map<String, Integer> expectedEvents,
@@ -36,7 +36,6 @@ public record VerificationProperties(
      * SUT's. What remains is what the ledger can honestly attribute to an external participant.
      */
     public record External(
-            String providerAssetId,
             String didWebScheme,
             Duration credentialsTimeout,
             Duration providerOfferTimeout,

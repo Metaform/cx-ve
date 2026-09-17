@@ -13,6 +13,7 @@ import org.springframework.test.web.client.match.MockRestRequestMatchers;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.json.JsonMapper;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.manyTimes;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -105,6 +106,78 @@ class ManagementApiClientTest {
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("timed out")
                 .hasMessageContaining("catalog request failed with HTTP 500");
+    }
+
+    /** A catalog dataset as the management API compacts it (shape taken from a live catalog). */
+    private static String dataset(String id, String subject, String version) {
+        var api = subject == null ? "" : """
+                "dct:type": {"@id": "https://w3id.org/catenax/taxonomy#CCMAPI"},
+                "dct:subject": {"@id": "https://w3id.org/catenax/taxonomy#%s"},
+                "https://w3id.org/catenax/ontology/common#version": "%s",
+                """.formatted(subject, version);
+        return """
+                {"@id": "%s", "@type": "Dataset", %s "hasPolicy": [{"@id": "offer-%s", "@type": "Offer"}]}"""
+                .formatted(id, api, id);
+    }
+
+    private static String catalog(String... datasets) {
+        return """
+                {"@context": ["https://w3id.org/dspace/2025/1/context.jsonld"], "@type": "Catalog",
+                 "dataset": [%s]}""".formatted(String.join(",", datasets));
+    }
+
+    @Test
+    void theProviderApiOfferIsFoundByWhatItDeclares_whateverTheVendorNamedIt() {
+        var fixture = fixture();
+        fixture.server().expect(MockRestRequestMatchers.requestTo("http://cp/participants/pctx-vp/catalog/request"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(catalog(
+                        dataset("some-data", null, null),
+                        dataset("vendor-inbox", "CompanyCertificateManagementConsumerApi", "3.0"),
+                        dataset("acme-ccm-provider-api", "CompanyCertificateManagementProviderApi", "3.0"))));
+
+        var offer = fixture.client().awaitCatalogOffer("pctx-vp", DSP, DID, CcmApi.provider("3.0"), Duration.ofSeconds(30));
+
+        assertThat(offer.datasetId()).isEqualTo("acme-ccm-provider-api");
+        assertThat(offer.offer().path("@id").asText()).isEqualTo("offer-acme-ccm-provider-api");
+        fixture.server().verify();
+    }
+
+    @Test
+    void theSameApiOfferedTwiceFailsImmediately() {
+        // CX-0135 allows one asset per API and version per business partner. Picking one of two
+        // would verify an arbitrary offer — the catalog's answer is final, so no second request.
+        var fixture = fixture();
+        fixture.server().expect(MockRestRequestMatchers.requestTo("http://cp/participants/pctx-vp/catalog/request"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(catalog(
+                        dataset("ccm-a", "CompanyCertificateManagementProviderApi", "3.0"),
+                        dataset("ccm-b", "CompanyCertificateManagementProviderApi", "3.0"))));
+
+        assertThatThrownBy(() -> fixture.client()
+                .awaitCatalogOffer("pctx-vp", DSP, DID, CcmApi.provider("3.0"), Duration.ofSeconds(30)))
+                .isInstanceOf(VerificationException.class)
+                .hasMessageContaining("ambiguous")
+                .hasMessageContaining("ccm-a")
+                .hasMessageContaining("ccm-b");
+        fixture.server().verify();
+    }
+
+    @Test
+    void whileNoDatasetDeclaresTheApi_theWaitNamesWhatTheCatalogOffers() {
+        // An offer under the wrong identity looks exactly like a missing one otherwise: the run
+        // would sit at "Establish pull flow" with nothing pointing at the asset that IS there.
+        var fixture = fixture();
+        fixture.server().expect(manyTimes(), MockRestRequestMatchers.requestTo(
+                        "http://cp/participants/pctx-vp/catalog/request"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(catalog(
+                        dataset("foobar-ccm-api", null, null),
+                        dataset("old-ccm", "CompanyCertificateManagementProviderApi", "2.0"))));
+
+        assertThatThrownBy(() -> fixture.client()
+                .awaitCatalogOffer("pctx-vp", DSP, DID, CcmApi.provider("3.0"), Duration.ofMillis(300)))
+                .isInstanceOf(VerificationException.class)
+                .hasMessageContaining("timed out")
+                .hasMessageContaining("foobar-ccm-api (no CX-0135 API subject)")
+                .hasMessageContaining("old-ccm (CompanyCertificateManagementProviderApi 2.0)");
     }
 
     @Test

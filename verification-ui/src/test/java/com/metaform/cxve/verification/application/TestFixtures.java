@@ -15,17 +15,17 @@ final class TestFixtures {
         var tight = Duration.ofMillis(300);
         return new VerificationProperties(
                 "http://gw/api/dsp",
-                "http://certo-svc:8080",
                 new VerificationProperties.TokenSpec("issuer", "admin"),
                 new VerificationProperties.TokenSpec("sudo", "certo-mgmt-api:write"),
                 new VerificationProperties.ParticipantIdentity(
                         "Verification Participant", "verification-participant", "BPNLVERIFY000001", "DEVERIFY0001"),
                 "ccm-inbox-verification",
-                "HttpData-PULL",
+                "https://w3id.org/dspace-sig/profile/http-pull",
+                "3.0",
                 new VerificationProperties.Timeouts(tight, tight, tight, tight, tight, tight),
                 Duration.ofMillis(10),
                 expectedEvents,
-                new VerificationProperties.External("ccm-api", "http", tight, tight, tight,
+                new VerificationProperties.External("http", tight, tight, tight,
                         Map.of("events.issuance.credential.delivered", 1)));
     }
 
