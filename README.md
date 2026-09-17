@@ -11,6 +11,7 @@ Monorepo containing:
 | `charts/membership-hub/` | Helm chart for the Membership Hub application |
 | `charts/cx-ve/` | Umbrella chart: the whole VE (platform, Catena-X profile, Onboarding API, Membership Hub, Certo + agent) as one release |
 | `scripts/` | Utility and automation scripts |
+| `vendor-stack/` | A reference system under test for the VE to verify: the VE's own components in a separate kind cluster, plus the vendor-side scripts ([README](vendor-stack/README.md)) |
 
 ## How a member gets onboarded
 

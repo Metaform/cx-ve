@@ -1,0 +1,32 @@
+apiVersion: v2
+name: vendor-stack
+description: >-
+  A reference system under test for the CX Verification Environment: a dataspace stack built
+  from exactly the VE's own components (Core Platform Distribution, Catena-X profile seeding,
+  Certo and the Certo CFM agent), installed into its own kind cluster and verified by the VE
+  from the outside — over DSP, DCP and CCM only.
+type: application
+version: 0.1.0
+appVersion: "latest"
+
+# NOTE the release name is load-bearing: the platform chart derives its infra resource names
+# from it (<release>-nats, <release>-vault, <release>-postgresql) and the values here reference
+# those names. Install this chart as release "vendor-stack" (vendor-stack/install.sh does).
+#
+# Versions deliberately track charts/cx-ve/Chart.yaml: the point of this stack is to be the same
+# software as the VE, deployed and operated independently of it.
+dependencies:
+  # Connector, IdentityHub, IssuerService, Siglet, CFM, jwtlet/clearglass, gateway routes,
+  # infra (NATS/Vault/Postgres/telemetry) + generic platform seeding
+  - name: core-platform-distribution
+    repository: oci://ghcr.io/eclipse-cfm/charts
+    version: 0.0.29
+  # Catena-X dataspace seeding (issuer credentials, dataspace profile, EDC seed)
+  - name: catenax-profile
+    repository: oci://ghcr.io/metaform/charts
+    version: 0.0.11
+  # Certo (CX-0135 certificate exchange service)
+  - name: certo
+    repository: oci://ghcr.io/metaform/charts
+    version: 0.0.6
+    condition: certo.enabled

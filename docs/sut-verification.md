@@ -55,6 +55,13 @@ loopback on every machine, so a SUT anywhere but ve1's host cannot reach ve1 at 
 a hostname that resolves for both parties (`./scripts/install-ve.sh -H ve1.example.com`), which
 carries through to every advertised URL and DID.
 
+What the SUT must reach on ve1 is more than its DIDs and DSP endpoint: every credential ve1's
+issuer signs names its **status list** (`http://<host>/statuslist/<id>`), and the SUT's wallet
+downloads it before presenting the credential, as does its connector when verifying ve1's
+participant. An unreachable status list makes the credential unverifiable, and one unverifiable
+credential rejects the whole presentation — both directions of DSP then fail with 401. (Core
+platform ≥ 0.0.29 publishes the external URL; earlier versions wrote the in-cluster one.)
+
 **Everything is plain HTTP — a known constraint, not an oversight.** `edc.iam.did.web.use.https`
 is pinned false across the runtimes and the gateway terminates HTTP only, so ve1 resolves
 `did:web` over `http://` and publishes `http://` endpoints and DIDs. A SUT must therefore serve
@@ -174,6 +181,10 @@ exchange having happened under VE-issued credentials is the finding. And the com
 can only attribute a SUT's **onboarding and credential delivery** to it — the exchange's own
 events carry the verification participant's context — so the ledger checklist for an external run
 is deliberately short (`verification.external.expected-events`).
+
+**A reference SUT** to run this against lives in [vendor-stack/](../vendor-stack/README.md): the
+VE's own components in a separate kind cluster, provisioned without credentials of their own, with
+scripts for every obligation in the table above.
 
 `dsp-tests.sh` remains the older path: it implements Checkpoint 2+3 with ve2 as a compliant
 pseudo-SUT, whose obligations are fulfilled by the platform's own tooling (the Membership Hub's
