@@ -5,10 +5,13 @@
 # Checkpoint 3 obligation from docs/sut-verification.md:
 #
 #   1. resolves the verification participant's DID document for its DSP endpoint;
-#   2. requests its catalog until the inbox offer shows up. The offer is credential-gated, so it
-#      stays invisible until the vendor participant holds the credentials the VE offered it — this
-#      wait doubles as the wait for credential delivery;
-#   3. negotiates the offer (mirrored verbatim) and starts an HttpData-PULL transfer: the push flow;
+#   2. requests its catalog until the inbox offer shows up — the dataset declaring the CX-0135
+#      consumer API (dct:subject cx-taxo:CompanyCertificateManagementConsumerApi, cx-common:version
+#      3.0), whatever its id. The offer is credential-gated, so it stays invisible until the vendor
+#      participant holds the credentials the VE offered it — this wait doubles as the wait for
+#      credential delivery;
+#   3. negotiates the offer (mirrored verbatim) and starts a pull transfer (Data Plane Signaling
+#      http-pull profile): the push flow;
 #   4. uploads a document and a certificate into the vendor's Certo tenant and publishes it to the
 #      verification participant over that flow, retried until Certo reports the consumer notified.
 #
@@ -17,18 +20,16 @@
 # to ESTABLISH_PULL_FLOW does not matter — the run finds the pushed exchange either way.)
 #
 # Usage:
-#   ./vendor-stack/scripts/push-certificate.sh [--vp-did <did>] [--vp-bpn <bpn>]
-#                                              [--inbox-asset <id>] [--pdf <file>]
+#   ./vendor-stack/scripts/push-certificate.sh [--vp-did <did>] [--vp-bpn <bpn>] [--pdf <file>]
 #                                              [-s|--short-name <name>] [-h|--help]
 #
 #   --vp-did          the VE's verification participant
 #                     (default: did:web:identity.cxve.localhost:verification-participant)
 #   --vp-bpn          its BPN (default: BPNLVERIFY000001)
-#   --inbox-asset     its inbox offer (default: ccm-inbox-verification)
 #   --pdf             certificate document (default: the Verification UI's sample document)
 #   -s, --short-name  the vendor participant (default: vendor-participant)
 #
-# Environment: VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), CREDENTIALS_TIMEOUT (seconds
+# Environment: VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT, CCM_API_VERSION (see lib.sh), CREDENTIALS_TIMEOUT (seconds
 #              to wait for the inbox offer to become visible, default 900), TIMEOUT (seconds per
 #              negotiation/transfer/publish wait, default 180)
 
@@ -36,7 +37,6 @@ source "$(dirname "$0")/lib.sh"
 
 VP_DID="did:web:identity.cxve.localhost:verification-participant"
 VP_BPN=BPNLVERIFY000001
-INBOX_ASSET=ccm-inbox-verification
 PDF="$(cd "$(dirname "$0")/../.." && pwd)/verification-ui/src/main/resources/certificate-document.pdf"
 CREDENTIALS_TIMEOUT="${CREDENTIALS_TIMEOUT:-900}"
 TIMEOUT="${TIMEOUT:-180}"
@@ -46,12 +46,11 @@ usage() { awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p' "$0" | sed 's/^# \{0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --vp-did|--vp-bpn|--inbox-asset|--pdf|-s|--short-name)
+    --vp-did|--vp-bpn|--pdf|-s|--short-name)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
         --vp-did) VP_DID="$2" ;;
         --vp-bpn) VP_BPN="$2" ;;
-        --inbox-asset) INBOX_ASSET="$2" ;;
         --pdf) PDF="$2" ;;
         -s|--short-name) PARTICIPANT_SHORT_NAME="$2" ;;
       esac
@@ -85,23 +84,30 @@ inbox_offer_visible() {
   mgmt POST "/participants/$PCID/catalog/request" "$CATALOG_REQUEST"
   if [[ "$HTTP_STATUS" == 200 ]]; then
     CATALOG="$HTTP_BODY"
-    OFFER=$(printf '%s' "$CATALOG" | jq -c --arg id "$INBOX_ASSET" '
-      .dataset | (if type == "array" then . else [.] end) | map(select(.["@id"] == $id)) | .[0].hasPolicy
-      | if type == "array" then .[0] else . end // empty')
-    [[ -n "$OFFER" && "$OFFER" != null ]] && return 0
+    local matches count
+    matches=$(printf '%s' "$CATALOG" | ccm_api_datasets "$CCM_CONSUMER_API")
+    count=$(printf '%s' "$matches" | jq 'length')
+    if (( count > 1 )); then
+      die "the verification participant offers the CX-0135 consumer API $CCM_API_VERSION $count times ($(printf '%s' "$matches" | jq -r 'map(.["@id"]) | join(", ")')) — ambiguous"
+    fi
+    if (( count == 1 )); then
+      INBOX_ASSET=$(printf '%s' "$matches" | jq -r '.[0]["@id"]')
+      OFFER=$(printf '%s' "$matches" | jq -c '.[0].hasPolicy | if type == "array" then .[0] else . end // empty')
+      [[ -n "$OFFER" && "$OFFER" != null ]] && return 0
+    fi
   fi
   if (( $(date +%s) - LAST_HINT >= 30 )); then
     LAST_HINT=$(date +%s)
     if [[ "$HTTP_STATUS" == 200 ]]; then
-      log "'$INBOX_ASSET' not in the catalog yet — the offer requires the VE-issued credentials (has the run delivered them? see status.sh)"
+      log "no CX-0135 consumer API offer in the catalog yet (it offers: $(printf '%s' "$CATALOG" | jq -r '[.dataset | (if type == "array" then . elif . == null then [] else [.] end) | .[]["@id"]] | if length == 0 then "nothing" else join(", ") end')) — the offer requires the VE-issued credentials (has the run delivered them? see status.sh)"
     else
       log "catalog request answered HTTP $HTTP_STATUS: $(printf '%s' "$HTTP_BODY" | head -c 300)"
     fi
   fi
   return 1
 }
-poll "$CREDENTIALS_TIMEOUT" 5 "'$INBOX_ASSET' in the catalog of $VP_DID" inbox_offer_visible
-log "inbox offer found: $(printf '%s' "$OFFER" | jq -r '.["@id"]')"
+poll "$CREDENTIALS_TIMEOUT" 5 "the CX-0135 consumer API offer in the catalog of $VP_DID" inbox_offer_visible
+log "inbox offer found: dataset '$INBOX_ASSET', offer $(printf '%s' "$OFFER" | jq -r '.["@id"]')"
 
 # ---- 3. the push flow -------------------------------------------------------------------------
 # The contract request must reproduce the offer EXACTLY, so it is copied verbatim — under the
@@ -136,9 +142,9 @@ AGREEMENT_ID=$(printf '%s' "$HTTP_BODY" | jq -r .contractAgreementId)
 log "negotiation FINALIZED, agreement $AGREEMENT_ID"
 
 mgmt POST "/participants/$PCID/transferprocesses" "$(jq -n --arg ctx "$MANAGEMENT_CONTEXT" \
-    --arg agreement "$AGREEMENT_ID" --arg dsp "$VP_DSP" '{
+    --arg agreement "$AGREEMENT_ID" --arg dsp "$VP_DSP" --arg tt "$TRANSFER_TYPE" '{
   "@context": [$ctx], "@type": "TransferRequest",
-  contractId: $agreement, counterPartyAddress: $dsp, protocol: "cx-neptune", transferType: "HttpData-PULL"
+  contractId: $agreement, counterPartyAddress: $dsp, protocol: "cx-neptune", transferType: $tt
 }')"
 expect_2xx "transfer process"
 # On the consumer side the transfer process id IS the Certo flow id.

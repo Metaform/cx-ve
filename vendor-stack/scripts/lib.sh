@@ -27,8 +27,22 @@ NAMESPACE=edc-v
 AUDIENCE=edcv
 KUBECONFIG_FILE="$HOME/.kube/${VENDOR_CLUSTER}.config"
 
-# The vendor participant this stack hosts. EDC object ids (the ccm-api asset in particular) are
-# unique across ALL participant contexts of a control plane, so the stack hosts exactly one.
+# Transfer type of the certificate exchange flows: the Data Plane Signaling HTTP transfer profile,
+# pull direction (https://eclipse-dataplane-signaling.github.io/profiles/HEAD/#transfer-profiles).
+# It must equal the VE's verification.transfer-type.
+TRANSFER_TYPE="https://w3id.org/dspace-sig/profile/http-pull"
+
+# CX-0135 identifies a certificate management API offer by asset properties, not by asset id:
+# dct:type cx-taxo:CCMAPI, a dct:subject naming the API, and cx-common:version — one offer per
+# subject and version per business partner. Full IRIs: the management API accepts no inline
+# prefix definitions. The version must equal the VE's verification.ccm-api-version.
+CCM_TYPE="https://w3id.org/catenax/taxonomy#CCMAPI"
+CCM_PROVIDER_API="https://w3id.org/catenax/taxonomy#CompanyCertificateManagementProviderApi"
+CCM_CONSUMER_API="https://w3id.org/catenax/taxonomy#CompanyCertificateManagementConsumerApi"
+CCM_API_VERSION="${CCM_API_VERSION:-3.0}"
+
+# The vendor participant a script acts for. EDC object ids are unique across ALL participant
+# contexts of a control plane, so the scripts derive every id they create from this short name.
 PARTICIPANT_SHORT_NAME="${PARTICIPANT_SHORT_NAME:-vendor-participant}"
 
 # did:web authority of this stack: the port is percent-encoded into it (see chart/values.yaml)
@@ -161,6 +175,31 @@ participant_profile_of() { # <did>
     [[ -n "$profile" ]] && { printf '%s' "$profile"; return 0; }
   done
   return 0
+}
+
+# Asset properties declaring a CX-0135 API: ccm_api_properties <subject-iri> -> JSON object
+ccm_api_properties() {
+  jq -n --arg type "$CCM_TYPE" --arg subject "$1" --arg version "$CCM_API_VERSION" '{
+    "http://purl.org/dc/terms/type": {"@id": $type},
+    "http://purl.org/dc/terms/subject": {"@id": $subject},
+    "https://w3id.org/catenax/ontology/common#version": $version
+  }'
+}
+
+# The datasets of a catalog (on stdin) that declare a CX-0135 API, as a JSON array:
+# ccm_api_datasets <subject-iri>. Accepts the property under its full IRI or prefixed name, as a
+# string or an @id/@value object, possibly in an array — the catalog's compaction is the management
+# API's, not the counterparty's.
+ccm_api_datasets() {
+  jq -c --arg type "$CCM_TYPE" --arg subject "$1" --arg version "$CCM_API_VERSION" '
+    def prop($iri; $prefixed): (.[$iri] // .[$prefixed]) | if type == "array" then .[0] else . end;
+    def iri: if type == "object" then .["@id"] else . end
+             | if type == "string" and startswith("cx-taxo:") then "https://w3id.org/catenax/taxonomy#" + ltrimstr("cx-taxo:") else . end;
+    def literal: if type == "object" then .["@value"] else . end;
+    [.dataset | (if type == "array" then . elif . == null then [] else [.] end) | .[]
+     | select((prop("http://purl.org/dc/terms/type"; "dct:type") | iri) == $type
+          and (prop("http://purl.org/dc/terms/subject"; "dct:subject") | iri) == $subject
+          and (prop("https://w3id.org/catenax/ontology/common#version"; "cx-common:version") | literal) == $version)]'
 }
 
 # did:web -> URL of its DID document (http, per the environment's HTTP-only constraint)

@@ -30,6 +30,13 @@ That makes one address work from every place that dereferences it: the host (kin
 this cluster's pods (CoreDNS rewrite to the Traefik Service, exposed on 8080) and the VE's pods
 (CoreDNS `hosts` entry to this cluster's node IP, where Traefik binds hostPort 8080).
 
+**Transfers follow the Data Plane Signaling HTTP transfer profile.** Both certificate-exchange
+flows are pull transfers of type `https://w3id.org/dspace-sig/profile/http-pull` — the
+[transfer profile](https://eclipse-dataplane-signaling.github.io/profiles/HEAD/#transfer-profiles)
+value, which is also the `endpointType` of the DataAddress the data plane hands out. Assets carry
+no address of their own: the participant's data-plane mapping points that transfer type at Certo.
+(The profile requires HTTPS endpoints; like the VE, this stack runs HTTP only.)
+
 **Why nothing in this stack issues credentials.** The participant is provisioned without CFM's
 credential activities (`chart/templates/certo-activity-seed-job.yaml`). Its credentials come from
 the VE: the verification run registers the DID as a holder and sends a DCP credential offer, and
@@ -115,8 +122,12 @@ identifies the participant to every other script, so pass the same `-s` to `seed
 ./vendor-stack/scripts/seed-ccm-offer.sh
 ```
 
-Creates the `ccm-api` asset, its policies and contract definition — the offer the VE's
-verification participant will negotiate. Can run any time after step 4.
+Creates the certificate offer the VE's verification participant will negotiate: an asset
+declaring the CX-0135 provider API (`dct:type` `cx-taxo:CCMAPI`, `dct:subject`
+`cx-taxo:CompanyCertificateManagementProviderApi`, `cx-common:version` `3.0`), its policies and
+contract definition. The VE finds the offer by those properties, so the asset id is free — by
+default `<short name>-ccm-provider-api`. CX-0135 allows one offer per API and version per business
+partner, and a run fails when the catalog offers it twice. Can run any time after step 4.
 
 ### 6. Start a verification run on the VE
 
@@ -171,7 +182,7 @@ Each step and whose move it is:
 | Onboard participant | VE | registers the DID as a credential holder |
 | Offer credentials | VE | its issuer sends a DCP credential offer to the vendor's wallet |
 | Await credential delivery | **vendor** | the wallet requests the credentials; the issuer delivers them |
-| Establish pull flow | VE, needs step 5 | negotiates `ccm-api`, starts the transfer |
+| Establish pull flow | VE, needs step 5 | finds the provider API offer, negotiates it, starts the transfer |
 | Await pushed certificate | **vendor**, step 7 | the certificate arrives on the verification participant |
 | Retrieve & verify document | VE | pulls certificate and document over the pull flow |
 | Accept certificate | VE | records ACCEPTED and reports it back to the vendor |
@@ -206,7 +217,8 @@ kind delete cluster -n cxve     # the VE
 |---|---|---|
 | `connect.sh` prints `FAIL` for a peer check | a cluster was re-installed or docker restarted, node IPs changed | re-run `connect.sh` |
 | run fails at "Resolve participant DID" | the VE cannot resolve the vendor's hostnames | re-run `connect.sh` |
-| run hangs at "Establish pull flow" | the offer is missing, or its asset id is not `ccm-api` (the id the VE looks for) | `scripts/seed-ccm-offer.sh -s <short name>` — without `--asset`; the run picks the offer up while it still waits (15 min) |
+| run hangs at "Establish pull flow" | no dataset declares the CX-0135 provider API — the offer is missing, or was created without the API properties | `scripts/seed-ccm-offer.sh -s <short name>`; the run picks the offer up while it still waits (15 min). The VE's log names what the catalog does offer |
+| run fails at "Establish pull flow": `offers … ProviderApi 3.0 2 times` | two assets declare the provider API | delete one — CX-0135 allows one offer per API and version |
 | `push-certificate.sh`: `no ProtocolEndpoint in the DID document` | the VE's verification participant does not exist yet | wait for the run's first steps (or **Ensure participant** in the UI), then retry |
 | run waits at "Await credential delivery", `status.sh` shows no credentials | the wallet did not answer the credential offer | `scripts/request-credentials.sh` requests them explicitly |
 | `push-certificate.sh` logs `catalog request answered HTTP 502 … code=401`; the control planes log `Failed to download status list credential` | a cluster runs core platform < 0.0.29, whose credentials name an in-cluster status list | bump the platform, re-install **both** clusters (credentials keep the URL they were issued with) |
@@ -220,8 +232,9 @@ credentials and who issued them.
 
 - **Always install from scratch.** `helm upgrade` on the release duplicates the Catena-X dataspace
   profile (its seed is not idempotent) and breaks participant provisioning.
-- **One vendor participant per stack.** EDC object ids are unique across all participant contexts
-  of a control plane, and the VE looks for the fixed asset id `ccm-api`.
+- **Ids are per participant.** EDC object ids are unique across all participant contexts of a
+  control plane, so the scripts derive every id from the short name — several vendor participants
+  can share the stack, each needing its own `-s`.
 - **Node IPs are not stable.** `connect.sh` pins each cluster's node address into the other's
   CoreDNS; docker restarts can reassign them.
 - **The VE-side DNS entries are managed by `setup-did-dns.sh --sut`**, which replaces the whole

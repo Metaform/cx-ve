@@ -55,9 +55,6 @@ verification:
   # Deliberately the EXTERNAL gateway form even in-cluster (the controlplane dereferences it;
   # the CoreDNS rewrites installed by scripts/setup-did-dns.sh make it resolve in pods).
   dsp-base-url: http://cxve.localhost/api/dsp                    # VERIFICATION_DSPBASEURL
-  # baseUrl of the CCM assets (certo's protocol API): the IN-CLUSTER service root — the flow
-  # counterparty calls it with a Siglet flow token, not through the gateway.
-  certo-asset-base-url: http://cx-ve-certo.edc-v.svc.cluster.local:8080  # VERIFICATION_CERTOASSETBASEURL
   # jwtlet mapping + scope for management-API tokens (scope `admin` expands to
   # management-api:admin and friends; the chart's jwtlet-seed job registers the mapping).
   management:
@@ -77,9 +74,16 @@ verification:
     vat-id: DEVERIFY0001                                        # VERIFICATION_PARTICIPANT_VATID
   # The verification participant's permanent CCM inbox asset (the push-flow target).
   inbox-asset-id: ccm-inbox-verification                        # VERIFICATION_INBOXASSETID
-  # Transfer type of the CCM flows — must be exactly this profile URI; it keys the participant's
-  # siglet transfer-type mapping, the dataplane registration, and the transfer request.
-  transfer-type: HttpData-PULL                                  # VERIFICATION_TRANSFERTYPE
+  # Transfer type of the CCM flows: the Data Plane Signaling HTTP transfer profile's pull value
+  # (https://eclipse-dataplane-signaling.github.io/profiles/HEAD/#transfer-profiles). It keys the
+  # participant's siglet transfer-type mapping (membership-hub participant.ccm.transfer-type), the
+  # data-plane registration and the catalog distribution format, so all of them must agree.
+  transfer-type: https://w3id.org/dspace-sig/profile/http-pull  # VERIFICATION_TRANSFERTYPE
+  # CX-0135 API version (cx-common:version) the CCM assets declare and are looked up by, together
+  # with their dct:subject: this environment's own inbox as the consumer API, a system under test's
+  # offer as the provider API. Asset ids play no part — CX-0135 identifies an API offer by subject
+  # and version, of which a business partner may offer only one.
+  ccm-api-version: "3.0"                                        # VERIFICATION_CCMAPIVERSION
   timeouts:
     onboarding: 10m                                             # VERIFICATION_TIMEOUTS_ONBOARDING
     catalog: 2m                                                 # VERIFICATION_TIMEOUTS_CATALOG
@@ -106,9 +110,6 @@ verification:
   # A run against a third-party system under test: everything this environment cannot derive
   # because it belongs to the SUT or was agreed with its operator up front.
   external:
-    # The asset id the SUT offers its certificate API under — an agreed constant, since this
-    # environment has no way to discover which of a vendor's assets is the one under test.
-    provider-asset-id: ccm-api                                  # VERIFICATION_EXTERNAL_PROVIDERASSETID
     # Scheme used to fetch a did:web document. The did:web method mandates https, but the
     # platform's own runtimes are pinned to edc.iam.did.web.use.https=false — this must follow
     # them, or this app would accept a participant they cannot reach (or reject one they can).

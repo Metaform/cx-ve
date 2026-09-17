@@ -5,6 +5,11 @@
 # retrieves the certificate over it and reports its acceptance back). This is the vendor's
 # Checkpoint 2 obligation from docs/sut-verification.md.
 #
+# The asset declares the CX-0135 provider API (dct:type cx-taxo:CCMAPI, dct:subject
+# cx-taxo:CompanyCertificateManagementProviderApi, cx-common:version 3.0) — that is what the VE finds
+# the offer by. Its id is free; CX-0135 allows only one such offer per business partner, and a VE run
+# fails when the catalog offers the same API twice.
+#
 # The policies mirror the offers the VE itself makes (verification-ui's
 # VerificationParticipantService): catalog visibility requires a Catena-X membership, a contract
 # requires the data exchange governance framework agreement plus the usage purpose and usage end
@@ -12,22 +17,20 @@
 # credentials — which, for the VE's verification participant, the VE's issuer signed and this
 # stack trusts.
 #
-# Idempotent: existing objects are kept.
+# Idempotent: policies and contract definition are kept when they exist; the asset is written
+# through, so its API properties are always current.
 #
 # Usage:
 #   ./vendor-stack/scripts/seed-ccm-offer.sh [-s|--short-name <name>] [--asset <id>] [-h|--help]
 #
 #   -s, --short-name   the vendor participant (default: vendor-participant)
-#   --asset            asset id (default: ccm-api). Change it ONLY together with the VE's
-#                      verification.external.provider-asset-id: the verification run looks for
-#                      exactly that id in the catalog, and waits out its whole budget for it
-#                      when the offer carries any other one.
+#   --asset            asset id (default: <short name>-ccm-provider-api)
 #
-# Environment: VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh)
+# Environment: VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), CCM_API_VERSION (default 3.0)
 
 source "$(dirname "$0")/lib.sh"
 
-ASSET_ID=ccm-api
+ASSET_ID=""
 MANAGEMENT_CONTEXT="https://w3id.org/edc/connector/management/v2"
 CX_POLICY_CONTEXT="https://w3id.org/catenax/2025/9/policy/context.jsonld"
 
@@ -52,10 +55,8 @@ DID=$(participant_did)
 PCID=$(participant_context_of "$DID") || exit 1
 [[ -n "$PCID" ]] || die "no participant context for $DID — run create-participant.sh first"
 log "vendor participant $DID (context $PCID)"
-if [[ "$ASSET_ID" != ccm-api ]]; then
-  log "WARNING: asset id '$ASSET_ID' — a verification run finds this offer only if the VE's"
-  log "         verification.external.provider-asset-id is '$ASSET_ID' too (default: ccm-api)"
-fi
+# Every id is the participant's own: EDC ids are unique across all participant contexts.
+ASSET_ID="${ASSET_ID:-${PARTICIPANT_SHORT_NAME}-ccm-provider-api}"
 
 # create_once <what> <resource-collection> <id> <json>: GET by id on THIS participant, POST when
 # absent. EDC ids are unique across all participant contexts of the control plane, so a 409 on
@@ -96,20 +97,31 @@ policy() { # <id> <action> <constraint-json...>
   }'
 }
 
-ACCESS_POLICY_ID="vendor-ccm-access-policy"
-CONTRACT_POLICY_ID="vendor-ccm-contract-policy"
-CONTRACT_DEFINITION_ID="vendor-ccm-cd"
+ACCESS_POLICY_ID="${PARTICIPANT_SHORT_NAME}-ccm-access-policy"
+CONTRACT_POLICY_ID="${PARTICIPANT_SHORT_NAME}-ccm-contract-policy"
+CONTRACT_DEFINITION_ID="${PARTICIPANT_SHORT_NAME}-ccm-cd"
 
-# The data address is informational for a Siglet-backed flow — the flow's endpoint comes from the
-# participant's CCM transfer-type mapping — but it names the same counterparty-facing Certo address.
-create_once asset assets "$ASSET_ID" "$(jq -n --arg ctx "$MANAGEMENT_CONTEXT" --arg id "$ASSET_ID" \
-    --arg url "$VENDOR_URL/api/certo" '{
+# The asset declares the CX-0135 provider API and carries no address: under Data Plane Signaling
+# the data plane owns the endpoint — the participant's transfer-type mapping points the pull flows
+# at Certo's protocol API, and the data plane hands it to the consumer as the DataAddress of the
+# started transfer.
+ASSET=$(jq -n --arg ctx "$MANAGEMENT_CONTEXT" --arg id "$ASSET_ID" --argjson api "$(ccm_api_properties "$CCM_PROVIDER_API")" '{
   "@context": [$ctx],
   "@type": "Asset",
   "@id": $id,
-  "properties": {name: "vendor CCM API (CX-0135)"},
-  "dataAddress": {"@type": "DataAddress", type: "HttpData", baseUrl: $url}
-}')"
+  "properties": ($api + {"http://purl.org/dc/terms/description": "vendor CCM provider API (CX-0135)"})
+}')
+mgmt POST "/participants/$PCID/assets" "$ASSET"
+if [[ "$HTTP_STATUS" == 409 ]]; then
+  mgmt GET "/participants/$PCID/assets/$ASSET_ID"
+  [[ "$HTTP_STATUS" == 200 ]] || die "asset id '$ASSET_ID' is taken by another participant on this control plane — pass --asset"
+  mgmt PUT "/participants/$PCID/assets" "$ASSET"
+  expect_2xx "updating asset '$ASSET_ID'"
+  log "asset '$ASSET_ID' updated (CX-0135 provider API $CCM_API_VERSION)"
+else
+  expect_2xx "creating asset '$ASSET_ID'"
+  log "asset '$ASSET_ID' created (CX-0135 provider API $CCM_API_VERSION)"
+fi
 
 create_once "access policy" policydefinitions "$ACCESS_POLICY_ID" "$(policy "$ACCESS_POLICY_ID" access \
   "$(constraint Membership eq active)")"
@@ -131,4 +143,5 @@ create_once "contract definition" contractdefinitions "$CONTRACT_DEFINITION_ID" 
 }')"
 
 echo
-echo "Offer '$ASSET_ID' seeded on $DID — the VE's ESTABLISH_PULL_FLOW step can now find it."
+echo "Offer '$ASSET_ID' seeded on $DID as the CX-0135 provider API $CCM_API_VERSION — the VE's"
+echo "ESTABLISH_PULL_FLOW step finds it by that."

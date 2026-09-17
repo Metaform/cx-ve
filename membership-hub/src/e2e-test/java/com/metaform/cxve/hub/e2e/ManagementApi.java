@@ -97,8 +97,8 @@ public class ManagementApi {
         log("   Management API:  CEL expression '%s' ready (leftOperand %s)", id, leftOperand);
     }
 
-    public void createAsset(String pcid, String assetId, String dataUrl) {
-        createAsset(pcid, assetId, dataUrl, Map.of());
+    public void createAsset(String pcid, String assetId) {
+        createAsset(pcid, assetId, Map.of());
     }
 
     /**
@@ -111,7 +111,7 @@ public class ManagementApi {
      * no vocab expansion), while the {@code "@type": "@json"} literal form silently drops the
      * properties altogether.
      */
-    public void createAsset(String pcid, String assetId, String dataUrl, Map<String, String> dataplaneProperties) {
+    public void createAsset(String pcid, String assetId, Map<String, String> dataplaneProperties) {
         var metadata = "";
         if (!dataplaneProperties.isEmpty()) {
             var props = mapper.createObjectNode();
@@ -128,9 +128,8 @@ public class ManagementApi {
                   "@context": ["%s"],
                   "@type": "Asset",
                   "@id": "%s",
-                  "properties": {"name": "cxve e2e asset"},
-                  "dataAddress": {"@type": "DataAddress", "type": "HttpData", "baseUrl": "%s"}%s
-                }""".formatted(MANAGEMENT_CONTEXT, assetId, dataUrl, metadata);
+                  "properties": {"name": "cxve e2e asset"}%s
+                }""".formatted(MANAGEMENT_CONTEXT, assetId, metadata);
         expect2xx(post("/participants/%s/assets".formatted(pcid), body), "asset " + assetId);
         if (!dataplaneProperties.isEmpty()) {
             verifyDataplaneProperties(pcid, assetId, dataplaneProperties);

@@ -233,7 +233,7 @@ type PolicyDefinitionDeletedEvent struct{ PolicyDefinitionEvent }
 // ---------------------------------------------------------------------------------------------
 
 // TransferProcessEvent carries the fields shared by all transfer process events. Type here is the
-// transfer type (e.g. "HttpData-PULL"), not the CloudEvent type.
+// transfer type (e.g. "https://w3id.org/dspace-sig/profile/http-pull"), not the CloudEvent type.
 type TransferProcessEvent struct {
 	TransferProcessID    string `json:"transferProcessId,omitempty"`
 	AssetID              string `json:"assetId,omitempty"`

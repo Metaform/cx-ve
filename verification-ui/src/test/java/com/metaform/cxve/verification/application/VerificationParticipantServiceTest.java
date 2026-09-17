@@ -2,6 +2,7 @@ package com.metaform.cxve.verification.application;
 
 import com.metaform.cxve.verification.adapter.out.certo.CertoClient;
 import com.metaform.cxve.verification.adapter.out.hub.MembershipHubClient;
+import com.metaform.cxve.verification.adapter.out.management.CcmApi;
 import com.metaform.cxve.verification.adapter.out.management.ManagementApiClient;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +56,8 @@ class VerificationParticipantServiceTest {
         assertEquals("pctx-vp", participant.participantContextId());
         verify(hub, never()).onboard(anyString(), anyString(), anyString(), anyString());
         verify(certo).awaitParticipantContext("pctx-vp");
-        verify(management).createAssetIdempotent("pctx-vp", "ccm-inbox-verification", "http://certo-svc:8080");
+        // the inbox declares the CX-0135 consumer API — what a pushing participant finds it by
+        verify(management).upsertAsset("pctx-vp", "ccm-inbox-verification", CcmApi.consumer("3.0"));
         verify(management).createPolicyIdempotent("pctx-vp", "vui-ccm-access-policy", "access",
                 List.of(ManagementApiClient.MEMBERSHIP_CONSTRAINT));
         verify(management).createPolicyIdempotent("pctx-vp", "vui-ccm-contract-policy", "use",

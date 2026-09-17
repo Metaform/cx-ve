@@ -62,10 +62,11 @@ else
   TENANT_ID=$(printf '%s' "$HTTP_BODY" | jq -r .id)
 
   # The certo activity reads the BPN from cfm.issuer; the ccm mapping makes Certo's protocol API
-  # the endpoint of the participant's HttpData-PULL flows, with the counterparty's BPN stamped into
-  # the flow token from its BpnCredential (certo requires it). The endpoint is counterparty-facing,
-  # hence the external address.
-  PROFILE=$(jq -n --arg did "$DID" --arg bpn "$BPN" --arg ccm "$VENDOR_URL/api/certo" '{
+  # the endpoint of the participant's pull flows, with the counterparty's BPN stamped into the flow
+  # token from its BpnCredential (certo requires it). The endpoint is counterparty-facing, hence the
+  # external address. The transfer type is the Data Plane Signaling HTTP transfer profile's pull
+  # value, which the DataAddress endpointType MUST equal.
+  PROFILE=$(jq -n --arg did "$DID" --arg bpn "$BPN" --arg ccm "$VENDOR_URL/api/certo" --arg tt "$TRANSFER_TYPE" '{
     identifier: $did,
     properties: {},
     vpaProperties: {
@@ -73,8 +74,8 @@ else
       "cfm.dataplane": {
         authorization: {type: "oauth2_token_exchange"},
         transferTypeMappings: {
-          "HttpData-PULL": {
-            transferType: "HttpData-PULL", endpointType: "HTTP", endpoint: $ccm, tokenSource: "provider",
+          ($tt): {
+            transferType: $tt, endpointType: $tt, endpoint: $ccm, tokenSource: "provider",
             claimMappings: [{from: "flow.claims.vc.withType('"'"'BpnCredential'"'"').claim('"'"'bpn'"'"')", to: "bpn"}]
           }
         }

@@ -1,7 +1,9 @@
 package com.metaform.cxve.verification.application;
 
 import com.metaform.cxve.verification.adapter.out.hub.MembershipHubClient;
+import com.metaform.cxve.verification.adapter.out.management.CcmApi;
 import com.metaform.cxve.verification.adapter.out.management.ManagementApiClient;
+import com.metaform.cxve.verification.adapter.out.management.ManagementApiClient.CatalogOffer;
 import com.metaform.cxve.verification.config.VerificationProperties;
 import com.metaform.cxve.verification.domain.model.RunStep;
 import com.metaform.cxve.verification.domain.model.VerificationRun;
@@ -56,20 +58,39 @@ public class RunFlowSupport {
         }
     }
 
+    /** An established CCM flow: the consumer-side flow id and the dataset it was negotiated for. */
+    public record CcmFlow(String flowId, String datasetId) {
+    }
+
     /**
      * Catalog → negotiation → transfer of the CCM transfer type, as {@code consumerPcid} against
-     * the counterparty's asset at {@code providerDsp}. Returns the CONSUMER-side transfer process
-     * id once STARTED — the id under which Siglet cached the flow token, i.e. the {@code flowId}
-     * certo management calls placed BY that consumer side must carry.
+     * the counterparty's asset {@code assetId} at {@code providerDsp} — for an offer this
+     * environment seeded itself, so its id is known. Returns once the transfer is STARTED; the
+     * flow id is the CONSUMER-side transfer process id — the id under which Siglet cached the flow
+     * token, i.e. the {@code flowId} certo management calls placed BY that consumer side must carry.
      *
      * <p>{@code catalogTimeout} is a parameter because the wait means different things: for an
      * offer this environment seeded itself it is a settling delay, for a third party's it is the
      * SUT's own turnaround.
      */
-    public String establishCcmFlow(String consumerPcid, String providerDsp, String providerDid,
-                                   String assetId, Duration catalogTimeout) {
-        var offer = management.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, assetId, catalogTimeout);
-        var negotiationId = management.startNegotiation(consumerPcid, providerDsp, providerDid, assetId, offer);
+    public CcmFlow establishCcmFlow(String consumerPcid, String providerDsp, String providerDid,
+                                    String assetId, Duration catalogTimeout) {
+        return establish(consumerPcid, providerDsp, providerDid,
+                management.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, assetId, catalogTimeout));
+    }
+
+    /**
+     * As above against a counterparty's offer of {@code api}, whatever the counterparty named the
+     * asset: CX-0135 identifies the API by its catalog properties, not by id.
+     */
+    public CcmFlow establishCcmFlow(String consumerPcid, String providerDsp, String providerDid,
+                                    CcmApi api, Duration catalogTimeout) {
+        return establish(consumerPcid, providerDsp, providerDid,
+                management.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, api, catalogTimeout));
+    }
+
+    private CcmFlow establish(String consumerPcid, String providerDsp, String providerDid, CatalogOffer offer) {
+        var negotiationId = management.startNegotiation(consumerPcid, providerDsp, providerDid, offer);
         var negotiation = management.awaitState(
                 "/participants/%s/contractnegotiations/%s".formatted(consumerPcid, negotiationId),
                 properties.timeouts().negotiation(), Set.of("FINALIZED"));
@@ -81,8 +102,8 @@ public class RunFlowSupport {
         management.awaitState("/participants/%s/transferprocesses/%s".formatted(consumerPcid, transferId),
                 properties.timeouts().transfer(), Set.of("STARTED"));
         log.info("CCM flow established: {} consuming '{}' at {} (flowId {})",
-                consumerPcid, assetId, providerDsp, transferId);
-        return transferId;
+                consumerPcid, offer.datasetId(), providerDsp, transferId);
+        return new CcmFlow(transferId, offer.datasetId());
     }
 
     /**

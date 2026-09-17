@@ -72,10 +72,10 @@ class VerificationEnvironmentE2eTest {
     private static final String TOKEN_EXCHANGE_URL = "http://cxve.localhost/api/auth/token";
     private static final String MANAGEMENT_API_URL = "http://cxve.localhost/api/management/v5";
     private static final String CERTO_API_URL = "http://cxve.localhost/api/certo/management/v1";
-    // Transfer type of the CCM flows — must be exactly this profile URI; it keys the
-    // participant's siglet transfer-type mapping (installed at provisioning from
+    // Transfer type of the CCM flows: the Data Plane Signaling HTTP transfer profile's pull value.
+    // It keys the participant's siglet transfer-type mapping (installed at provisioning from
     // participant.ccm.* config), the dataplane registration, and the transfer request.
-    private static final String CCM_TRANSFER_TYPE = "HttpData-PULL";
+    private static final String CCM_TRANSFER_TYPE = "https://w3id.org/dspace-sig/profile/http-pull";
     // kubectl must target the VE cluster regardless of the current kubectl context
     private static final String KUBECONFIG = System.getenv().getOrDefault("KUBECONFIG",
             System.getProperty("user.home") + "/.kube/cxve.config");
@@ -536,7 +536,7 @@ class VerificationEnvironmentE2eTest {
         var accessPolicyId = "e2e-ccm-access-policy-" + uniqueId;
         var contractPolicyId = "e2e-ccm-contract-policy-" + uniqueId;
 
-        mgmt.createAsset(pcid, assetId, "http://cx-ve-certo.edc-v.svc.cluster.local:8080", Map.of());
+        mgmt.createAsset(pcid, assetId, Map.of());
         mgmt.createPolicy(pcid, accessPolicyId, "access", List.of(MEMBERSHIP_CONSTRAINT));
         mgmt.createPolicy(pcid, contractPolicyId, "use",List.of(FRAMEWORK_AGREEMENT_CONSTRAINT, USAGE_PURPOSE_CONSTRAINT, DATA_USAGE_DEFINITION_CONSTRAINT));
         mgmt.createContractDefinition(pcid, "e2e-ccm-cd-" + uniqueId, accessPolicyId, contractPolicyId);

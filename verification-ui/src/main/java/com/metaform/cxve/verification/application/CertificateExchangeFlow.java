@@ -2,6 +2,7 @@ package com.metaform.cxve.verification.application;
 
 import com.metaform.cxve.verification.adapter.out.certo.CertoClient;
 import com.metaform.cxve.verification.adapter.out.hub.MembershipHubClient;
+import com.metaform.cxve.verification.adapter.out.management.CcmApi;
 import com.metaform.cxve.verification.adapter.out.management.ManagementApiClient;
 import com.metaform.cxve.verification.config.VerificationProperties;
 import com.metaform.cxve.verification.domain.model.RunStep;
@@ -172,7 +173,7 @@ public class CertificateExchangeFlow {
     private void seedCcmOffer(String pcid, String assetId, String uniqueId) {
         var accessPolicyId = "vui-ccm-access-policy-" + uniqueId;
         var contractPolicyId = "vui-ccm-contract-policy-" + uniqueId;
-        management.createAssetIdempotent(pcid, assetId, properties.certoAssetBaseUrl());
+        management.upsertAsset(pcid, assetId, CcmApi.provider(properties.ccmApiVersion()));
         management.createPolicyIdempotent(pcid, accessPolicyId, "access",
                 List.of(ManagementApiClient.MEMBERSHIP_CONSTRAINT));
         management.createPolicyIdempotent(pcid, contractPolicyId, "use",
@@ -185,7 +186,7 @@ public class CertificateExchangeFlow {
     /** This side consuming the other's CCM asset, at the DSP address its context is served on. */
     private String establishCcmFlow(String consumerPcid, String providerPcid, String providerDid, String assetId) {
         return support.establishCcmFlow(consumerPcid, properties.dspAddressOf(providerPcid), providerDid, assetId,
-                properties.timeouts().catalog());
+                properties.timeouts().catalog()).flowId();
     }
 
     /** The sample certificate document packaged with the app (a small single-page PDF). */

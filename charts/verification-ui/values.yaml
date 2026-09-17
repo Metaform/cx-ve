@@ -109,20 +109,11 @@ config:
     # them, and the CoreDNS rewrites (scripts/setup-did-dns.sh) make the hostname resolve in
     # pods. Host-derived: the install scripts override it for a non-default host.
     dsp-base-url: http://cxve.localhost/api/dsp
-    # baseUrl of the CCM assets (certo's protocol API): the flow counterparty calls it itself,
-    # carrying a Siglet flow token. COUNTERPARTY-FACING, so it must be the EXTERNAL address —
-    # an in-cluster one is unreachable for a participant that is not in this cluster. The
-    # gateway form works from both sides (CoreDNS rewrites resolve the host in-cluster too) and
-    # the /api/certo route carries no clearglass middleware, so a flow token is not rejected.
-    # Host-derived: the install scripts override it for a non-default host.
-    certo-asset-base-url: http://cxve.localhost/api/certo
-    # Runs against a third-party system under test. Only the two values an operator agrees with
-    # the vendor are pinned here; the timeouts and the ledger checklist keep the app's packaged
-    # defaults (see its application.yaml) unless a deployment needs otherwise.
+    # Runs against a third-party system under test. The timeouts and the ledger checklist keep the
+    # app's packaged defaults (see its application.yaml) unless a deployment needs otherwise. The
+    # SUT's certificate offer needs no agreed id: it is found by the CX-0135 provider API it
+    # declares (dct:subject + cx-common:version, see verification.ccm-api-version).
     external:
-      # The asset id the system under test offers its certificate API under — agreed up front,
-      # since this environment cannot discover which of a vendor's assets is the one under test.
-      provider-asset-id: ccm-api
       # Must follow the platform's own did:web resolution (edc.iam.did.web.use.https), or this
       # app would accept a participant the runtimes cannot reach.
       did-web-scheme: http

@@ -192,9 +192,13 @@ config:
     # scripts override it for a non-default host.
     # (The generic `participant.dataplane` mapping stays disabled — its app default has an empty
     # endpoint — so this is the only mapping.)
+    #
+    # Transfer type and endpoint type are the Data Plane Signaling HTTP transfer profile's pull
+    # value (https://eclipse-dataplane-signaling.github.io/profiles/HEAD/#transfer-profiles): the
+    # profile value names the transfer type, and a DataAddress's endpointType MUST equal it.
     ccm:
-      transfer-type: "HttpData-PULL"
-      endpoint-type: HTTP
+      transfer-type: "https://w3id.org/dspace-sig/profile/http-pull"
+      endpoint-type: "https://w3id.org/dspace-sig/profile/http-pull"
       endpoint: http://cxve.localhost/api/certo
       token-source: provider
   # Read-only second datasource on the compliance tracker's event ledger, enabling the hub's

@@ -54,9 +54,13 @@ core-platform-distribution:
           operator: "contains"
           rightOperand: "$1"
     siglet:
+      # The Data Plane Signaling HTTP transfer profile, pull direction
+      # (https://eclipse-dataplane-signaling.github.io/profiles/HEAD/#transfer-profiles): the
+      # transfer type is the profile value, and the endpointType of the DataAddress Siglet hands
+      # out MUST be that same value.
       transferTypes:
-        - transferType: "HttpData-PULL"
-          endpointType: "https://w3id.org/idsa/v4.1/HTTP"
+        - transferType: "https://w3id.org/dspace-sig/profile/http-pull"
+          endpointType: "https://w3id.org/dspace-sig/profile/http-pull"
           endpoint: "http://provider:8080/data"
           tokenSource: "provider"
           txRenewalSupport: true

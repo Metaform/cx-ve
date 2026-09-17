@@ -3,6 +3,7 @@ package com.metaform.cxve.verification.application;
 import com.metaform.cxve.verification.adapter.out.certo.CertoClient;
 import com.metaform.cxve.verification.adapter.out.did.DidWebResolver;
 import com.metaform.cxve.verification.adapter.out.hub.MembershipHubClient;
+import com.metaform.cxve.verification.adapter.out.management.CcmApi;
 import com.metaform.cxve.verification.config.VerificationProperties;
 import com.metaform.cxve.verification.domain.model.DidDocument;
 import com.metaform.cxve.verification.domain.model.Membership;
@@ -100,13 +101,15 @@ public class ExternalCertificateExchangeFlow {
                     () -> support.evaluateEvents(run, external.expectedEvents(), external.credentialsTimeout()),
                     Function.identity());
 
-            // The verification participant becomes consumer of the SUT's certificate offer. The
-            // wait is for the SUT's operator to seed it; the negotiation that follows is the real
-            // proof of its credentials, since this environment's offer is policy-gated.
+            // The verification participant becomes consumer of the SUT's certificate offer — found
+            // by the CX-0135 provider API it declares, since the asset id is the vendor's own
+            // choice. The wait is for the SUT's operator to seed it; the negotiation that follows is
+            // the real proof of its credentials, since this environment's offer is policy-gated.
             var flowIdPull = support.step(run, RunStep.ESTABLISH_PULL_FLOW,
                     () -> support.establishCcmFlow(vp.participantContextId(), didDocument.protocolEndpoint(),
-                            run.declaredDid(), external.providerAssetId(), external.providerOfferTimeout()),
-                    flowId -> "flowId " + flowId);
+                            run.declaredDid(), CcmApi.provider(properties.ccmApiVersion()),
+                            external.providerOfferTimeout()),
+                    flow -> "flowId %s (dataset '%s')".formatted(flow.flowId(), flow.datasetId())).flowId();
 
             var pushed = support.step(run, RunStep.AWAIT_PUBLISHED_CERTIFICATE,
                     () -> awaitPushedExchange(vp.participantContextId(), external.publishTimeout()),
