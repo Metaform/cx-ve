@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -93,7 +94,10 @@ class CertificateExchangeFlowTest {
         when(certo.retrieve("pctx-vp", "ex-1", "flow-pull")).thenReturn(retrieved());
         when(certo.getExchange("pctx-put", "ex-1")).thenReturn(mapper.createObjectNode()
                 .put("fulfillmentStatus", "FULFILLED").put("acceptanceStatus", "ACCEPTED"));
-        when(hub.eventlog("proc-1")).thenReturn(Optional.of(rollup("events.onboarding.started")));
+        // the participant's wallet received the offered credentials — the gate before any DSP
+        // message, and part of the closing checklist too
+        when(hub.eventlog("proc-1")).thenReturn(Optional.of(
+                rollup("events.onboarding.started", "events.issuance.credential.delivered")));
     }
 
     @Test
@@ -143,9 +147,27 @@ class CertificateExchangeFlowTest {
     }
 
     @Test
+    void credentialsNeverDelivered_failBeforeTheExchangeIsAttempted() {
+        // The participant is provisioned but its wallet never requested the offered credentials,
+        // so every DSP message would be rejected. The run says so at the gate rather than as a
+        // negotiation failure much later.
+        happyStubs();
+        when(hub.eventlog("proc-1")).thenReturn(Optional.of(rollup("events.onboarding.started")));
+
+        flow.execute(run);
+
+        var snapshot = run.snapshot();
+        assertEquals(RunState.FAILED, snapshot.state());
+        assertEquals(RunStep.AWAIT_CREDENTIALS, snapshot.failedStep());
+        assertTrue(snapshot.failureReason().contains("events.issuance.credential.delivered"));
+        verifyNoInteractions(certo);
+    }
+
+    @Test
     void missingEvents_failTheVerdictButKeepTheChecklist() {
         happyStubs();
-        when(hub.eventlog("proc-1")).thenReturn(Optional.of(rollup("events.something.else")));
+        // past the credential gate, but the closing checklist subject never arrives
+        when(hub.eventlog("proc-1")).thenReturn(Optional.of(rollup("events.issuance.credential.delivered")));
 
         flow.execute(run);
 

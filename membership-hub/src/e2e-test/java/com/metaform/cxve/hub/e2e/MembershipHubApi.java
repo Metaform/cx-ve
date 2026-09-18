@@ -33,9 +33,9 @@ public class MembershipHubApi {
 
     /**
      * Submits the member and returns the created membership record — the hub mints the
-     * {@code externalId}. The hub answers as soon as the registration is submitted (typically in
-     * SUBMITTED); confirmation and provisioning land asynchronously — poll
-     * {@link #awaitProvisioned}. A membership already dead on arrival fails here.
+     * {@code externalId}. The hub answers as soon as the first leg is under way (PROVISIONING for
+     * a member it hosts, which it deploys before registering); the rest lands asynchronously —
+     * poll {@link #awaitProvisioned}. A membership already dead on arrival fails here.
      */
     public JsonNode onboard(String name, String shortName, String bpn, String vatId) {
         var response = given()
@@ -71,10 +71,16 @@ public class MembershipHubApi {
     }
 
     /**
-     * Polls the membership until it is PROVISIONED and returns the record — the participant
-     * context id is on it. REJECTED, FAILED and REGISTERING (a registration that did not confirm
-     * within the submission — the hub never provisions such a record) fail immediately rather
-     * than timing out.
+     * Polls the membership until it is CREDENTIALS_OFFERED and returns the record — the
+     * participant context id is on it. That is the terminal state of every member: the hub deploys
+     * the participant's resources (when it hosts them) and then registers it, and the registration
+     * ends with the issuer offering it the membership credentials, which its wallet requests over
+     * DCP. Waiting for PROVISIONED instead would hand back a participant that is not even
+     * registered yet, let alone holding credentials, and every DSP message it then sends would be
+     * rejected.
+     *
+     * <p>REJECTED, FAILED and REGISTERING (a registration that did not confirm within the
+     * submission — the hub never provisions such a record) fail immediately rather than timing out.
      */
     public JsonNode awaitProvisioned(String externalId, Duration timeout) {
         var result = new AtomicReference<JsonNode>();
@@ -88,8 +94,9 @@ public class MembershipHubApi {
             var membership = json(response.asString());
             failOnDeadEnd(membership);
             assertThat(membership.path("state").asText())
-                    .withFailMessage("membership %s not provisioned yet: %s", externalId, membership)
-                    .isEqualTo("PROVISIONED");
+                    .withFailMessage("membership %s has not been offered its credentials yet: %s",
+                            externalId, membership)
+                    .isEqualTo("CREDENTIALS_OFFERED");
             result.set(membership);
         });
         return result.get();

@@ -176,7 +176,7 @@ BPN the VE should issue credentials for (otherwise derived).
 | # | VE | SUT obligation to proceed |
 |---|---|---|
 | 1 | Resolves the DID document | Served and reachable from the VE, advertising `ProtocolEndpoint` and `CredentialService` (Checkpoint 0) |
-| 2 | Registers the DID as a credential holder and has its IssuerService send a DCP CredentialOffer to the advertised `CredentialService` | Accept the offer and request the credentials (Checkpoint 1). The VE waits for `events.issuance.credential.delivered` in its ledger — nothing else proves the SUT holds them |
+| 2 | Registers the SUT through its **Onboarding API**, which registers the DID as a credential holder and then has the IssuerService send a DCP CredentialOffer to the advertised `CredentialService` | Accept the offer and request the credentials (Checkpoint 1). The VE waits for `events.issuance.credential.delivered` in its ledger — nothing else proves the SUT holds them |
 | 3 | Requests the SUT's catalog as the verification participant, negotiates and starts a `https://w3id.org/dspace-sig/profile/http-pull` transfer | An asset fronting its CCM API, declaring the CX-0135 provider API — `dct:type` `cx-taxo:CCMAPI`, `dct:subject` `cx-taxo:CompanyCertificateManagementProviderApi`, `cx-common:version` (`verification.ccm-api-version`, default `3.0`) — gated on the three CX credential constraints (Checkpoint 2). The VE finds it by those properties, whatever its id; a catalog offering the API twice fails the run, since CX-0135 allows one offer per API and version |
 | 4 | Waits for a certificate on the verification participant's inbox | Find the VE's permanent inbox offer — the dataset declaring the CX-0135 consumer API (`cx-taxo:CompanyCertificateManagementConsumerApi`) — consume it and push a certificate over that flow (Checkpoint 3 + CX-0135 Flow B) |
 | 5 | Retrieves the certificate over the pull flow and reports the `ACCEPTED` verdict | — |
@@ -187,6 +187,14 @@ exchange having happened under VE-issued credentials is the finding. And the com
 can only attribute a SUT's **onboarding and credential delivery** to it — the exchange's own
 events carry the verification participant's context — so the ledger checklist for an external run
 is deliberately short (`verification.external.expected-events`).
+
+The VE issues to its own participants exactly this way too: every member the Membership Hub
+onboards — the verification participant included — goes through the same registration, is offered
+its credentials over DCP and requests them with its own wallet. That is also why the hub DEPLOYS a
+member it hosts before registering it: the offer is pushed to the wallet the deployment creates,
+so a VE-hosted participant reaches the registration in the same shape a SUT does. There is no
+privileged path for a participant that happens to run inside the VE, so the issuance this document
+asks of a SUT is the one the VE exercises on every run.
 
 **A reference SUT** to run this against lives in [vendor-stack/](../vendor-stack/README.md): the
 VE's own components in a separate kind cluster, provisioned without credentials of their own, with

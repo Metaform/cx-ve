@@ -19,6 +19,7 @@ public record VerificationProperties(
         String inboxAssetId,
         String transferType,
         String ccmApiVersion,
+        String credentialDeliverySubject,
         Timeouts timeouts,
         Duration pollInterval,
         Map<String, Integer> expectedEvents,

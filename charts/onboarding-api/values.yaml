@@ -210,12 +210,16 @@ config:
       url: http://jwtlet.edc-v.svc.cluster.local:8080
       audience: edcv
   # The IssuerService Admin API, where the app registers each onboarded participant as a
-  # credential holder. token-resource selects the jwtlet mapping the exchange runs under and must
-  # agree with jwtlet.seed.participantContext above.
+  # credential holder and then offers it the dataspace's credentials. token-resource selects the
+  # jwtlet mapping the exchange runs under and must agree with jwtlet.seed.participantContext above.
   issuer-service:
     url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
     issuer-context-id: issuer
     token-resource: sudo
+    # The credential definitions offered to every registered holder. They must name definitions
+    # seeded with the issuer (the Catena-X profile chart seeds exactly these); an id that names
+    # none makes the IssuerService reject the whole offer.
+    credential-definition-ids: membership-credential-def,bpn-credential-def,gov-credential-def
   # Prefix for participant DIDs when the registration doesn't supply one; the participant's
   # short name is appended. Must match the platform's IdentityHub did:web hostname
   # (identity.<host>): IdentityHub reconstructs the DID from the request URL and looks it up by

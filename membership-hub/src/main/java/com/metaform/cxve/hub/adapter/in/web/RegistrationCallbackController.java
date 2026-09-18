@@ -20,11 +20,12 @@ import org.springframework.web.bind.annotation.RestController;
  * and the CX-0010 BPN values ({@code bpnl} logged for reference — the hub requires the BPN up
  * front, so its own record stays authoritative). Answers 200 on receipt, per spec.
  *
- * <p>The callback is the DRIVER of the registration outcome: CONFIRMED advances the membership
- * and triggers the EDC provisioning on a background worker — no timing assumption is made about
- * whether it arrives while the hub's own submission is still on the wire (how the current
- * Onboarding API behaves), later, or redelivered. Unknown external ids are answered with 404:
- * the callback is not for this hub instance's records.
+ * <p>The callback is the DRIVER of the registration outcome, and CONFIRMED is the membership's
+ * terminal success: the Onboarding API confirms only once it has registered the credential holder
+ * AND had the issuer offer it its credentials. No timing assumption is made about whether the
+ * callback arrives while the hub's own submission is still on the wire (how the current Onboarding
+ * API behaves), later, or redelivered. Unknown external ids are answered with 404: the callback is
+ * not for this hub instance's records.
  *
  * <p>Authenticated: the caller presents a bearer obtained via client_credentials from the VE's
  * OSP IdP with the client this app registered alongside its callback URL — enforced by

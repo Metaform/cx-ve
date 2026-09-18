@@ -11,7 +11,6 @@ export interface Membership {
   participantProfileId: string | null;
   participantContextId: string | null;
   failureReason: string | null;
-  externallyHosted: boolean;
 }
 
 export interface VpStatus {

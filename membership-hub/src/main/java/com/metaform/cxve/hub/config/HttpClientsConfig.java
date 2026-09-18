@@ -21,9 +21,6 @@ public class HttpClientsConfig {
     @Value("${token.exchange.url:http://cxve.localhost/api/auth}")
     private String tokenExchangeUrl;
 
-    @Value("${issuer-service.url:http://cxve.localhost/api/issuer/admin}")
-    private String issuerServiceUrl;
-
     // "...RestClient", not "onboardingApiClient": that name belongs to the @Service consuming
     // this bean, and Spring refuses two definitions under one name.
     @Bean
@@ -53,14 +50,6 @@ public class HttpClientsConfig {
     public RestClient tokenExchangeClient() {
         return RestClient.builder()
                 .baseUrl(tokenExchangeUrl)
-                .build();
-    }
-
-    /** The IssuerService Admin API, where credential offers are triggered. */
-    @Bean
-    public RestClient issuerServiceClient() {
-        return RestClient.builder()
-                .baseUrl(issuerServiceUrl)
                 .build();
     }
 }

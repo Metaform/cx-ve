@@ -2,7 +2,6 @@ package com.metaform.cxve.hub.domain.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import java.util.List;
@@ -20,16 +19,16 @@ import java.util.List;
  *
  * <p>{@code agreements} is HUB-INTERNAL since the registration payload lost its agreements
  * field: the ACTIVE agreement ids still drive the Tenant Manager deployment
- * ({@code deployParticipant}), they are just no longer forwarded to the Onboarding API. An
- * externally hosted member has no deployment, so nothing consumes them — they stay required so
- * the request shape is the same either way.
+ * ({@code deployParticipant}), they are just no longer forwarded to the Onboarding API. A member
+ * that brings its own DID has no deployment, so nothing consumes them — they stay required so the
+ * request shape is the same either way.
  *
- * <p>{@code externallyHosted} marks a member whose participant resources (connector, wallet, DID
- * document) already exist OUTSIDE this environment — a third-party system under test. The
- * membership then carries the {@code did} those resources answer under (mandatory: the template
- * fallback would mint a DID under this environment's authority, which such a member does not
- * control), and the hub provisions nothing for it, offering credentials instead. Absent means
- * {@code false}: a member this environment provisions.
+ * <p>{@code did} decides whether this environment provisions anything. SUPPLY IT and the member
+ * is taken to run elsewhere — its connector, wallet and DID document already exist, and the hub
+ * only has the IssuerService offer it credentials. OMIT IT and the hub mints one under this
+ * environment's authority (the {@code participant.did.template}) and provisions the member's EDC
+ * resources here. The credential offer itself is the same either way; hosting is the only
+ * difference, and it follows from who owns the identity.
  */
 public record MemberData(
         @NotBlank String name,
@@ -43,25 +42,13 @@ public record MemberData(
         @NotEmpty List<@Valid UniqueId> uniqueIds,
         @NotEmpty List<String> companyRoles,
         @NotEmpty List<@Valid AgreementConsent> agreements,
-        @NotEmpty List<@Valid UserDetail> userDetails,
-        Boolean externallyHosted
+        @NotEmpty List<@Valid UserDetail> userDetails
 ) {
 
-    /**
-     * The tri-state wire field collapsed for consumers: absent reads as internally provisioned.
-     * Deliberately NOT named {@code isExternallyHosted} — that would be a bean getter for the same
-     * property as the record component, and Jackson merges the two, so an annotation on either
-     * (a {@code @JsonIgnore}, say) would silently drop the wire field itself.
-     */
+    /** Whether this environment mints the member's identity, and with it provisions its resources. */
     @JsonIgnore
-    public boolean hostedExternally() {
-        return Boolean.TRUE.equals(externallyHosted);
-    }
-
-    @JsonIgnore
-    @AssertTrue(message = "did is required when externallyHosted is true")
-    public boolean isCarryingTheDidOfAnExternallyHostedMember() {
-        return !hostedExternally() || (did != null && !did.isBlank());
+    public boolean hostedHere() {
+        return did == null || did.isBlank();
     }
 
     public record UniqueId(@NotBlank String type, @NotBlank String value) {

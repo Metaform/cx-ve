@@ -1,8 +1,8 @@
-package com.metaform.cxve.hub.adapter.out.issuer;
+package com.metaform.cxve.adapter.out.issuer;
 
-import com.metaform.cxve.hub.adapter.out.auth.TokenProvider;
-import com.metaform.cxve.hub.domain.model.Membership;
-import com.metaform.cxve.hub.domain.port.CredentialOfferService;
+import com.metaform.cxve.adapter.out.auth.TokenProvider;
+import com.metaform.cxve.domain.model.OnboardingProcess;
+import com.metaform.cxve.domain.port.CredentialOfferService;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -15,26 +15,26 @@ import org.springframework.web.client.RestClient;
 /**
  * Sends credential offers through the IssuerService Admin API: {@code POST
  * /v1/participants/{issuerContextId}/credentials/offer} with the holder id and the credential
- * definitions to offer. The IssuerService then resolves the holder's DID document, takes the
- * {@code CredentialService} service endpoint from it and POSTs a DCP CredentialOffer there — so
- * the member's DID must be resolvable, and its Credential Service reachable, FROM THE
- * ISSUERSERVICE POD at the moment this runs.
+ * definitions to offer. The IssuerService resolves the holder's DID document, takes the
+ * {@code CredentialService} service endpoint from it and POSTs a DCP CredentialOffer there.
  *
- * <p>The holder id is the member's DID: the Onboarding API registers holders with
- * {@code did == holderId} (it has no id of its own to mint), so the hub can address a holder it
- * never created itself.
+ * <p>The holder id is the participant's DID, which is also what
+ * {@link IssuerServiceHolderRegistrationService} registered the holder under — the two steps
+ * address the same entry, in order.
  *
- * <p>The offered definition ids are configured rather than derived — they must name credential
+ * <p>The offered definition ids are configured rather than derived: they must name credential
  * definitions seeded with the issuer, and the defaults match the ids the Catena-X profile chart
  * seeds. An id that names no definition makes the IssuerService reject the whole offer.
  *
- * <p>Auth mirrors the Onboarding API's holder registration, which addresses the same API: the
- * workload token is exchanged under a mapping ({@code token-resource}) whose scopes include
- * {@code issuer-admin-api:admin}. The admin scope is required rather than the narrower
- * {@code credentials:write} that the gateway route asks for — the exchanged token's {@code sub}
- * is no participant context the IssuerService knows, and a non-admin caller fails its resolution
- * with "No participant for 'sub = ...' found"; at the gateway, admin satisfies the route anyway
- * (clearglass expands admin ⊇ write ⊇ read).
+ * <p>Auth is the holder registration's, on the same client: the workload token is exchanged under
+ * a mapping ({@code token-resource}) whose scopes include {@code issuer-admin-api:admin} — the
+ * admin scope is what passes the IssuerService's caller resolution.
+ *
+ * <p>NOTE the offer is not idempotent the way the holder registration is. Sending it twice has the
+ * participant's wallet request a second copy of every credential, and a wallet holding two
+ * MembershipCredentials fails presentations. The orchestration's state machine is what keeps it to
+ * once per process: the step runs on the transition out of {@code WALLET_PROVISIONED}, and a
+ * re-driven process resumes after it.
  */
 @Service
 public class IssuerServiceCredentialOfferService implements CredentialOfferService {
@@ -62,17 +62,14 @@ public class IssuerServiceCredentialOfferService implements CredentialOfferServi
     }
 
     @Override
-    public void sendOffer(Membership membership) {
-        var did = membership.did();
+    public void offerCredentials(OnboardingProcess process) {
+        var holderId = process.holderId();
         restClient.post()
                 .uri("/v1/participants/{issuerContextId}/credentials/offer", issuerContextId)
                 .header("Authorization", "Bearer " + tokenProvider.getToken(tokenResource, SCOPE))
-                .body(Map.of(
-                        "holderId", did,
-                        "credentials", credentialDefinitionIds))
+                .body(Map.of("holderId", holderId, "credentials", credentialDefinitionIds))
                 .retrieve()
                 .toBodilessEntity();
-        log.info("Offered credentials {} to holder '{}' for membership '{}'",
-                credentialDefinitionIds, did, membership.externalId());
+        log.info("Offered {} to holder '{}' for onboarding {}", credentialDefinitionIds, holderId, process.id());
     }
 }

@@ -1,5 +1,6 @@
 package com.metaform.cxve.hub.adapter.in.web;
 
+import com.metaform.cxve.hub.application.DuplicateMembershipException;
 import com.metaform.cxve.hub.application.MembershipService;
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
@@ -33,8 +34,10 @@ public class MembershipController {
     }
 
     /**
-     * Submits the member and returns as soon as the registration is on its way — typically in
-     * SUBMITTED; confirmation and provisioning arrive asynchronously (poll {@link #get}).
+     * Starts the member and returns as soon as its first leg is under way: PROVISIONING for a
+     * member this environment hosts (its resources are deployed before it is registered), SUBMITTED
+     * for one that brought its own DID. The rest arrives asynchronously — poll {@link #get}. A DID
+     * or BPN a live membership already holds is refused with 409, before anything is deployed.
      */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -74,6 +77,13 @@ public class MembershipController {
     @ExceptionHandler(NoSuchElementException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public String notFound(NoSuchElementException e) {
+        return e.getMessage();
+    }
+
+    /** The DID or BPN is already taken by a live membership — nothing was created for this call. */
+    @ExceptionHandler(DuplicateMembershipException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public String conflict(DuplicateMembershipException e) {
         return e.getMessage();
     }
 

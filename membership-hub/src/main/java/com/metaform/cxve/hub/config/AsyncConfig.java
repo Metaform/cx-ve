@@ -7,12 +7,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * The pool EDC provisioning runs on. Provisioning is triggered by the CONFIRMED status callback
- * but must not run ON the callback thread — the Onboarding API delivers callbacks fire-and-forget
- * with no retry, so the handler has to answer immediately rather than block for the Tenant
- * Manager round-trips. Two threads bound the concurrency; the CONFIRMED→PROVISIONING claim in
- * the service (an optimistic-lock compare-and-swap) is what guarantees each membership is
- * provisioned at most once, regardless of pool size or replica count.
+ * The pool a hosted member's onboarding runs on — deploying its EDC resources and then submitting
+ * its registration. It must not run on the request thread: deployment takes minutes, while the
+ * caller expects its membership record back immediately. Two threads bound the concurrency; each
+ * membership is started exactly once because only its creating call ever hands it to this pool.
  */
 @Configuration
 public class AsyncConfig {

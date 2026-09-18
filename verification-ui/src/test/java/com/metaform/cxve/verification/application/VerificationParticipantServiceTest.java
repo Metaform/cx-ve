@@ -49,7 +49,7 @@ class VerificationParticipantServiceTest {
         when(hub.findByBpn(VP_BPN)).thenReturn(List.of(
                 // a dead earlier attempt under the same BPN must be skipped
                 membership("vp-old", "REJECTED", null, null, null),
-                membership("vp-1", "PROVISIONED", "did:web:vp", "pctx-vp", "proc-vp")));
+                membership("vp-1", "CREDENTIALS_OFFERED", "did:web:vp", "pctx-vp", "proc-vp")));
 
         var participant = service.ensure();
 
@@ -75,10 +75,15 @@ class VerificationParticipantServiceTest {
                 .thenReturn(membership("vp-1", "SUBMITTED", null, null, null));
         when(hub.awaitProvisioned("vp-1"))
                 .thenReturn(membership("vp-1", "PROVISIONED", "did:web:vp", "pctx-vp", "proc-vp"));
+        when(hub.awaitCredentialsOffered("vp-1"))
+                .thenReturn(membership("vp-1", "CREDENTIALS_OFFERED", "did:web:vp", "pctx-vp", "proc-vp"));
 
         var participant = service.ensure();
 
         assertEquals("pctx-vp", participant.participantContextId());
+        // the participant consumes every run's certificate offer, so it must hold its own
+        // credentials before a run starts — provisioned is not enough
+        verify(hub).awaitCredentialsOffered("vp-1");
     }
 
     @Test
@@ -87,6 +92,8 @@ class VerificationParticipantServiceTest {
                 membership("vp-1", "PROVISIONING", "did:web:vp", null, "proc-vp")));
         when(hub.awaitProvisioned("vp-1"))
                 .thenReturn(membership("vp-1", "PROVISIONED", "did:web:vp", "pctx-vp", "proc-vp"));
+        when(hub.awaitCredentialsOffered("vp-1"))
+                .thenReturn(membership("vp-1", "CREDENTIALS_OFFERED", "did:web:vp", "pctx-vp", "proc-vp"));
 
         service.ensure();
 
@@ -96,7 +103,7 @@ class VerificationParticipantServiceTest {
     @Test
     void ensure_cachesTheParticipantAcrossCalls() {
         when(hub.findByBpn(VP_BPN)).thenReturn(List.of(
-                membership("vp-1", "PROVISIONED", "did:web:vp", "pctx-vp", "proc-vp")));
+                membership("vp-1", "CREDENTIALS_OFFERED", "did:web:vp", "pctx-vp", "proc-vp")));
 
         var first = service.ensure();
         var second = service.ensure();
@@ -109,7 +116,7 @@ class VerificationParticipantServiceTest {
     @Test
     void status_reportsWithoutSideEffects() {
         when(hub.findByBpn(VP_BPN)).thenReturn(List.of(
-                membership("vp-1", "PROVISIONED", "did:web:vp", "pctx-vp", "proc-vp")));
+                membership("vp-1", "CREDENTIALS_OFFERED", "did:web:vp", "pctx-vp", "proc-vp")));
 
         var status = service.status();
 

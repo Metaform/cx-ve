@@ -6,8 +6,8 @@ import java.util.List;
 /**
  * The hub's view of the CFM Tenant Manager: deploys a participant's EDC resources (the VPA
  * orchestration — connector, IdentityHub, Siglet, Certo; the credential-holder registration is
- * NOT part of it, the Onboarding API has done that before the CONFIRMED callback fires) and
- * reports their provisioning state.
+ * NOT part of it, the Onboarding API does that afterwards, against the wallet this deployment
+ * creates) and reports their provisioning state.
  */
 public interface TenantManager {
 

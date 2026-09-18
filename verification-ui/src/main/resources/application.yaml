@@ -84,6 +84,11 @@ verification:
   # offer as the provider API. Asset ids play no part — CX-0135 identifies an API offer by subject
   # and version, of which a business partner may offer only one.
   ccm-api-version: "3.0"                                        # VERIFICATION_CCMAPIVERSION
+  # The ledger subject that proves a participant's wallet actually holds its credentials. Every
+  # member is offered them over DCP — the hub asks the issuer, the wallet requests them — so a run
+  # waits for this delivery before it negotiates anything, whether the participant runs here or
+  # elsewhere.
+  credential-delivery-subject: events.issuance.credential.delivered  # VERIFICATION_CREDENTIALDELIVERYSUBJECT
   timeouts:
     onboarding: 10m                                             # VERIFICATION_TIMEOUTS_ONBOARDING
     catalog: 2m                                                 # VERIFICATION_TIMEOUTS_CATALOG

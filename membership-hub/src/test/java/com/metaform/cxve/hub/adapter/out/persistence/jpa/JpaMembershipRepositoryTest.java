@@ -40,14 +40,13 @@ class JpaMembershipRepositoryTest {
                 List.of(new MemberData.UniqueId("VAT_ID", "DE123456789")),
                 List.of("ACTIVE_PARTICIPANT"),
                 List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE")),
-                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")),
-                null);
+                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")));
     }
 
     @Test
     void createAndFindByExternalId_roundTripsEveryField() {
         var membership = new Membership("ext-1", "Acme Corp", "did:web:acme", "BPNL0000000000XY",
-                MembershipState.PROVISIONING, "process-1", "tenant-1", "profile-1", "pctx-1", "why not", null, false);
+                MembershipState.PROVISIONING, "process-1", "tenant-1", "profile-1", "pctx-1", "why not", null);
 
         repository.create(membership, payload());
         springData.flush();
@@ -61,27 +60,16 @@ class JpaMembershipRepositoryTest {
     void findByDid_listsEveryAttemptUnderTheDid() {
         var data = payload();
         repository.create(Membership.submitted("ext-1", "SUT GmbH", "did:web:sut.example.com",
-                "BPNL0000000000SU", true), data);
+                "BPNL0000000000SU"), data);
         // a second attempt under the SAME DID (e.g. after a failed one) must show up too
         repository.create(Membership.submitted("ext-2", "SUT GmbH", "did:web:sut.example.com",
-                "BPNL0000000000SU", true), data);
+                "BPNL0000000000SU"), data);
         repository.create(Membership.submitted("ext-3", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), data);
 
         assertThat(repository.findByDid("did:web:sut.example.com"))
                 .extracting(Membership::externalId)
                 .containsExactlyInAnyOrder("ext-1", "ext-2");
         assertThat(repository.findByDid("did:web:nobody")).isEmpty();
-    }
-
-    @Test
-    void externallyHosted_roundTripsAndDefaultsToFalse() {
-        repository.create(Membership.submitted("ext-ext", "SUT GmbH", "did:web:sut.example.com",
-                "BPNL0000000000SU", true), payload());
-        repository.create(Membership.submitted("ext-int", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), payload());
-        springData.flush();
-
-        assertThat(repository.findByExternalId("ext-ext").orElseThrow().externallyHosted()).isTrue();
-        assertThat(repository.findByExternalId("ext-int").orElseThrow().externallyHosted()).isFalse();
     }
 
     @Test

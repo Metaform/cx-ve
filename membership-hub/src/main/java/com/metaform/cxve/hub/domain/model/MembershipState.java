@@ -3,18 +3,34 @@ package com.metaform.cxve.hub.domain.model;
 import java.util.Set;
 
 /**
- * Lifecycle of a membership: the registration leg first (driven by the Onboarding API, whose
- * status callback records the outcome), then the post-confirmation leg — provisioning the
- * member's EDC resources through the CFM Tenant Manager, or, for an externally hosted member,
- * offering it credentials. Both legs are triggered BY the CONFIRMED callback, so the happy path
- * is SUBMITTED → CONFIRMED → PROVISIONING → PROVISIONED (internal) or → CREDENTIALS_OFFERED
- * (externally hosted), each step taken by whichever thread carries the triggering signal — which
- * is why transitions are MONOTONIC: {@link #canAdvanceTo} is the single transition table, and a
- * late or redelivered signal that would move a record backwards is ignored instead of applied.
+ * Lifecycle of a membership, in the order the hub drives it: FIRST the member's EDC resources are
+ * deployed through the CFM Tenant Manager (when this environment hosts them), THEN the registration
+ * is submitted to the Onboarding API, which registers the credential holder and offers it the
+ * dataspace's credentials before confirming. So the happy path is PROVISIONING → PROVISIONED →
+ * SUBMITTED → CREDENTIALS_OFFERED, and a member that brought its own participant resources starts
+ * at SUBMITTED.
+ *
+ * <p>Deploying BEFORE registering is what makes that possible: the issuer pushes the credential
+ * offer to the Credential Service the member's DID document advertises, so the wallet has to exist
+ * by the time the registration runs — which for a member hosted here means after its profile is
+ * deployed.
+ *
+ * <p>Each step is taken by whichever thread carries the triggering signal — which is why
+ * transitions are MONOTONIC: {@link #canAdvanceTo} is the single transition table, and a late or
+ * redelivered signal that would move a record backwards is ignored instead of applied.
  */
 public enum MembershipState {
 
-    /** Membership request received; the registration is submitted and awaits its callback. */
+    /** The member's EDC resources are being deployed; the registration follows. */
+    PROVISIONING,
+
+    /**
+     * The participant context exists — the member's EDC resources are provisioned, so its wallet
+     * can receive a credential offer. NOT terminal: the registration still has to be submitted.
+     */
+    PROVISIONED,
+
+    /** The registration is with the Onboarding API and awaits its status callback. */
     SUBMITTED,
 
     /**
@@ -25,24 +41,20 @@ public enum MembershipState {
      */
     REGISTERING,
 
-    /** Registration CONFIRMED by the Onboarding API's status callback; provisioning is next. */
+    /**
+     * Legacy state: under the previous order the hub recorded the confirmation and then sent the
+     * credential offer itself. No longer produced — the Onboarding API confirms a registration
+     * only once it has registered the holder AND sent the offer, so a confirmation now lands the
+     * record directly on {@link #CREDENTIALS_OFFERED}. Kept readable, and still allowed to advance
+     * so rows an older hub left here heal on a redelivered callback.
+     */
     CONFIRMED,
 
     /**
-     * The post-confirmation work is claimed and running: the participant profile is being
-     * deployed, or — for an externally hosted member, which has no profile — the credential offer
-     * is being sent. Entering it is the at-most-once gate for that work.
-     */
-    PROVISIONING,
-
-    /** The participant context exists — the member is fully provisioned. Terminal. */
-    PROVISIONED,
-
-    /**
-     * An externally hosted member's terminal success: the IssuerService accepted the credential
-     * offer for delivery to the member's own Credential Service. Nothing was provisioned here, so
-     * this is as far as such a membership goes — whether the member then requests and receives
-     * the credentials is observable on the issuance events, not on this record.
+     * Terminal success: the registration was confirmed, which means the Onboarding API registered
+     * the member as a credential holder and had the IssuerService offer it the dataspace's
+     * credentials. Whether the member then requests and receives them is observable on the
+     * issuance events, not on this record.
      */
     CREDENTIALS_OFFERED,
 
@@ -54,17 +66,18 @@ public enum MembershipState {
 
     /**
      * The single transition table. Everything not listed — including every transition out of a
-     * terminal state and every backwards move (a redelivered CONFIRMED against a PROVISIONING
-     * record, a DECLINED after confirmation) — is not an advance and must be ignored by callers.
+     * terminal state and every backwards move (a redelivered confirmation against an already
+     * offered record, a DECLINED after one) — is not an advance and must be ignored by callers.
      */
     public boolean canAdvanceTo(MembershipState next) {
         return switch (this) {
-            case SUBMITTED, REGISTERING -> Set.of(CONFIRMED, REJECTED, FAILED).contains(next);
-            case CONFIRMED -> next == PROVISIONING || next == FAILED;
-            // which of the two successes is reachable depends on the member, not on this table:
-            // the service takes exactly one of the branches per membership
-            case PROVISIONING -> Set.of(PROVISIONED, CREDENTIALS_OFFERED, FAILED).contains(next);
-            case PROVISIONED, CREDENTIALS_OFFERED, REJECTED, FAILED -> false;
+            case PROVISIONING -> next == PROVISIONED || next == FAILED;
+            case PROVISIONED -> next == SUBMITTED || next == FAILED;
+            // A confirmation is the terminal signal now, so SUBMITTED reaches CREDENTIALS_OFFERED
+            // in one step; the legacy states are allowed the same move so old rows still heal.
+            case SUBMITTED, REGISTERING -> Set.of(CREDENTIALS_OFFERED, REJECTED, FAILED).contains(next);
+            case CONFIRMED -> next == CREDENTIALS_OFFERED || next == FAILED;
+            case CREDENTIALS_OFFERED, REJECTED, FAILED -> false;
         };
     }
 }

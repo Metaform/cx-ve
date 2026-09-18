@@ -3,7 +3,8 @@
 # Onboards a new member through the Membership Hub: submits it to POST /api/members (which runs
 # the CX-0006 registration against the Onboarding API and, on its confirmation, deploys the
 # participant profile to the CFM Tenant Manager) and then polls GET /api/members/<externalId>
-# until the membership reaches a terminal state — PROVISIONED is success. The hub reads the
+# until the membership reaches a terminal state — CREDENTIALS_OFFERED is success (the member is
+# provisioned AND the issuer has been asked to offer it the membership credentials). The hub reads the
 # deployed profile's state from the Tenant Manager on every poll, so the participant context id
 # appears here as soon as the platform's VPA provisioning has assigned it.
 #
@@ -24,7 +25,7 @@
 #   API_URL   base URL of the Membership Hub (default: http://cxve.localhost/hub)
 #   BPN       pre-assigned BPNL; --bpn takes precedence (default: derived from the run id)
 #   FOLLOW    "true" forces polling until a terminal state even without a terminal attached
-#             (default: tty only); polling stops on PROVISIONED / REJECTED / FAILED
+#             (default: tty only); polling stops on CREDENTIALS_OFFERED / REJECTED / FAILED
 #   TIMEOUT   polling budget in seconds (default: 300)
 #
 # The hub's API is unauthenticated (an operator surface); no OSP client or token is needed —
@@ -117,8 +118,10 @@ payload=$(jq -n \
 
 echo "Onboarding member \"$NAME\" (shortName=$SHORT_NAME, bpn=$BPN)"
 
-# The POST runs registration AND profile deployment synchronously; with slow downstreams it can
-# take a while, hence the generous max-time.
+# The POST returns as soon as the first leg is under way — PROVISIONING for a member this VE
+# hosts (its profile is deployed on a worker, then registered), or the completed registration for
+# one that brought its own DID, which can take a while with slow downstreams; hence the generous
+# max-time. A 409 means a live membership already holds this DID or BPN.
 MEMBERSHIP=$(curl -fsS --max-time 120 -X POST \
   -H "Content-Type: application/json" \
   -d "$payload" \
@@ -129,7 +132,7 @@ STATE=$(jq -r .state <<<"$MEMBERSHIP")
 DID=$(jq -r .did <<<"$MEMBERSHIP")
 echo "Membership submitted: externalId=$EXTERNAL_ID, did=$DID, state=$STATE"
 
-terminal() { [[ "$1" == "PROVISIONED" || "$1" == "REJECTED" || "$1" == "FAILED" ]]; }
+terminal() { [[ "$1" == "CREDENTIALS_OFFERED" || "$1" == "REJECTED" || "$1" == "FAILED" ]]; }
 
 # REGISTERING means the registration did not confirm within the submitting call; the hub never
 # provisions such a record, so polling would wait forever.
@@ -153,8 +156,8 @@ if ! terminal "$STATE" && [[ -t 1 || "${FOLLOW:-false}" == "true" ]]; then
 fi
 
 case "$STATE" in
-  PROVISIONED)
-    echo "Member provisioned:"
+  CREDENTIALS_OFFERED)
+    echo "Member provisioned and offered its credentials:"
     jq '{externalId, did, bpn, onboardingProcessId, tenantId, participantProfileId, participantContextId}' <<<"$MEMBERSHIP"
     ;;
   REJECTED|FAILED)

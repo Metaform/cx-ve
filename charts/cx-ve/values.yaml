@@ -201,10 +201,11 @@ onboarding-api:
 
 
 # ---- Catena-X Membership Hub ------------------------------------------------------------------
-# Drives the full member journey: registration via the Onboarding API (as OSP client
-# membership-hub, seeded under ospIdp.clients below), then — on the CONFIRMED status callback —
-# EDC resource provisioning via the CFM Tenant Manager. All URLs in the subchart's defaults
-# already point at the umbrella's in-cluster services.
+# Drives the full member journey: EDC resource provisioning via the CFM Tenant Manager for a
+# member this VE hosts, then registration via the Onboarding API (as OSP client membership-hub,
+# seeded under ospIdp.clients below), which registers the credential holder and offers it the
+# credentials. All URLs in the subchart's defaults already point at the umbrella's in-cluster
+# services.
 membership-hub:
   image:
     pullPolicy: IfNotPresent

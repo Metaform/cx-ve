@@ -16,17 +16,24 @@ public record Membership(
         String tenantId,
         String participantProfileId,
         String participantContextId,
-        String failureReason,
-        boolean externallyHosted) {
+        String failureReason) {
 
-    public boolean isProvisioned() {
-        return "PROVISIONED".equals(state);
+    /**
+     * Everything a run needs from this record: the participant context (its resources exist) and
+     * the onboarding process id (its registration is with the Onboarding API — the event ledger is
+     * keyed by it). Both are present from the moment the hub submits the registration, which it
+     * does only once the deployment has completed.
+     */
+    public boolean hasParticipantResources() {
+        return participantContextId != null && !participantContextId.isBlank()
+                && onboardingProcessId != null && !onboardingProcessId.isBlank();
     }
 
     /**
-     * The terminal success of an externally hosted member: the hub provisioned nothing for it and
-     * had the issuer offer it the membership credentials instead. Whether the member then
-     * requested and received them is a separate question, answered by the event ledger.
+     * The terminal success of every member: its registration was confirmed, which means the
+     * Onboarding API registered it as a credential holder and had the issuer offer it the
+     * membership credentials. Whether the member then requested and received them is a separate
+     * question, answered by the event ledger.
      */
     public boolean isCredentialsOffered() {
         return "CREDENTIALS_OFFERED".equals(state);
@@ -37,7 +44,7 @@ public record Membership(
         return "REJECTED".equals(state) || "FAILED".equals(state) || "REGISTERING".equals(state);
     }
 
-    /** Usable for a run: not dead, whichever of the two successes it is heading for. */
+    /** Usable for a run: not a dead end, whatever stage it has reached. */
     public boolean isReusable() {
         return !isDeadEnd();
     }
