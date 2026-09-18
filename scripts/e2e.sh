@@ -5,8 +5,8 @@
 #
 #   1. install-ve.sh        — the VE on a single kind cluster (cxve / cxve.localhost on 80/443)
 #   2. onboard-participant  — onboards the "Verification Participant" through the Membership
-#                             Hub, gated on the membership reaching PROVISIONED (exits non-zero
-#                             on rejected/failed/stalled)
+#                             Hub, gated on the membership reaching CREDENTIALS_OFFERED (exits
+#                             non-zero on rejected/failed/stalled)
 #   3. external DID check   — resolves the participant's DID document from OUTSIDE the cluster
 #                             (plain HTTP from this host through the gateway), proving the VE's
 #                             identity surface is reachable the way an external dataspace

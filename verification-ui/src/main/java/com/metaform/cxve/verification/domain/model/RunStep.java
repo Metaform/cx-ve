@@ -33,7 +33,12 @@ public enum RunStep {
     /** External: the hub has had the issuer offer the membership credentials to the SUT. */
     AWAIT_CREDENTIAL_OFFER,
 
-    /** External: the SUT requested and received them — visible as a delivery in the ledger. */
+    /**
+     * Both: the participant's wallet requested the offered credentials and the issuer delivered
+     * them — visible as a delivery in the ledger, and a precondition for every DSP message that
+     * follows. Every member is offered its credentials over DCP, so a participant provisioned here
+     * waits for this just as a third-party system does.
+     */
     AWAIT_CREDENTIALS,
 
     /** Managed: the participant's certificate tenant is up. */
@@ -66,6 +71,7 @@ public enum RunStep {
             ENSURE_VERIFICATION_PARTICIPANT,
             ONBOARD_PARTICIPANT,
             AWAIT_PROVISIONED,
+            AWAIT_CREDENTIALS,
             AWAIT_CERTO_CONTEXT,
             SEED_PROVIDER_OFFER,
             ESTABLISH_PULL_FLOW,

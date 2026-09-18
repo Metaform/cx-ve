@@ -5,12 +5,13 @@ import java.util.Set;
 /**
  * Lifecycle of a membership: the registration leg first (driven by the Onboarding API, whose
  * status callback records the outcome), then the post-confirmation leg — provisioning the
- * member's EDC resources through the CFM Tenant Manager, or, for an externally hosted member,
- * offering it credentials. Both legs are triggered BY the CONFIRMED callback, so the happy path
- * is SUBMITTED → CONFIRMED → PROVISIONING → PROVISIONED (internal) or → CREDENTIALS_OFFERED
- * (externally hosted), each step taken by whichever thread carries the triggering signal — which
- * is why transitions are MONOTONIC: {@link #canAdvanceTo} is the single transition table, and a
- * late or redelivered signal that would move a record backwards is ignored instead of applied.
+ * member's EDC resources through the CFM Tenant Manager when this environment hosts it, and then,
+ * for EVERY member, offering it credentials. Both legs are triggered BY the CONFIRMED callback, so
+ * the happy path is SUBMITTED → CONFIRMED → PROVISIONING → PROVISIONED → CREDENTIALS_OFFERED, with
+ * the PROVISIONED step skipped for a member that brought its own participant resources. Each step
+ * is taken by whichever thread carries the triggering signal — which is why transitions are
+ * MONOTONIC: {@link #canAdvanceTo} is the single transition table, and a late or redelivered
+ * signal that would move a record backwards is ignored instead of applied.
  */
 public enum MembershipState {
 
@@ -30,19 +31,22 @@ public enum MembershipState {
 
     /**
      * The post-confirmation work is claimed and running: the participant profile is being
-     * deployed, or — for an externally hosted member, which has no profile — the credential offer
-     * is being sent. Entering it is the at-most-once gate for that work.
+     * deployed, or — for a member whose resources live elsewhere — the credential offer is being
+     * sent. Entering it is the at-most-once gate for that work.
      */
     PROVISIONING,
 
-    /** The participant context exists — the member is fully provisioned. Terminal. */
+    /**
+     * The participant context exists — the member's EDC resources are provisioned. NOT terminal:
+     * the credential offer still follows, so a caller waiting for a usable member waits for
+     * CREDENTIALS_OFFERED.
+     */
     PROVISIONED,
 
     /**
-     * An externally hosted member's terminal success: the IssuerService accepted the credential
-     * offer for delivery to the member's own Credential Service. Nothing was provisioned here, so
-     * this is as far as such a membership goes — whether the member then requests and receives
-     * the credentials is observable on the issuance events, not on this record.
+     * Terminal success: the IssuerService accepted the credential offer for delivery to the
+     * member's Credential Service. Whether the member then requests and receives the credentials
+     * is observable on the issuance events, not on this record.
      */
     CREDENTIALS_OFFERED,
 
@@ -61,10 +65,11 @@ public enum MembershipState {
         return switch (this) {
             case SUBMITTED, REGISTERING -> Set.of(CONFIRMED, REJECTED, FAILED).contains(next);
             case CONFIRMED -> next == PROVISIONING || next == FAILED;
-            // which of the two successes is reachable depends on the member, not on this table:
-            // the service takes exactly one of the branches per membership
+            // PROVISIONED is skipped by a member this environment does not host: it has no
+            // profile to deploy, so its claim goes straight to the credential offer
             case PROVISIONING -> Set.of(PROVISIONED, CREDENTIALS_OFFERED, FAILED).contains(next);
-            case PROVISIONED, CREDENTIALS_OFFERED, REJECTED, FAILED -> false;
+            case PROVISIONED -> next == CREDENTIALS_OFFERED || next == FAILED;
+            case CREDENTIALS_OFFERED, REJECTED, FAILED -> false;
         };
     }
 }

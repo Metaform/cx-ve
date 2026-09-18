@@ -12,6 +12,7 @@ import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,6 +81,14 @@ public class CertificateExchangeFlow {
                 return membership;
             }, membership -> "pcid %s (process %s)".formatted(
                     membership.participantContextId(), membership.onboardingProcessId()));
+
+            // Credentials reach a participant provisioned here exactly as they reach a third-party
+            // one: the hub has the issuer offer them, and the participant's wallet requests them.
+            // Nothing downstream works without them — every DSP message presents them — so the run
+            // waits for the delivery the ledger records before it negotiates anything.
+            support.step(run, RunStep.AWAIT_CREDENTIALS,
+                    () -> support.evaluateEvents(run, Map.of(properties.credentialDeliverySubject(), 1)),
+                    Function.identity());
 
             support.step(run, RunStep.AWAIT_CERTO_CONTEXT, () -> {
                 certo.awaitParticipantContext(put.participantContextId());

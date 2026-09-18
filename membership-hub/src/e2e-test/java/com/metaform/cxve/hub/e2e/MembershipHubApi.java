@@ -71,10 +71,15 @@ public class MembershipHubApi {
     }
 
     /**
-     * Polls the membership until it is PROVISIONED and returns the record — the participant
-     * context id is on it. REJECTED, FAILED and REGISTERING (a registration that did not confirm
-     * within the submission — the hub never provisions such a record) fail immediately rather
-     * than timing out.
+     * Polls the membership until it is CREDENTIALS_OFFERED and returns the record — the
+     * participant context id is on it. That is the terminal state of every member: the hub
+     * deploys the participant's resources (when it hosts them) and then has the issuer offer it
+     * the membership credentials, which its wallet requests over DCP. Waiting for PROVISIONED
+     * instead would hand back a participant whose wallet is still empty, and every DSP message
+     * it then sends would be rejected.
+     *
+     * <p>REJECTED, FAILED and REGISTERING (a registration that did not confirm within the
+     * submission — the hub never provisions such a record) fail immediately rather than timing out.
      */
     public JsonNode awaitProvisioned(String externalId, Duration timeout) {
         var result = new AtomicReference<JsonNode>();
@@ -88,8 +93,9 @@ public class MembershipHubApi {
             var membership = json(response.asString());
             failOnDeadEnd(membership);
             assertThat(membership.path("state").asText())
-                    .withFailMessage("membership %s not provisioned yet: %s", externalId, membership)
-                    .isEqualTo("PROVISIONED");
+                    .withFailMessage("membership %s has not been offered its credentials yet: %s",
+                            externalId, membership)
+                    .isEqualTo("CREDENTIALS_OFFERED");
             result.set(membership);
         });
         return result.get();

@@ -1,10 +1,12 @@
 package com.metaform.cxve.hub.adapter.in.web;
 
 import com.metaform.cxve.hub.application.MembershipService;
+import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import java.util.List;
 import java.util.NoSuchElementException;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.security.oauth2.server.resource.autoconfigure.web.OAuth2ResourceServerWebSecurityAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -12,6 +14,9 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -51,12 +56,12 @@ class MembershipControllerTest {
         // The lookup an externally hosted member's operator can actually perform: it knows the
         // DID, not the external id this hub minted.
         when(membershipService.findByDid("did:web:sut.example.com")).thenReturn(List.of(
-                Membership.submitted("ext-9", "SUT GmbH", "did:web:sut.example.com", "BPNL0000000000SU", true)));
+                Membership.submitted("ext-9", "SUT GmbH", "did:web:sut.example.com", "BPNL0000000000SU")));
 
         mvc.perform(get("/api/members").param("did", "did:web:sut.example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].externalId").value("ext-9"))
-                .andExpect(jsonPath("$[0].externallyHosted").value(true));
+                .andExpect(jsonPath("$[0].did").value("did:web:sut.example.com"));
     }
 
     @Test
@@ -74,10 +79,14 @@ class MembershipControllerTest {
     }
 
     @Test
-    void onboard_rejectsAnExternallyHostedMemberWithoutADid() throws Exception {
-        // Without a DID the hub would mint one under THIS environment's authority — an identity
-        // a member hosted elsewhere does not control, and one the credential offer could never
-        // reach. Rejected at the boundary rather than onboarded into a dead end.
+    void onboard_passesACallerSuppliedDidThrough() throws Exception {
+        // The DID is what decides hosting: a member that brings one keeps its own identity and
+        // nothing is provisioned for it here. The controller must hand it to the service
+        // untouched — a dropped DID would silently turn a third-party system into a member this
+        // environment tries to deploy.
+        when(membershipService.onboard(any())).thenReturn(
+                Membership.submitted("ext-9", "SUT GmbH", "did:web:sut.example.com", "BPNL0000000000SU"));
+
         mvc.perform(post("/api/members")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content("""
@@ -85,7 +94,7 @@ class MembershipControllerTest {
                                   "name": "SUT GmbH", "shortName": "sut", "bpn": "BPNL0000000000SU",
                                   "city": "Munich", "streetName": "Otto-Hahn-Ring",
                                   "countryAlpha2Code": "DE", "region": "BY",
-                                  "externallyHosted": true,
+                                  "did": "did:web:sut.example.com",
                                   "uniqueIds": [ { "type": "VAT_ID", "value": "DE987654321" } ],
                                   "companyRoles": [ "ACTIVE_PARTICIPANT" ],
                                   "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
@@ -93,9 +102,12 @@ class MembershipControllerTest {
                                                      "lastName": "Doe", "email": "jane.doe@sut.example" } ]
                                 }
                                 """))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isCreated());
 
-        verifyNoInteractions(membershipService);
+        var submitted = ArgumentCaptor.forClass(MemberData.class);
+        verify(membershipService).onboard(submitted.capture());
+        assertThat(submitted.getValue().did()).isEqualTo("did:web:sut.example.com");
+        assertThat(submitted.getValue().hostedHere()).isFalse();
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.metaform.cxve.hub.domain.model.MembershipState;
 import com.metaform.cxve.hub.domain.port.CredentialOfferService;
 import com.metaform.cxve.hub.domain.port.OnboardingApi;
 import com.metaform.cxve.hub.domain.port.TenantManager;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -116,7 +117,8 @@ class MembershipServiceTest {
     // swappable per test; the service holds the indirection, not the executor itself
     private Executor provisioningExecutor = Runnable::run;
     private final MembershipService service = new MembershipService(repository, onboardingApi, tenantManager,
-            credentialOffers, DID_TEMPLATE, task -> provisioningExecutor.execute(task));
+            credentialOffers, DID_TEMPLATE, PROVISIONING_TIMEOUT, Duration.ofMillis(1),
+            task -> provisioningExecutor.execute(task));
 
     private static MemberData request(String did) {
         return new MemberData("Acme Corp", "Acme", "BPNL0000000000XY",
@@ -125,24 +127,22 @@ class MembershipServiceTest {
                 List.of("ACTIVE_PARTICIPANT"),
                 List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE"),
                         new MemberData.AgreementConsent("agreement-2", "INACTIVE")),
-                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")),
-                null);
+                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")));
     }
 
-    /** A member whose resources run elsewhere: its own DID, nothing for this hub to provision. */
+    /** A member whose resources run elsewhere: it brings its own DID, so nothing is provisioned. */
     private static MemberData externalRequest() {
-        var internal = request(SUT_DID);
-        return new MemberData(internal.name(), internal.shortName(), internal.bpn(), internal.city(),
-                internal.streetName(), internal.countryAlpha2Code(), internal.region(), internal.did(),
-                internal.uniqueIds(), internal.companyRoles(), internal.agreements(), internal.userDetails(),
-                Boolean.TRUE);
+        return request(SUT_DID);
     }
 
     /** The DID the resolver derives for {@link #request}'s short name. */
     private static final String ACME_DID = DID_TEMPLATE + "Acme";
 
-    /** The DID an externally hosted member brings with it. */
+    /** The DID a member hosted elsewhere brings with it. */
     private static final String SUT_DID = "did:web:sut.example.com";
+
+    /** Short enough that a test asserting the timeout does not have to wait for it. */
+    private static final Duration PROVISIONING_TIMEOUT = Duration.ofMillis(200);
 
     private Membership stored(String externalId) {
         return repository.findByExternalId(externalId).orElseThrow();
@@ -164,12 +164,13 @@ class MembershipServiceTest {
 
     @Test
     void confirmedCallback_triggersProvisioning() {
+        tenantManager.contextIdOnDeploy = "pctx-1";
         var membership = service.onboard(request(null));
 
         service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
 
         var provisioned = stored(membership.externalId());
-        assertThat(provisioned.state()).isEqualTo(MembershipState.PROVISIONING);
+        assertThat(provisioned.state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
         assertThat(provisioned.tenantId()).isEqualTo("tenant-1");
         assertThat(provisioned.participantProfileId()).isEqualTo("profile-1");
         assertThat(provisioned.onboardingProcessId()).isEqualTo("process-" + membership.externalId());
@@ -184,30 +185,72 @@ class MembershipServiceTest {
         // The current Onboarding API delivers the CONFIRMED callback while the submission is
         // still on the wire. Provisioning then runs BEFORE onboard records the process id — the
         // compare-and-swap must interleave the two writers so neither field is lost.
+        tenantManager.contextIdOnDeploy = "pctx-1";
         onboardingApi.onSubmit = externalId -> service.onRegistrationStatus(externalId, "CONFIRMED", null);
 
         var membership = service.onboard(request(null));
 
-        assertThat(membership.state()).isEqualTo(MembershipState.PROVISIONING);
         assertThat(membership.onboardingProcessId()).isEqualTo("process-" + membership.externalId());
         assertThat(membership.tenantId()).isEqualTo("tenant-1");
+        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+        assertThat(stored(membership.externalId()).onboardingProcessId())
+                .isEqualTo("process-" + membership.externalId());
         assertThat(tenantManager.deployed).hasSize(1);
     }
 
     @Test
-    void provisioning_completesImmediatelyWhenTheDeployResponseCarriesTheContextId() {
+    void aHostedMember_isDeployedAndThenOfferedItsCredentials() {
+        // The point of the unified pipeline: a member provisioned here receives its credentials
+        // exactly as a third-party one does — the hub asks the issuer to offer them, and the
+        // member's own wallet requests them. No CFM activity does that any more.
         tenantManager.contextIdOnDeploy = "pctx-1";
         var membership = service.onboard(request(null));
 
         service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
 
-        var provisioned = stored(membership.externalId());
-        assertThat(provisioned.state()).isEqualTo(MembershipState.PROVISIONED);
-        assertThat(provisioned.participantContextId()).isEqualTo("pctx-1");
+        var offered = stored(membership.externalId());
+        assertThat(tenantManager.deployed).hasSize(1);
+        assertThat(offered.participantContextId()).isEqualTo("pctx-1");
+        assertThat(offered.state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+        assertThat(offered.isTerminal()).isTrue();
+        assertThat(credentialOffers.offered).hasSize(1);
+        assertThat(credentialOffers.offered.get(0).did()).isEqualTo(ACME_DID);
     }
 
     @Test
-    void anExternallyHostedMember_isOfferedCredentialsInsteadOfBeingProvisioned() {
+    void aHostedMember_isOfferedCredentialsOnlyOnceTheParticipantContextExists() {
+        // The offer needs the member's wallet and DID document to be there; the Tenant Manager
+        // reports the deployment's progress only when asked, so the worker waits for it.
+        tenantManager.contextIdOnDeploy = null;
+        tenantManager.contextIdOnRefresh = "pctx-late";
+        var membership = service.onboard(request(null));
+
+        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+
+        assertThat(tenantManager.refreshCount).isPositive();
+        assertThat(credentialOffers.offered).hasSize(1);
+        assertThat(credentialOffers.offered.get(0).participantContextId()).isEqualTo("pctx-late");
+        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+    }
+
+    @Test
+    void aDeploymentThatNeverCompletes_failsTheMembershipInsteadOfOfferingCredentials() {
+        // Offering credentials to a wallet that does not exist yet would fail at the issuer and
+        // read as the member's fault; the unfinished deployment is the honest reason.
+        tenantManager.contextIdOnDeploy = null;
+        tenantManager.contextIdOnRefresh = null;
+        var membership = service.onboard(request(null));
+
+        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+
+        var failed = stored(membership.externalId());
+        assertThat(failed.state()).isEqualTo(MembershipState.FAILED);
+        assertThat(failed.failureReason()).contains("Provisioning did not complete");
+        assertThat(credentialOffers.offered).isEmpty();
+    }
+
+    @Test
+    void aMemberThatBringsItsOwnDid_isOfferedCredentialsWithoutBeingProvisioned() {
         // Its connector and wallet already run elsewhere; the only thing this environment can do
         // for it is have the issuer offer the credentials to that wallet.
         var membership = service.onboard(externalRequest());
@@ -219,17 +262,16 @@ class MembershipServiceTest {
         assertThat(offered.isTerminal()).isTrue();
         assertThat(credentialOffers.offered).hasSize(1);
         assertThat(credentialOffers.offered.get(0).did()).isEqualTo(SUT_DID);
-        // Nothing was deployed, so none of the provisioning identifiers exist — and their
-        // absence is explained by the flag, not by the membership being unfinished.
+        // Nothing was deployed, so none of the provisioning identifiers exist — the member's own
+        // DID is what says so, rather than the membership being unfinished.
         assertThat(tenantManager.deployed).isEmpty();
-        assertThat(offered.externallyHosted()).isTrue();
         assertThat(offered.tenantId()).isNull();
         assertThat(offered.participantProfileId()).isNull();
         assertThat(offered.participantContextId()).isNull();
     }
 
     @Test
-    void anExternallyHostedMember_isOfferedCredentialsAtMostOnce() {
+    void aMemberIsOfferedCredentialsAtMostOnce() {
         var membership = service.onboard(externalRequest());
         service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
 
@@ -257,23 +299,12 @@ class MembershipServiceTest {
     }
 
     @Test
-    void anExternallyHostedMember_isNeverReadThroughTheTenantManager() {
+    void aMemberThatBringsItsOwnDid_isNeverReadThroughTheTenantManager() {
         var membership = service.onboard(externalRequest());
         service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
 
         assertThat(service.get(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
         assertThat(tenantManager.refreshCount).isZero();
-    }
-
-    @Test
-    void anInternallyHostedMember_isNeverOfferedCredentials() {
-        // Its wallet requests them itself, as the last step of the provisioning orchestration.
-        var membership = service.onboard(request(null));
-
-        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
-
-        assertThat(tenantManager.deployed).hasSize(1);
-        assertThat(credentialOffers.offered).isEmpty();
     }
 
     @Test
@@ -314,6 +345,7 @@ class MembershipServiceTest {
 
     @Test
     void duplicateConfirmed_doesNotProvisionTwice() {
+        tenantManager.contextIdOnDeploy = "pctx-1";
         var membership = service.onboard(request(null));
         service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
 
@@ -321,12 +353,13 @@ class MembershipServiceTest {
 
         // The CONFIRMED->PROVISIONING claim is the at-most-once gate.
         assertThat(tenantManager.deployed).hasSize(1);
-        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.PROVISIONING);
+        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
     }
 
     @Test
     void aRedeliveredConfirmed_healsAConfirmationWhoseWorkerNeverRan() {
         // Crash between recording CONFIRMED and the worker picking it up: the trigger is lost...
+        tenantManager.contextIdOnDeploy = "pctx-1";
         provisioningExecutor = task -> { };
         var membership = service.onboard(request(null));
         service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
@@ -337,7 +370,7 @@ class MembershipServiceTest {
         provisioningExecutor = Runnable::run;
         service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
 
-        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.PROVISIONING);
+        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
         assertThat(tenantManager.deployed).hasSize(1);
     }
 
@@ -357,46 +390,51 @@ class MembershipServiceTest {
     void aLegacyRegisteringRecord_healsOnALateCallback() {
         // Rows the former synchronous flow left in REGISTERING must still advance when their
         // callback finally arrives.
+        tenantManager.contextIdOnDeploy = "pctx-1";
         repository.create(Membership.submitted("legacy-1", "Acme Corp", ACME_DID, "BPNL0000000000XY"), request(null));
         repository.save(stored("legacy-1").withState(MembershipState.REGISTERING));
 
         service.onRegistrationStatus("legacy-1", "CONFIRMED", null);
 
-        assertThat(stored("legacy-1").state()).isEqualTo(MembershipState.PROVISIONING);
+        assertThat(stored("legacy-1").state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
         assertThat(tenantManager.deployed).hasSize(1);
     }
 
     @Test
     void get_readsTheProfileThroughTheStoredIdUntilTheContextIdAppears() {
-        var membership = service.onboard(request(null));
-        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
-        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.PROVISIONING);
+        // A record left PROVISIONING by a worker that died mid-deployment: a read still completes
+        // it from the Tenant Manager, which is what the operator's polling relies on.
+        repository.create(Membership.submitted("stranded-1", "Acme Corp", ACME_DID, "BPNL0000000000XY"),
+                request(null));
+        repository.save(stored("stranded-1").provisioning("tenant-1", "profile-1"));
 
         // Context id not there yet: still PROVISIONING, read through the stored profile id.
-        assertThat(service.get(membership.externalId()).state()).isEqualTo(MembershipState.PROVISIONING);
+        assertThat(service.get("stranded-1").state()).isEqualTo(MembershipState.PROVISIONING);
         assertThat(tenantManager.refreshCount).isEqualTo(1);
 
-        // Once the platform assigns it, the next read completes the membership — persisted, not
+        // Once the platform assigns it, the next read advances the membership — persisted, not
         // just returned.
         tenantManager.contextIdOnRefresh = "pctx-9";
-        var refreshed = service.get(membership.externalId());
+        var refreshed = service.get("stranded-1");
         assertThat(refreshed.state()).isEqualTo(MembershipState.PROVISIONED);
         assertThat(refreshed.participantContextId()).isEqualTo("pctx-9");
-        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.PROVISIONED);
+        assertThat(stored("stranded-1").state()).isEqualTo(MembershipState.PROVISIONED);
 
         // A terminal membership is no longer read through the Tenant Manager.
+        repository.save(stored("stranded-1").credentialsOffered());
         var countAfterCompletion = tenantManager.refreshCount;
-        service.get(membership.externalId());
+        service.get("stranded-1");
         assertThat(tenantManager.refreshCount).isEqualTo(countAfterCompletion);
     }
 
     @Test
     void get_failsAMembershipWhoseProfileReportsAnError() {
-        var membership = service.onboard(request(null));
-        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+        repository.create(Membership.submitted("erroring-1", "Acme Corp", ACME_DID, "BPNL0000000000XY"),
+                request(null));
+        repository.save(stored("erroring-1").provisioning("tenant-1", "profile-1"));
         tenantManager.error = true;
 
-        assertThat(service.get(membership.externalId()).state()).isEqualTo(MembershipState.FAILED);
+        assertThat(service.get("erroring-1").state()).isEqualTo(MembershipState.FAILED);
     }
 
     @Test
@@ -412,13 +450,13 @@ class MembershipServiceTest {
         tenantManager.contextIdOnDeploy = "pctx-1";
         var membership = service.onboard(request(null));
         service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
-        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.PROVISIONED);
+        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
 
         // Redelivered or contradictory callbacks must not re-provision or overwrite the outcome.
         service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
         service.onRegistrationStatus(membership.externalId(), "DECLINED", "too late");
 
-        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.PROVISIONED);
+        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
         assertThat(tenantManager.deployed).hasSize(1);
     }
 

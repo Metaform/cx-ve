@@ -27,13 +27,22 @@ point (see [membership-hub/README.md](membership-hub/README.md) for its API and 
    Its CONFIRMED status callback lands back on the hub before the submission returns.
 3. On the confirmation, the hub creates a **tenant** and deploys the **participant profile**
    via the CFM Tenant Manager, which runs the VPA provisioning orchestration: connector,
-   IdentityHub, Siglet and Certo. The former **registration agent is not part of the DAG**
-   anymore — the holder already exists (step 2). The onboarding agent then requests the
-   member's credentials from its IdentityHub, and the issuer issues them against the holder
-   entry.
-4. `GET /api/members/{externalId}` on the hub returns the correlated record — registration ids
+   IdentityHub, Siglet and Certo. Neither credential activity is part of the DAG: the holder
+   already exists (step 2), and the credentials come next. This step is skipped entirely for a
+   member that brought its own DID — its resources run elsewhere.
+4. The hub then has the IssuerService send the member a **DCP credential offer**, and the
+   member's own IdentityHub requests the offered credentials from it. That is the path a
+   third-party participant takes, and a member hosted here takes the same one, which is why
+   nothing in the orchestration requests credentials on its behalf. The membership ends at
+   `CREDENTIALS_OFFERED`; the delivery itself shows up on the issuance events.
+5. `GET /api/members/{externalId}` on the hub returns the correlated record — registration ids
    and, once provisioning has progressed, the participant context id — by reading the deployed
    profile's state from the Tenant Manager.
+
+> **Offboarding does not revoke credentials.** The dispose side of the orchestration used to
+> revoke them through the CFM onboarding activity, which left with the credential activities.
+> Nothing in the VE triggers offboarding today; whatever does it later has to revoke through the
+> IssuerService admin API itself.
 
 Participants get their data plane registered at provisioning time: the hub attaches the
 configured transfer-type mapping (`participant.ccm.*` / `participant.dataplane.*`) to the

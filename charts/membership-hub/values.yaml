@@ -177,6 +177,13 @@ config:
   participant:
     did:
       template: "did:web:identity.cxve.localhost:"
+    # How long the provisioning worker waits for a deployed participant profile to report its
+    # participant context id before failing the membership — the credential offer that follows
+    # needs the member's wallet and DID document to exist. Same values as the app's defaults;
+    # restated here because an operator tuning provisioning looks in the chart.
+    provisioning:
+      timeout: 10m
+      poll-interval: 5s
     # The member's transfer-type mapping, installed on its data plane (Siglet) at provisioning
     # via the cfm.dataplane VPA properties; the mapping key (transfer-type) becomes the catalog
     # distribution format of the member's assets. It serves the CCM certificate exchanges

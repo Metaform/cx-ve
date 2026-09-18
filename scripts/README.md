@@ -63,8 +63,9 @@ CoreDNS is not authoritative for silently NXDOMAINs.
 
 Onboards a member through the Membership Hub (`POST /hub/api/members` — the full journey: CX-0006 registration via
 the Onboarding API, then EDC resource provisioning via the CFM Tenant Manager) and polls
-`GET /hub/api/members/<externalId>` until the membership reaches a terminal state; `PROVISIONED` is success and
-prints the correlated record incl. the participant context id. `--short-name` pins the participant's DID
+`GET /hub/api/members/<externalId>` until the membership reaches a terminal state; `CREDENTIALS_OFFERED` is success
+(the member is provisioned AND its credentials have been offered to its wallet) and prints the correlated record
+incl. the participant context id. `--short-name` pins the participant's DID
 (`did:web:identity.<host>:<short-name>`). No credentials needed — the hub's API is unauthenticated and the hub
 itself authenticates to the Onboarding API. Registering directly with the Onboarding API in the OSP role
 (registration + credential holder only, no provisioning) remains possible via its API with an `osp-client` token;

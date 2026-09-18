@@ -25,11 +25,18 @@ status callbacks carry) and the `participantContextId` provisioning assigns.
 | `GET /api/members/{externalId}` | The correlated view. For a member with a deployed profile, resolves the stored profile id and reads its current state from the Tenant Manager. |
 | `POST /api/callbacks/registration-status` | The status-callback endpoint registered with the Onboarding API. OAuth2-protected: the caller presents a client-credentials bearer from the OSP IdP, obtained with the client this app registers alongside its callback URL. Not meant for humans. |
 
-States: `SUBMITTED → CONFIRMED → PROVISIONING → PROVISIONED` (the happy path runs through within
-the `POST`), with `REJECTED`/`FAILED` as terminal off-ramps and `REGISTERING` marking a
-registration that did not confirm within the submitting call (such a record is never
-provisioned). The BPN is required on ingress: the status callback does not carry an assigned BPN
-back, and provisioning (the certo activity) needs it.
+States: `SUBMITTED → CONFIRMED → PROVISIONING → PROVISIONED → CREDENTIALS_OFFERED` (the happy
+path runs through within the `POST`), with `REJECTED`/`FAILED` as terminal off-ramps and
+`REGISTERING` marking a registration that did not confirm within the submitting call (such a
+record is never provisioned). `CREDENTIALS_OFFERED` is the terminal success of EVERY member: the
+hub has the IssuerService offer the membership credentials, which the member's own wallet then
+requests over DCP.
+
+Whether a member's resources are provisioned here follows from the `did`: **supply one** and the
+member is taken to run elsewhere (nothing is deployed, and `PROVISIONED` is skipped); **omit it**
+and the hub mints one under `participant.did.template` and deploys the member's EDC resources
+first. The BPN is required on ingress either way: the status callback does not carry an assigned
+BPN back, and provisioning (the certo activity) needs it.
 
 ## Building and testing
 

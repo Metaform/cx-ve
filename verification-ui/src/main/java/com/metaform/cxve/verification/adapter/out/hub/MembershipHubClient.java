@@ -59,16 +59,15 @@ public class MembershipHubClient {
     }
 
     /**
-     * As above, but for a participant whose resources already run elsewhere: its own {@code did}
-     * is declared and the hub is told not to provision anything for it, offering it credentials
-     * instead. The DID is mandatory in that mode — without it the hub would mint one under this
-     * environment's authority, which the participant does not control.
+     * As above, but for a participant whose resources already run elsewhere: declaring its own
+     * {@code did} is what tells the hub not to provision anything for it — a membership without
+     * one gets a DID minted under this environment's authority and its resources deployed here.
+     * Either way the hub has the issuer offer the participant its credentials.
      */
     public Membership onboard(String name, String shortName, String bpn, String vatId, String externalDid) {
         var identity = externalDid == null ? "" : """
                 ,
-                  "did": "%s",
-                  "externallyHosted": true""".formatted(externalDid);
+                  "did": "%s\"""".formatted(externalDid);
         var body = """
                 {
                   "name": "%s",
@@ -137,13 +136,16 @@ public class MembershipHubClient {
     }
 
     /**
-     * Polls the membership until it is PROVISIONED and returns the record. REJECTED, FAILED and
-     * REGISTERING fail immediately rather than burning the timeout; a PROVISIONED record without
-     * a participant context id fails too (wire-contract skew — a deployed hub older than this
-     * app).
+     * Polls the membership until its participant resources exist and returns the record. REJECTED,
+     * FAILED and REGISTERING fail immediately rather than burning the timeout; a provisioned record
+     * without a participant context id fails too (wire-contract skew — a deployed hub older than
+     * this app).
+     *
+     * <p>CREDENTIALS_OFFERED counts as provisioned: the hub offers every member its credentials
+     * right after deploying it, so a record can pass through PROVISIONED between two polls.
      */
     public Membership awaitProvisioned(String externalId) {
-        var membership = Poller.poll("membership %s to be PROVISIONED".formatted(externalId),
+        var membership = Poller.poll("membership %s to be provisioned".formatted(externalId),
                 properties.timeouts().onboarding(), ONBOARDING_POLL_INTERVAL, () -> {
                     Membership current;
                     try {
@@ -152,24 +154,24 @@ public class MembershipHubClient {
                         throw new Poller.RetryException("hub unreachable: " + e.getMessage(), e);
                     }
                     failOnDeadEnd(current);
-                    if (!current.isProvisioned()) {
+                    if (!current.isProvisioned() && !current.isCredentialsOffered()) {
                         throw new Poller.RetryException("membership %s in state %s".formatted(externalId, current.state()));
                     }
                     return current;
                 });
         if (membership.participantContextId() == null || membership.participantContextId().isBlank()) {
-            throw new VerificationException(("PROVISIONED membership %s carries no participantContextId — "
+            throw new VerificationException(("provisioned membership %s carries no participantContextId — "
                     + "is the deployed hub older than this app?").formatted(externalId));
         }
-        log.info("membership {} PROVISIONED (pcid={}, did={})", externalId,
+        log.info("membership {} provisioned (pcid={}, did={})", externalId,
                 membership.participantContextId(), membership.did());
         return membership;
     }
 
     /**
-     * Polls an externally hosted membership until the hub reports CREDENTIALS_OFFERED — its
-     * terminal success: nothing was provisioned, and the issuer has been asked to offer the
-     * membership credentials to the participant's own wallet. Dead ends fail immediately.
+     * Polls a membership until the hub reports CREDENTIALS_OFFERED — the terminal success of every
+     * member: the issuer has been asked to offer the membership credentials to the participant's
+     * wallet, whether that wallet runs here or elsewhere. Dead ends fail immediately.
      */
     public Membership awaitCredentialsOffered(String externalId) {
         var membership = Poller.poll("membership %s to have its credentials offered".formatted(externalId),

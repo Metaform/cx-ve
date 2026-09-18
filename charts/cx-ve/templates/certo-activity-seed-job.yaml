@@ -3,15 +3,28 @@
 ## cfm-write token via jwtlet token exchange and POSTs to the provision manager's management API.
 ##
 ## CAVEAT: the provision manager upserts orchestration definitions by orchestration type, so the
-## template POSTed below REPLACES the platform-seeded VPA deploy/dispose definitions. Its DAG must
-## therefore repeat the platform's activities (see the platform's provision-manager-seed-job),
-## plus the certo steps — with ONE deliberate divergence: the registration activities
-## (registration-agent/registration-rollback) are left out, because in this VE the Onboarding API
-## registers the credential holder with the IssuerService itself, before provisioning starts.
+## template POSTed below REPLACES the platform-seeded VPA deploy/dispose definitions. Its DAG
+## repeats the platform's activities (see the platform's provision-manager-seed-job) plus the
+## certo steps, with the credential activities deliberately left out:
+##
+##   * registration-agent / registration-rollback — the Onboarding API registers the credential
+##     holder with the IssuerService itself, before provisioning starts;
+##   * onboarding-agent / offboarding-agent — the Membership Hub offers every member its
+##     credentials over DCP once provisioning is done, and the member's own IdentityHub requests
+##     them. That is the path an external participant takes, and a member hosted here now takes
+##     the same one, so nothing needs CFM to request credentials on its behalf.
+##
 ## (The cfm.issuer VPA properties still travel with the profile: the certo activity reads the BPN
-## from them.) A PLATFORM upgrade re-runs the platform's seed job and overwrites this definition
-## again — re-run `helm upgrade` on this release to re-apply it (the job re-runs on every
-## revision).
+## from them.)
+##
+## What leaves with the dispose activity: OFFBOARDING NO LONGER REVOKES a member's credentials.
+## Nothing in this VE triggers offboarding today; when something does, revocation belongs with
+## whoever drives it (the IssuerService admin API revokes directly).
+##
+## A PLATFORM upgrade re-runs the platform's seed job and overwrites this definition again — with
+## the onboarding activity back in it, which would have new members request credentials AND be
+## offered them, ending up with duplicates in the wallet. Re-run `helm upgrade` on this release to
+## re-apply this definition (the job re-runs on every revision).
 {{- if and .Values.certoAgent.enabled .Values.certoAgent.seed.enabled }}
 apiVersion: batch/v1
 kind: Job
@@ -138,7 +151,7 @@ spec:
 
               echo "Step 2: Re-create the VPA orchestration definition with the certo steps"
               # The platform's DAG (keep in sync with its provision-manager-seed-job!) plus
-              # certo-provisioner/certo-rollback, minus the registration activities (see the
+              # certo-provisioner/certo-rollback, minus the credential activities (see the
               # header comment). certo-provisioner depends on the jwtlet agent because that
               # activity generates the participantContextId the certo agent reads.
               do_curl -X POST "${PM_BASE_URL}/api/v1alpha1/orchestration-definitions" \
@@ -147,11 +160,6 @@ spec:
                 -d '{
                   "activities": {
                     "cfm.orchestration.vpa.dispose": [{
-                      "id": "offboarding-agent",
-                      "type": "onboarding-activity",
-                      "dependsOn": []
-                    },
-                    {
                       "id": "connector-rollback",
                       "type": "edcv-activity",
                       "dependsOn": []
@@ -199,18 +207,9 @@ spec:
                       "dependsOn": [
                         "jwtlet-tokenexchange-agent"
                       ]
-                    },
-                    {
-                      "id": "onboarding-agent",
-                      "type": "onboarding-activity",
-                      "dependsOn": [
-                        "jwtlet-tokenexchange-agent",
-                        "connector-provisioner",
-                        "identityhub-provisioner"
-                      ]
                     }]
                   },
-                  "description": "Orchestrates the deployment of a new dataspace member (incl. Certo)",
+                  "description": "Orchestrates the deployment of a new dataspace member (incl. Certo; credentials are offered by the Membership Hub)",
                   "schema": {},
                   "id": "cx-ve-vpa-orchestration"
                 }'

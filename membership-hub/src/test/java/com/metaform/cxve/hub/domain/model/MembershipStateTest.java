@@ -23,8 +23,10 @@ class MembershipStateTest {
     }
 
     @Test
-    void anExternallyHostedMembershipEndsAtItsOwnSuccess() {
-        // Same claim gate, different success: nothing is provisioned, the credentials are offered.
+    void everyMembershipEndsAtTheCredentialOffer() {
+        // A member provisioned here passes through PROVISIONED on the way; one that brought its
+        // own resources skips it, straight from the claim.
+        assertThat(PROVISIONED.canAdvanceTo(CREDENTIALS_OFFERED)).isTrue();
         assertThat(PROVISIONING.canAdvanceTo(CREDENTIALS_OFFERED)).isTrue();
         assertThat(CREDENTIALS_OFFERED.canAdvanceTo(PROVISIONED)).isFalse();
         // and it is never an entry point — the claim is the only way in
@@ -52,7 +54,8 @@ class MembershipStateTest {
     void nothingMovesBackwardsAndTerminalsAreFinal() {
         assertThat(PROVISIONING.canAdvanceTo(CONFIRMED)).isFalse();
         assertThat(CONFIRMED.canAdvanceTo(SUBMITTED)).isFalse();
-        for (var terminal : new MembershipState[] { PROVISIONED, CREDENTIALS_OFFERED, REJECTED, FAILED }) {
+        assertThat(PROVISIONED.canAdvanceTo(PROVISIONING)).isFalse();
+        for (var terminal : new MembershipState[] { CREDENTIALS_OFFERED, REJECTED, FAILED }) {
             for (var next : MembershipState.values()) {
                 assertThat(terminal.canAdvanceTo(next)).as("%s -> %s", terminal, next).isFalse();
             }

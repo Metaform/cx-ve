@@ -491,10 +491,11 @@ class VerificationEnvironmentE2eTest {
     }
 
     /**
-     * Onboards a provider + consumer pair through the Membership Hub and waits until both are
-     * PROVISIONED; the returned {@link OnboardingResult}s carry the provisioned identities
-     * straight from the hub's correlated record — participant context id included, so nothing
-     * needs to be recovered from the Tenant Manager here.
+     * Onboards a provider + consumer pair through the Membership Hub and waits until both have
+     * been offered their credentials — the terminal state, and the point from which their wallets
+     * can present anything. The returned {@link OnboardingResult}s carry the provisioned
+     * identities straight from the hub's correlated record — participant context id included, so
+     * nothing needs to be recovered from the Tenant Manager here.
      */
     private OnboardedPair onboardProviderAndConsumer(String runId) {
         var provider = onboardMember("Provider " + runId, "provider-" + runId);
@@ -512,11 +513,11 @@ class VerificationEnvironmentE2eTest {
         var externalId = submitted.path("externalId").asText();
         var provisioned = hub.awaitProvisioned(externalId, Duration.ofMinutes(10));
         var pcid = provisioned.path("participantContextId").asText();
-        // Guard against wire-contract skew: a PROVISIONED membership always carries the context
-        // id, so an empty value means the deployed hub serves a different field name than this
-        // suite mirrors — fail here, not as an opaque 4xx three steps later.
+        // Guard against wire-contract skew: a membership this environment provisioned always
+        // carries the context id, so an empty value means the deployed hub serves a different
+        // field name than this suite mirrors — fail here, not as an opaque 4xx three steps later.
         assertThat(pcid)
-                .withFailMessage("PROVISIONED membership %s carries no participantContextId — "
+                .withFailMessage("provisioned membership %s carries no participantContextId — "
                         + "is the deployed hub older than this suite? Response: %s", externalId, provisioned)
                 .isNotBlank();
         return new OnboardingResult(externalId, bpn, provisioned.path("did").asText(), pcid);

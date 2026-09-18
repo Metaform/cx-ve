@@ -102,6 +102,13 @@ token:
 participant:
   did:
     template: "did:web:identity.cxve.localhost:"   # PARTICIPANT_DID_TEMPLATE
+  # How long the provisioning worker waits for a deployed participant profile to report its
+  # participant context id before failing the membership. The wait exists because the credential
+  # offer that follows needs the member's wallet and DID document to be there — the Tenant Manager
+  # reports progress only when asked, so the worker polls it.
+  provisioning:
+    timeout: 10m                                                # PARTICIPANT_PROVISIONING_TIMEOUT
+    poll-interval: 5s                                           # PARTICIPANT_PROVISIONING_POLLINTERVAL
   # Transfer-type mapping configured on the member's data plane (Siglet) at provisioning time,
   # via the cfm.dataplane VPA properties. The CFM siglet agent installs the mapping and registers
   # the data-plane instance with the control plane; the mapping key (transfer-type) becomes the

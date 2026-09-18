@@ -22,6 +22,7 @@ final class TestFixtures {
                 "ccm-inbox-verification",
                 "https://w3id.org/dspace-sig/profile/http-pull",
                 "3.0",
+                "events.issuance.credential.delivered",
                 new VerificationProperties.Timeouts(tight, tight, tight, tight, tight, tight),
                 Duration.ofMillis(10),
                 expectedEvents,
@@ -31,12 +32,12 @@ final class TestFixtures {
 
     static Membership membership(String externalId, String state, String did, String pcid, String processId) {
         return new Membership(externalId, "Some Participant", did, "BPNLPUT000000001", state,
-                processId, "tenant-1", "profile-1", pcid, null, false);
+                processId, "tenant-1", "profile-1", pcid, null);
     }
 
     /** A membership of a participant hosted elsewhere: its own DID, nothing provisioned here. */
     static Membership externalMembership(String externalId, String state, String did, String processId) {
         return new Membership(externalId, "Some SUT", did, "BPNLPUT000000001", state,
-                processId, null, null, null, null, true);
+                processId, null, null, null, null);
     }
 }

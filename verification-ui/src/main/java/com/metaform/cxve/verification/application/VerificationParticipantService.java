@@ -67,8 +67,14 @@ public class VerificationParticipantService {
         } else {
             log.info("verification participant found: externalId={}, state={}", membership.externalId(), membership.state());
         }
-        if (!membership.isProvisioned()) {
+        if (!membership.isProvisioned() && !membership.isCredentialsOffered()) {
             membership = hub.awaitProvisioned(membership.externalId());
+        }
+        if (!membership.isCredentialsOffered()) {
+            // The participant is the consumer of every run's certificate exchange, so it needs its
+            // own credentials before it can negotiate anything. The hub offers them right after
+            // provisioning; delivery to its wallet follows on its own.
+            membership = hub.awaitCredentialsOffered(membership.externalId());
         }
         var participant = VerificationParticipant.from(membership);
         certo.awaitParticipantContext(participant.participantContextId());

@@ -188,6 +188,12 @@ can only attribute a SUT's **onboarding and credential delivery** to it — the 
 events carry the verification participant's context — so the ledger checklist for an external run
 is deliberately short (`verification.external.expected-events`).
 
+The VE issues to its own participants exactly this way too: every member the Membership Hub
+onboards — the verification participant included — is offered its credentials over DCP and
+requests them with its own wallet. There is no privileged path for a participant that happens to
+run inside the VE, so the issuance this document asks of a SUT is the one the VE exercises on
+every run.
+
 **A reference SUT** to run this against lives in [vendor-stack/](../vendor-stack/README.md): the
 VE's own components in a separate kind cluster, provisioned without credentials of their own, with
 scripts for every obligation in the table above.

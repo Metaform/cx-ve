@@ -7,6 +7,7 @@ import com.metaform.cxve.hub.domain.port.CredentialOfferService;
 import com.metaform.cxve.hub.domain.port.MembershipRepository;
 import com.metaform.cxve.hub.domain.port.OnboardingApi;
 import com.metaform.cxve.hub.domain.port.TenantManager;
+import java.time.Duration;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -59,6 +60,8 @@ public class MembershipService {
     private final TenantManager tenantManager;
     private final CredentialOfferService credentialOfferService;
     private final String didTemplate;
+    private final Duration provisioningTimeout;
+    private final Duration provisioningPollInterval;
     private final Executor provisioningExecutor;
 
     public MembershipService(MembershipRepository repository,
@@ -66,12 +69,16 @@ public class MembershipService {
                              TenantManager tenantManager,
                              CredentialOfferService credentialOfferService,
                              @Value("${participant.did.template:did:web:identity.cxve.localhost:}") String didTemplate,
+                             @Value("${participant.provisioning.timeout:10m}") Duration provisioningTimeout,
+                             @Value("${participant.provisioning.poll-interval:5s}") Duration provisioningPollInterval,
                              @Qualifier("provisioningExecutor") Executor provisioningExecutor) {
         this.repository = repository;
         this.onboardingApi = onboardingApi;
         this.tenantManager = tenantManager;
         this.credentialOfferService = credentialOfferService;
         this.didTemplate = didTemplate;
+        this.provisioningTimeout = provisioningTimeout;
+        this.provisioningPollInterval = provisioningPollInterval;
         this.provisioningExecutor = provisioningExecutor;
     }
 
@@ -80,9 +87,9 @@ public class MembershipService {
      * SUBMITTED; everything past the registration is driven by the status callback. The DID is
      * resolved here — caller-supplied or template-derived, the SAME rule the Onboarding API
      * applies — and passed explicitly with the registration, so the identity the holder is
-     * registered under and the identity the profile is deployed as cannot drift. An externally
-     * hosted member always supplies its own (the request shape requires it), which is what makes
-     * the holder the IssuerService creates addressable by the offer later. The record is persisted BEFORE
+     * registered under and the identity the profile is deployed as cannot drift. A member that
+     * supplies its own DID is one this environment does not host — the holder the IssuerService
+     * registers under it is what makes the credential offer addressable later. The record is persisted BEFORE
      * the submission because the callback can arrive on another thread while the submitting call
      * is still on the wire — the handler must find the record (and may well have advanced it by
      * the time this method returns; the process id is recorded under the compare-and-swap either
@@ -91,7 +98,7 @@ public class MembershipService {
     public Membership onboard(MemberData data) {
         var externalId = UUID.randomUUID().toString();
         var did = ofNullable(data.did()).orElseGet(() -> didTemplate + data.shortName());
-        var membership = Membership.submitted(externalId, data.name(), did, data.bpn(), data.hostedExternally());
+        var membership = Membership.submitted(externalId, data.name(), did, data.bpn());
         repository.create(membership, data);
         log.info("Starting membership '{}' for participant \"{}\" (did={})", externalId, data.name(), did);
         String processId;
@@ -192,9 +199,11 @@ public class MembershipService {
     }
 
     /**
-     * The post-confirmation leg, on the background worker: claim, then do the work the member
-     * calls for — deploy its EDC resources, or offer credentials to an externally hosted one.
-     * Never throws — failures land on the record.
+     * The post-confirmation leg, on the background worker: claim, then walk every member to the
+     * same end. A member this environment hosts has its EDC resources deployed first and is
+     * waited for until the participant context exists; then EVERY member is offered its
+     * credentials, which its own wallet requests over DCP. Never throws — failures land on the
+     * record.
      */
     private void provision(String externalId) {
         try {
@@ -204,10 +213,6 @@ public class MembershipService {
                 return;
             }
             var membership = claimed.get();
-            if (membership.externallyHosted()) {
-                offerCredentials(membership);
-                return;
-            }
             var payload = repository.findPayload(externalId).orElse(null);
             if (payload == null) {
                 update(externalId, current -> current.state().canAdvanceTo(MembershipState.FAILED)
@@ -215,23 +220,13 @@ public class MembershipService {
                         : current);
                 return;
             }
-            var activeAgreements = payload.agreements().stream()
-                    .filter(MemberData.AgreementConsent::hasActiveConsent)
-                    .map(MemberData.AgreementConsent::agreementId)
-                    .toList();
-            log.info("Membership '{}' confirmed — provisioning EDC resources for did={}", externalId, membership.did());
-            TenantManager.ProvisionedProfile profile;
-            try {
-                profile = tenantManager.deployParticipant(membership, activeAgreements);
-            } catch (RuntimeException e) {
-                log.error("Membership '{}' failed to provision", externalId, e);
-                update(externalId, current -> current.state().canAdvanceTo(MembershipState.FAILED)
-                        ? current.failed("Provisioning failed: " + e.getMessage())
-                        : current);
-                return;
+            if (payload.hostedHere()) {
+                membership = deployParticipant(membership, payload);
+                if (membership == null) {
+                    return;
+                }
             }
-            update(externalId, current -> applyProfile(
-                    current.provisioning(profile.tenantId(), profile.participantProfileId()), profile));
+            offerCredentials(membership);
         } catch (RuntimeException e) {
             // the worker must never die silently — but there is also no caller to throw to
             log.error("Membership '{}': provisioning aborted unexpectedly", externalId, e);
@@ -239,14 +234,77 @@ public class MembershipService {
     }
 
     /**
-     * The externally hosted branch: no resources to deploy, so the work is the credential offer —
-     * the first move towards the member's wallet, which no orchestration here will make for it.
-     * The membership ends at CREDENTIALS_OFFERED; whether the member then requests and receives
-     * the credentials shows up on the issuance events, not on this record.
+     * Deploys the member's EDC resources and waits for the participant context to appear — the
+     * credential offer that follows needs the wallet and the DID document to exist, and the
+     * Tenant Manager reports the deployment's progress only when asked. Returns the PROVISIONED
+     * membership, or null when the record was failed (the caller stops).
+     */
+    private Membership deployParticipant(Membership membership, MemberData payload) {
+        var externalId = membership.externalId();
+        var activeAgreements = payload.agreements().stream()
+                .filter(MemberData.AgreementConsent::hasActiveConsent)
+                .map(MemberData.AgreementConsent::agreementId)
+                .toList();
+        log.info("Membership '{}' confirmed — provisioning EDC resources for did={}", externalId, membership.did());
+        TenantManager.ProvisionedProfile profile;
+        try {
+            profile = tenantManager.deployParticipant(membership, activeAgreements);
+        } catch (RuntimeException e) {
+            log.error("Membership '{}' failed to provision", externalId, e);
+            return fail(externalId, "Provisioning failed: " + e.getMessage());
+        }
+        var deploying = update(externalId, current -> applyProfile(
+                current.provisioning(profile.tenantId(), profile.participantProfileId()), profile));
+
+        var deadline = System.nanoTime() + provisioningTimeout.toNanos();
+        while (deploying.state() != MembershipState.PROVISIONED) {
+            if (deploying.state() == MembershipState.FAILED) {
+                // applyProfile saw the Tenant Manager report a deployment error
+                return null;
+            }
+            if (System.nanoTime() > deadline) {
+                log.error("Membership '{}' was not provisioned within {}", externalId, provisioningTimeout);
+                return fail(externalId, "Provisioning did not complete within " + provisioningTimeout);
+            }
+            try {
+                Thread.sleep(provisioningPollInterval.toMillis());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("Membership '{}': provisioning wait interrupted", externalId);
+                return null;
+            }
+            try {
+                var refreshed = tenantManager.refresh(deploying);
+                deploying = update(externalId, current -> applyProfile(current, refreshed));
+            } catch (RuntimeException e) {
+                // a Tenant Manager blip is not the member's failure — keep waiting out the budget
+                log.debug("Membership '{}': reading the participant profile failed, retrying", externalId, e);
+            }
+        }
+        return deploying;
+    }
+
+    /** Fails the record (when the transition still allows it) and returns null for the caller. */
+    private Membership fail(String externalId, String reason) {
+        update(externalId, current -> current.state().canAdvanceTo(MembershipState.FAILED)
+                ? current.failed(reason)
+                : current);
+        return null;
+    }
+
+    /**
+     * The last step of every membership: the credential offer. The IssuerService resolves the
+     * member's DID document and pushes a DCP offer to the Credential Service it advertises; the
+     * member's own IdentityHub requests the offered credentials from there. That is the path a
+     * third-party participant takes, and a member hosted here takes it too — which is why no CFM
+     * activity requests credentials any more (see the certo-activity seed job's DAG).
+     *
+     * <p>The membership ends at CREDENTIALS_OFFERED; whether the credentials are then requested
+     * and delivered shows up on the issuance events, not on this record.
      */
     private void offerCredentials(Membership membership) {
         var externalId = membership.externalId();
-        log.info("Membership '{}' confirmed — offering credentials to the externally hosted member (did={})",
+        log.info("Membership '{}' — offering credentials to the member's wallet (did={})",
                 externalId, membership.did());
         try {
             credentialOfferService.sendOffer(membership);
@@ -254,9 +312,7 @@ public class MembershipService {
             // Typically the member's DID document or Credential Service being unreachable from
             // here: a real failure of the membership, not a transient of ours to hide.
             log.error("Membership '{}' failed to have its credentials offered", externalId, e);
-            update(externalId, current -> current.state().canAdvanceTo(MembershipState.FAILED)
-                    ? current.failed("Credential offer failed: " + e.getMessage())
-                    : current);
+            fail(externalId, "Credential offer failed: " + e.getMessage());
             return;
         }
         update(externalId, current -> current.state().canAdvanceTo(MembershipState.CREDENTIALS_OFFERED)

@@ -55,13 +55,9 @@ public class MembershipEntity {
     @Column(name = "failure_reason")
     private String failureReason;
 
-    /**
-     * Member hosted outside this environment — nothing is provisioned for it, so the tenant,
-     * profile and participant-context columns stay null for the row's whole life. Nullable so
-     * ddl-auto can add the column to populated tables; NULL reads as false.
-     */
-    @Column(name = "externally_hosted")
-    private Boolean externallyHosted;
+    // NOTE an `externally_hosted` column survives in databases created before every member was
+    // offered its credentials over DCP. Nothing reads or writes it any more, and ddl-auto never
+    // drops a column, so it stays until a schema migration removes it.
 
     /** The membership request as JSON ({@code text} on Postgres). Written once at create. */
     @JdbcTypeCode(SqlTypes.JSON)
@@ -168,13 +164,6 @@ public class MembershipEntity {
         this.payload = payload;
     }
 
-    public Boolean getExternallyHosted() {
-        return externallyHosted;
-    }
-
-    public void setExternallyHosted(Boolean externallyHosted) {
-        this.externallyHosted = externallyHosted;
-    }
 
     public Long getVersion() {
         return version;
