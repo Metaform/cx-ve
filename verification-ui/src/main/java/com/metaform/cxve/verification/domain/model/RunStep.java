@@ -30,7 +30,7 @@ public enum RunStep {
     /** Managed: the participant's EDC resources are provisioned and its context id is known. */
     AWAIT_PROVISIONED,
 
-    /** External: the hub has had the issuer offer the membership credentials to the SUT. */
+    /** External: the SUT's registration has had the issuer offer it the membership credentials. */
     AWAIT_CREDENTIAL_OFFER,
 
     /**

@@ -14,8 +14,8 @@ import org.hibernate.type.SqlTypes;
 /**
  * JPA mapping of a membership together with the request payload it was created from — one row per
  * membership. The row IS the externalId ↔ participantContextId correlation this app maintains;
- * the payload is stored as opaque JSON (never queried through) because provisioning replays the
- * agreements from it after the asynchronous CONFIRMED callback.
+ * the payload is stored as opaque JSON (never queried through) because the background worker
+ * replays it — the agreements for the deployment, the rest for the registration that follows.
  */
 @Entity
 @Table(name = "membership")

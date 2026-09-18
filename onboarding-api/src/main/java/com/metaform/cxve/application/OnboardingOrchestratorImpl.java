@@ -7,6 +7,7 @@ import com.metaform.cxve.domain.model.OnboardingStarted;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.port.BusinessPartnerNumberService;
+import com.metaform.cxve.domain.port.CredentialOfferService;
 import com.metaform.cxve.domain.port.HolderRegistrationService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
 import com.metaform.cxve.domain.port.OnboardingEventPublisher;
@@ -39,6 +40,7 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
     private final BusinessPartnerNumberService bpnService;
     private final IdentityProofingService identityProofingService;
     private final HolderRegistrationService holderRegistrationService;
+    private final CredentialOfferService credentialOfferService;
     private final OnboardingRepository repository;
     private final RegistrationStatusService registrationStatusService;
     private final OnboardingEventPublisher eventPublisher;
@@ -48,6 +50,7 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
                                       BusinessPartnerNumberService bpnService,
                                       IdentityProofingService identityProofingService,
                                       HolderRegistrationService holderRegistrationService,
+                                      CredentialOfferService credentialOfferService,
                                       OnboardingRepository repository,
                                       RegistrationStatusService registrationStatusService,
                                       OnboardingEventPublisher eventPublisher,
@@ -56,6 +59,7 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         this.bpnService = bpnService;
         this.identityProofingService = identityProofingService;
         this.holderRegistrationService = holderRegistrationService;
+        this.credentialOfferService = credentialOfferService;
         this.repository = repository;
         this.registrationStatusService = registrationStatusService;
         this.eventPublisher = eventPublisher;
@@ -106,9 +110,8 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
             case VALIDATED -> assignBpn(process, payload);
             case BPN_ASSIGNED -> proveIdentity(process);
             case IDENTITY_VERIFIED -> registerHolder(process, payload);
-            // CREDENTIALS_ISSUED is no longer entered (credentials are issued downstream, after
-            // the EDC resources exist) but remains a valid stored state that must keep advancing.
-            case WALLET_PROVISIONED, CREDENTIALS_ISSUED -> process.withState(OnboardingState.COMPLETED);
+            case WALLET_PROVISIONED -> offerCredentials(process);
+            case CREDENTIALS_ISSUED -> process.withState(OnboardingState.COMPLETED);
             case COMPLETED, REJECTED, FAILED, CANCELLED -> process;
         };
         repository.save(next);
@@ -216,5 +219,21 @@ public class OnboardingOrchestratorImpl implements OnboardingOrchestrator {
         // IssuerService, not a provisioned wallet. Kept because the enum is part of the stored and
         // announced contract.
         return process.withState(OnboardingState.WALLET_PROVISIONED);
+    }
+
+    /**
+     * The step after the holder entry: the IssuerService offers the participant its membership
+     * credentials, and the participant's own wallet requests them. Both halves of this app's
+     * relationship with the issuer therefore live here, in order.
+     *
+     * <p>It requires the participant's DID document to resolve and its credential service to
+     * answer, since the offer is pushed there — a participant this environment hosts is
+     * provisioned before it is registered for exactly that reason. An unreachable wallet fails the
+     * process, which the status callback reports as DECLINED with the message: it is a real defect
+     * of the registration, not something to hide.
+     */
+    private OnboardingProcess offerCredentials(OnboardingProcess process) {
+        credentialOfferService.offerCredentials(process);
+        return process.withState(OnboardingState.CREDENTIALS_ISSUED);
     }
 }

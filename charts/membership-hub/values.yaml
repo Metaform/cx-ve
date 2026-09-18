@@ -1,7 +1,8 @@
 # Membership state is durable in Postgres, so a restart no longer loses in-flight memberships.
 # Concurrent writers (callback, provisioning worker, replicas) are serialized by an
-# optimistic-lock compare-and-swap in the database, and the CONFIRMED->PROVISIONING claim makes
-# provisioning at-most-once across replicas — one replica simply remains the tested default.
+# optimistic-lock compare-and-swap in the database, and the monotonic state machine ignores late
+# or duplicate signals — one replica simply remains the tested default. A hub that dies while
+# deploying a member leaves that record in PROVISIONING: nothing resumes it.
 replicaCount: 1
 
 image:
@@ -45,20 +46,14 @@ jwtlet:
   seed:
     enabled: true
     mappings:
-      # Tenant Manager tokens (provisioning an internally hosted member's EDC resources). Must
-      # agree with the app's config tenant-manager.token-resource; the scopes cover exactly what
-      # TenantManagerClient requests.
+      # Tenant Manager tokens (deploying a hosted member's EDC resources) — the app's ONLY
+      # exchange. Must agree with the app's config tenant-manager.token-resource; the scopes cover
+      # exactly what TenantManagerClient requests. Credential offers are the onboarding-api's, and
+      # so is the issuer-admin-api mapping they need.
       - participantContext: issuer
         scopes:
           - tenant-manager-api:read
           - tenant-manager-api:write
-      # IssuerService Admin API tokens (offering credentials to an externally hosted member).
-      # Must agree with issuer-service.token-resource. The admin scope is what passes the
-      # IssuerService's caller resolution — the same mapping the onboarding-api registers
-      # holders under.
-      - participantContext: sudo
-        scopes:
-          - issuer-admin-api:admin
     # jwtlet participant-token audience (client_audience / bound_audiences)
     audiences:
       - edcv
@@ -156,14 +151,6 @@ config:
   tenant-manager:
     url: http://tenant-manager.edc-v.svc.cluster.local:8080/api/v1alpha1
     token-resource: issuer
-  # The IssuerService Admin API, where credential offers for externally hosted members are
-  # triggered. token-resource must agree with a jwtlet.seed.mappings entry above;
-  # credential-definition-ids must name definitions the catenax-profile chart seeded.
-  issuer-service:
-    url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
-    issuer-context-id: issuer
-    token-resource: sudo
-    credential-definition-ids: membership-credential-def,bpn-credential-def,gov-credential-def
   # Token exchange (RFC 8693): workload token file + exchange endpoint
   token:
     file:

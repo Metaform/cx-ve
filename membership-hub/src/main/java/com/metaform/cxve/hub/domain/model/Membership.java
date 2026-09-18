@@ -15,8 +15,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  *
  * <p>A member that brought its own DID is not provisioned here: its participant resources live
  * elsewhere, so {@code tenantId}/{@code participantProfileId}/{@code participantContextId} stay
- * null for the record's whole life. Either way the membership ends at CREDENTIALS_OFFERED — every
- * member is offered its credentials over DCP.
+ * null for the record's whole life — such a record starts at SUBMITTED. Either way the membership
+ * ends at CREDENTIALS_OFFERED — every member is offered its credentials over DCP.
  *
  * <p>Immutable — each transition returns a new instance via the {@code with*} helpers. The
  * {@code version} is the optimistic-lock token of the snapshot this instance was loaded from
@@ -38,6 +38,13 @@ public record Membership(
         @JsonIgnore Long version
 ) {
 
+    /** A member whose resources this environment deploys: provisioning first, registration after. */
+    public static Membership provisioning(String externalId, String name, String did, String bpn) {
+        return new Membership(externalId, name, did, bpn, MembershipState.PROVISIONING,
+                null, null, null, null, null, null);
+    }
+
+    /** A member that brought its own resources: nothing to deploy, the registration goes out now. */
     public static Membership submitted(String externalId, String name, String did, String bpn) {
         return new Membership(externalId, name, did, bpn, MembershipState.SUBMITTED,
                 null, null, null, null, null, null);
@@ -53,10 +60,10 @@ public record Membership(
                 participantProfileId, participantContextId, failureReason, version);
     }
 
-    public Membership provisioning(String tenantId, String participantProfileId) {
-        return new Membership(externalId, name, did, bpn, MembershipState.PROVISIONING,
-                onboardingProcessId, tenantId, participantProfileId, participantContextId, failureReason,
-                version);
+    /** Records what the Tenant Manager assigned when the deployment was accepted. */
+    public Membership withProfile(String tenantId, String participantProfileId) {
+        return new Membership(externalId, name, did, bpn, state, onboardingProcessId, tenantId,
+                participantProfileId, participantContextId, failureReason, version);
     }
 
     public Membership withParticipantContextId(String participantContextId) {
@@ -68,7 +75,7 @@ public record Membership(
         return withState(MembershipState.PROVISIONED);
     }
 
-    /** Terminal success of any member: the IssuerService accepted the offer for its wallet. */
+    /** Terminal success of any member: its registration was confirmed, offer included. */
     public Membership credentialsOffered() {
         return withState(MembershipState.CREDENTIALS_OFFERED);
     }
@@ -91,9 +98,21 @@ public record Membership(
                 participantProfileId, participantContextId, failureReason, version);
     }
 
+    /**
+     * Whether this record still OCCUPIES its DID and BPN. A rejected or failed attempt does not —
+     * neither does a row stranded in the legacy REGISTERING state, which nothing drives any more —
+     * so onboarding the same member again is allowed after one of those.
+     */
+    @JsonIgnore
+    public boolean isLive() {
+        return state != MembershipState.REJECTED
+                && state != MembershipState.FAILED
+                && state != MembershipState.REGISTERING;
+    }
+
     public boolean isTerminal() {
-        // PROVISIONED is NOT terminal any more: a provisioned member is still owed its credential
-        // offer, and a caller polling this record must keep reading until that has happened.
+        // PROVISIONED is NOT terminal: a provisioned member is still owed its registration (and
+        // with it the credential offer), so a caller polling this record keeps reading.
         return state == MembershipState.CREDENTIALS_OFFERED
                 || state == MembershipState.REJECTED
                 || state == MembershipState.FAILED;

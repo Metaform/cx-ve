@@ -49,10 +49,11 @@ public class MembershipHubClient {
     }
 
     /**
-     * Submits the member and returns the created membership record — the hub mints the
-     * externalId and answers as soon as the registration is submitted (typically in SUBMITTED);
-     * confirmation and provisioning land asynchronously — poll {@link #awaitProvisioned}. A
-     * membership already dead on arrival fails here.
+     * Submits the member and returns the created membership record — the hub mints the externalId
+     * and answers as soon as the first leg is under way: PROVISIONING for a member it hosts (it
+     * deploys the resources before registering them), SUBMITTED for one that brought its own DID.
+     * The rest lands asynchronously — poll {@link #awaitProvisioned}. A membership already dead on
+     * arrival fails here, as does a DID or BPN a live membership already holds (409).
      */
     public Membership onboard(String name, String shortName, String bpn, String vatId) {
         return onboard(name, shortName, bpn, vatId, null);
@@ -61,8 +62,9 @@ public class MembershipHubClient {
     /**
      * As above, but for a participant whose resources already run elsewhere: declaring its own
      * {@code did} is what tells the hub not to provision anything for it — a membership without
-     * one gets a DID minted under this environment's authority and its resources deployed here.
-     * Either way the hub has the issuer offer the participant its credentials.
+     * one gets a DID minted under this environment's authority and its resources deployed here
+     * BEFORE it is registered. Either way the registration ends with the issuer offering the
+     * participant its credentials.
      */
     public Membership onboard(String name, String shortName, String bpn, String vatId, String externalDid) {
         var identity = externalDid == null ? "" : """
@@ -136,13 +138,14 @@ public class MembershipHubClient {
     }
 
     /**
-     * Polls the membership until its participant resources exist and returns the record. REJECTED,
-     * FAILED and REGISTERING fail immediately rather than burning the timeout; a provisioned record
-     * without a participant context id fails too (wire-contract skew — a deployed hub older than
-     * this app).
+     * Polls the membership until its participant resources exist AND its registration is under way,
+     * then returns the record. Both, because the hub deploys before it registers: the record passes
+     * through PROVISIONED (participant context, no process id yet) on its way to SUBMITTED, and a
+     * run needs the process id to read the member's event ledger. Waiting on the DATA rather than a
+     * state name also means a record that raced ahead to CREDENTIALS_OFFERED between two polls is
+     * accepted.
      *
-     * <p>CREDENTIALS_OFFERED counts as provisioned: the hub offers every member its credentials
-     * right after deploying it, so a record can pass through PROVISIONED between two polls.
+     * <p>REJECTED, FAILED and REGISTERING fail immediately rather than burning the timeout.
      */
     public Membership awaitProvisioned(String externalId) {
         var membership = Poller.poll("membership %s to be provisioned".formatted(externalId),
@@ -154,15 +157,11 @@ public class MembershipHubClient {
                         throw new Poller.RetryException("hub unreachable: " + e.getMessage(), e);
                     }
                     failOnDeadEnd(current);
-                    if (!current.isProvisioned() && !current.isCredentialsOffered()) {
+                    if (!current.hasParticipantResources()) {
                         throw new Poller.RetryException("membership %s in state %s".formatted(externalId, current.state()));
                     }
                     return current;
                 });
-        if (membership.participantContextId() == null || membership.participantContextId().isBlank()) {
-            throw new VerificationException(("provisioned membership %s carries no participantContextId — "
-                    + "is the deployed hub older than this app?").formatted(externalId));
-        }
         log.info("membership {} provisioned (pcid={}, did={})", externalId,
                 membership.participantContextId(), membership.did());
         return membership;

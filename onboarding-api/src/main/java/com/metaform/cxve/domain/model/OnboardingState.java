@@ -24,10 +24,15 @@ public enum OnboardingState {
     /** A CX-0149-compliant wallet is available to receive credentials. */
     WALLET_PROVISIONED,
 
-    /** BPN, Framework Agreement and Membership credentials have been issued. */
+    /**
+     * The BPN, Framework Agreement and Membership credentials have been OFFERED to the
+     * participant: the IssuerService pushed a DCP credential offer to the credential service its
+     * DID document advertises. Whether the participant's wallet then requests them, and the issuer
+     * delivers, is observable on the issuance events rather than on this process.
+     */
     CREDENTIALS_ISSUED,
 
-    /** Membership credential issued — onboarding complete. Terminal. */
+    /** Registration complete. Terminal. */
     COMPLETED,
 
     /** A step failed irrecoverably. Terminal. */

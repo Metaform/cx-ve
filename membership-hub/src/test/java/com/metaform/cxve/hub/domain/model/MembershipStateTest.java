@@ -12,53 +12,65 @@ import static com.metaform.cxve.hub.domain.model.MembershipState.REJECTED;
 import static com.metaform.cxve.hub.domain.model.MembershipState.SUBMITTED;
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** The monotonic transition table — the guard every state-carrying signal passes through. */
+/**
+ * The transition table is the guard every writer consults, so its shape is pinned here: the happy
+ * path in the order the hub drives it, the terminal states, and the backwards moves a late or
+ * redelivered signal would otherwise apply.
+ */
 class MembershipStateTest {
 
     @Test
-    void theHappyPathAdvances() {
-        assertThat(SUBMITTED.canAdvanceTo(CONFIRMED)).isTrue();
-        assertThat(CONFIRMED.canAdvanceTo(PROVISIONING)).isTrue();
+    void theHostedPathRunsDeploymentFirst() {
         assertThat(PROVISIONING.canAdvanceTo(PROVISIONED)).isTrue();
+        assertThat(PROVISIONED.canAdvanceTo(SUBMITTED)).isTrue();
+        assertThat(SUBMITTED.canAdvanceTo(CREDENTIALS_OFFERED)).isTrue();
     }
 
     @Test
-    void everyMembershipEndsAtTheCredentialOffer() {
-        // A member provisioned here passes through PROVISIONED on the way; one that brought its
-        // own resources skips it, straight from the claim.
-        assertThat(PROVISIONED.canAdvanceTo(CREDENTIALS_OFFERED)).isTrue();
-        assertThat(PROVISIONING.canAdvanceTo(CREDENTIALS_OFFERED)).isTrue();
-        assertThat(CREDENTIALS_OFFERED.canAdvanceTo(PROVISIONED)).isFalse();
-        // and it is never an entry point — the claim is the only way in
-        assertThat(CONFIRMED.canAdvanceTo(CREDENTIALS_OFFERED)).isFalse();
-        assertThat(SUBMITTED.canAdvanceTo(CREDENTIALS_OFFERED)).isFalse();
-    }
-
-    @Test
-    void failureAndRejectionAreReachableWhereTheyCanHappen() {
+    void aMemberWithItsOwnDidStartsAtSubmitted() {
+        // Nothing to deploy: its one transition is the registration's outcome.
+        assertThat(SUBMITTED.canAdvanceTo(CREDENTIALS_OFFERED)).isTrue();
         assertThat(SUBMITTED.canAdvanceTo(REJECTED)).isTrue();
+        assertThat(SUBMITTED.canAdvanceTo(PROVISIONING)).isFalse();
+    }
+
+    @Test
+    void everyNonTerminalStateCanFail() {
         assertThat(SUBMITTED.canAdvanceTo(FAILED)).isTrue();
-        assertThat(CONFIRMED.canAdvanceTo(FAILED)).isTrue();
         assertThat(PROVISIONING.canAdvanceTo(FAILED)).isTrue();
-        // a DECLINED after confirmation is contradictory input, not a transition
+        assertThat(PROVISIONED.canAdvanceTo(FAILED)).isTrue();
+        assertThat(CONFIRMED.canAdvanceTo(FAILED)).isTrue();
+    }
+
+    @Test
+    void onlyAnUnregisteredMembershipCanBeRejected() {
+        assertThat(PROVISIONING.canAdvanceTo(REJECTED)).isFalse();
+        assertThat(PROVISIONED.canAdvanceTo(REJECTED)).isFalse();
         assertThat(CONFIRMED.canAdvanceTo(REJECTED)).isFalse();
     }
 
     @Test
-    void legacyRegisteringRecordsCanStillHeal() {
-        assertThat(REGISTERING.canAdvanceTo(CONFIRMED)).isTrue();
+    void legacyStatesStillHeal() {
+        // Rows an older hub left behind reach the terminal state on a late or redelivered callback
+        // instead of stranding.
+        assertThat(REGISTERING.canAdvanceTo(CREDENTIALS_OFFERED)).isTrue();
         assertThat(REGISTERING.canAdvanceTo(REJECTED)).isTrue();
+        assertThat(CONFIRMED.canAdvanceTo(CREDENTIALS_OFFERED)).isTrue();
     }
 
     @Test
-    void nothingMovesBackwardsAndTerminalsAreFinal() {
-        assertThat(PROVISIONING.canAdvanceTo(CONFIRMED)).isFalse();
-        assertThat(CONFIRMED.canAdvanceTo(SUBMITTED)).isFalse();
-        assertThat(PROVISIONED.canAdvanceTo(PROVISIONING)).isFalse();
-        for (var terminal : new MembershipState[] { CREDENTIALS_OFFERED, REJECTED, FAILED }) {
-            for (var next : MembershipState.values()) {
-                assertThat(terminal.canAdvanceTo(next)).as("%s -> %s", terminal, next).isFalse();
-            }
+    void terminalStatesAreFinal() {
+        for (var next : MembershipState.values()) {
+            assertThat(CREDENTIALS_OFFERED.canAdvanceTo(next)).isFalse();
+            assertThat(REJECTED.canAdvanceTo(next)).isFalse();
+            assertThat(FAILED.canAdvanceTo(next)).isFalse();
         }
+    }
+
+    @Test
+    void backwardsMovesAreNotAdvances() {
+        assertThat(PROVISIONED.canAdvanceTo(PROVISIONING)).isFalse();
+        assertThat(SUBMITTED.canAdvanceTo(PROVISIONED)).isFalse();
+        assertThat(CREDENTIALS_OFFERED.canAdvanceTo(SUBMITTED)).isFalse();
     }
 }

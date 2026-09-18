@@ -8,8 +8,8 @@ import java.util.Optional;
 /**
  * Persistence boundary for membership state, keyed by the {@code externalId} this app mints —
  * the id the Onboarding API's status callbacks are correlated on. The original request payload is
- * stored alongside the record because provisioning replays parts of it (the agreements) after the
- * asynchronous CONFIRMED callback.
+ * stored alongside the record because the background worker replays it: the agreements drive the
+ * deployment, and the payload itself is what the registration is submitted from.
  */
 public interface MembershipRepository {
 

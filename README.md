@@ -19,30 +19,37 @@ The member journey is split across the two applications, with the Membership Hub
 point (see [membership-hub/README.md](membership-hub/README.md) for its API and states):
 
 1. `POST /api/members` on the **Membership Hub** mints an `externalId`, resolves the member's
-   DID and submits the registration to the Onboarding API in the onboarding-service-provider
-   role (OAuth2 against the VE's OSP IdP).
-2. The **Onboarding API** runs the CX-0006 sequence synchronously — validation, BPN
-   assignment, identity proofing — and registers the member as a credential **holder with the
-   IssuerService** (with the attestation properties the seeded credential definitions map from).
-   Its CONFIRMED status callback lands back on the hub before the submission returns.
-3. On the confirmation, the hub creates a **tenant** and deploys the **participant profile**
-   via the CFM Tenant Manager, which runs the VPA provisioning orchestration: connector,
-   IdentityHub, Siglet and Certo. Neither credential activity is part of the DAG: the holder
-   already exists (step 2), and the credentials come next. This step is skipped entirely for a
-   member that brought its own DID — its resources run elsewhere.
-4. The hub then has the IssuerService send the member a **DCP credential offer**, and the
-   member's own IdentityHub requests the offered credentials from it. That is the path a
-   third-party participant takes, and a member hosted here takes the same one, which is why
-   nothing in the orchestration requests credentials on its behalf. The membership ends at
-   `CREDENTIALS_OFFERED`; the delivery itself shows up on the issuance events.
-5. `GET /api/members/{externalId}` on the hub returns the correlated record — registration ids
-   and, once provisioning has progressed, the participant context id — by reading the deployed
-   profile's state from the Tenant Manager.
+   DID, and refuses a DID or BPN a live membership already holds (`409`).
+2. If the VE hosts the member (no `did` supplied), the hub creates a **tenant** and deploys the
+   **participant profile** via the CFM Tenant Manager, which runs the VPA provisioning
+   orchestration: connector, IdentityHub, Siglet and Certo. Neither credential activity is part
+   of the DAG. The `POST` returns immediately, in `PROVISIONING`; the deployment runs on a
+   worker. A member that brought its own DID skips this entirely — its resources run elsewhere,
+   already deployed by its own operator.
+3. Once the participant context exists, the hub submits the registration to the **Onboarding
+   API** in the onboarding-service-provider role (OAuth2 against the VE's OSP IdP). It runs the
+   CX-0006 sequence synchronously — validation, BPN assignment, identity proofing — registers
+   the member as a credential **holder with the IssuerService** (with the attestation properties
+   the seeded credential definitions map from) and then has the IssuerService send it a **DCP
+   credential offer**, which the member's own IdentityHub requests the credentials from.
+4. That order is why the deployment comes first: the offer is PUSHED to the credential service
+   the member's DID document advertises, so the wallet has to exist by the time the registration
+   runs. The Onboarding API's CONFIRMED callback therefore means "holder registered and
+   credentials offered", and the membership ends at `CREDENTIALS_OFFERED`; the delivery itself
+   shows up on the issuance events.
+5. `GET /api/members/{externalId}` on the hub returns the correlated record — the participant
+   context id and, once the registration is under way, the registration ids — by reading the
+   deployed profile's state from the Tenant Manager.
 
 > **Offboarding does not revoke credentials.** The dispose side of the orchestration used to
 > revoke them through the CFM onboarding activity, which left with the credential activities.
 > Nothing in the VE triggers offboarding today; whatever does it later has to revoke through the
 > IssuerService admin API itself.
+>
+> **A declined registration leaves a hosted member's resources behind.** Deployment precedes
+> registration, and nothing takes the profile back when the Onboarding API declines. The hub's
+> duplicate check catches the repeat case it can see (that is the `409` above); for anything
+> else, the orphaned profile has to be removed through the Tenant Manager by hand.
 
 Participants get their data plane registered at provisioning time: the hub attaches the
 configured transfer-type mapping (`participant.ccm.*` / `participant.dataplane.*`) to the

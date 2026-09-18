@@ -91,6 +91,10 @@ issuer-service:
   url: http://cxve.localhost/api/issuer/admin                    # ISSUER_SERVICE_URL
   issuer-context-id: issuer                                     # ISSUER_SERVICE_ISSUER_CONTEXT_ID
   token-resource: sudo                                          # ISSUER_SERVICE_TOKEN_RESOURCE
+  # The credential definitions offered to every registered holder, right after the holder entry is
+  # created. They must name definitions seeded with the issuer (the Catena-X profile chart seeds
+  # exactly these); an id that names none makes the IssuerService reject the whole offer.
+  credential-definition-ids: membership-credential-def,bpn-credential-def,gov-credential-def  # ISSUER_SERVICE_CREDENTIAL_DEFINITION_IDS
 
 # Prefix for participant DIDs when the registration doesn't supply one; the participant's short
 # name is appended. Must match the platform's IdentityHub did:web hostname (identity.<host>) —

@@ -118,8 +118,10 @@ payload=$(jq -n \
 
 echo "Onboarding member \"$NAME\" (shortName=$SHORT_NAME, bpn=$BPN)"
 
-# The POST runs registration AND profile deployment synchronously; with slow downstreams it can
-# take a while, hence the generous max-time.
+# The POST returns as soon as the first leg is under way — PROVISIONING for a member this VE
+# hosts (its profile is deployed on a worker, then registered), or the completed registration for
+# one that brought its own DID, which can take a while with slow downstreams; hence the generous
+# max-time. A 409 means a live membership already holds this DID or BPN.
 MEMBERSHIP=$(curl -fsS --max-time 120 -X POST \
   -H "Content-Type: application/json" \
   -d "$payload" \

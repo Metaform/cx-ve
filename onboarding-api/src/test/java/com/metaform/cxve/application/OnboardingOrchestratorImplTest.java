@@ -9,6 +9,7 @@ import com.metaform.cxve.domain.model.CallbackRequestData;
 import com.metaform.cxve.domain.model.OnboardingState;
 import com.metaform.cxve.domain.model.OspTenantRegistrationData;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
+import com.metaform.cxve.domain.port.CredentialOfferService;
 import com.metaform.cxve.domain.port.HolderRegistrationService;
 import com.metaform.cxve.domain.port.IdentityProofingService;
 import com.metaform.cxve.adapter.out.stub.BusinessPartnerNumberServiceStub;
@@ -44,11 +45,25 @@ class OnboardingOrchestratorImplTest {
 
     private final RecordingHolderRegistration holderRegistration = new RecordingHolderRegistration();
 
+    // Test double for the second half of this app's issuer relationship: the real service has the
+    // IssuerService push a DCP offer to the participant's wallet.
+    private static class RecordingCredentialOffers implements CredentialOfferService {
+        final List<OnboardingProcess> offered = new ArrayList<>();
+
+        @Override
+        public void offerCredentials(OnboardingProcess process) {
+            offered.add(process);
+        }
+    }
+
+    private final RecordingCredentialOffers credentialOffers = new RecordingCredentialOffers();
+
     private final RecordingOnboardingEventPublisher events = new RecordingOnboardingEventPublisher();
 
     private OnboardingOrchestratorImpl orchestratorWith(IdentityProofingService proofing) {
-        return new OnboardingOrchestratorImpl(validation, bpn, proofing, holderRegistration, repository,
-                new DefaultRegistrationStatusService(new InMemoryCallbackStore()), events, RecordingOnboardingEventPublisher.didResolver());
+        return new OnboardingOrchestratorImpl(validation, bpn, proofing, holderRegistration, credentialOffers,
+                repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()), events,
+                RecordingOnboardingEventPublisher.didResolver());
     }
 
     private static PartnerRegistrationData registration(String bpn) {
@@ -182,7 +197,7 @@ class OnboardingOrchestratorImplTest {
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                holderRegistration, repository, recordingCallback, events,
+                holderRegistration, credentialOffers, repository, recordingCallback, events,
                 RecordingOnboardingEventPublisher.didResolver());
 
         orchestrator.start("osp-1", registration("BPNL0000000000XY"));
@@ -239,7 +254,7 @@ class OnboardingOrchestratorImplTest {
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                holderRegistration, repository, failingCallback, events,
+                holderRegistration, credentialOffers, repository, failingCallback, events,
                 RecordingOnboardingEventPublisher.didResolver());
 
         var thrown = catchThrowable(() -> orchestrator.start("osp-1", registration("BPNL0000000000XY")));
@@ -263,7 +278,8 @@ class OnboardingOrchestratorImplTest {
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                unreachableIssuerService, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
+                unreachableIssuerService, credentialOffers, repository,
+                new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
                 events, RecordingOnboardingEventPublisher.didResolver());
 
         var thrown = catchThrowable(() -> orchestrator.start("osp-1", registration("BPNL0000000000XY")));
@@ -302,7 +318,8 @@ class OnboardingOrchestratorImplTest {
         var completedFirst = orchestratorWith(new IdentityProofingServiceStub());
         completedFirst.start("osp-1", registration("BPNL0000000000XY"));
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                holderRegistration, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
+                holderRegistration, credentialOffers, repository,
+                new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
                 throwsAfterRecording, RecordingOnboardingEventPublisher.didResolver());
 
         // Duplicate of the completed registration, so it is rejected inside start() itself.
@@ -399,7 +416,8 @@ class OnboardingOrchestratorImplTest {
             }
         };
         var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
-                failingRegistration, repository, new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
+                failingRegistration, credentialOffers, repository,
+                new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
                 events, RecordingOnboardingEventPublisher.didResolver());
 
         var thrown = catchThrowable(() -> orchestrator.start("osp-1", registration("BPNL0000000000XY")));
@@ -467,5 +485,65 @@ class OnboardingOrchestratorImplTest {
         assertThat(orchestrator.get(id).state()).isEqualTo(OnboardingState.BPN_ASSIGNED);
         assertThat(orchestrator.get(id).isTerminal()).isFalse();
         assertThat(holderRegistration.registered).isEmpty();
+    }
+
+    @Test
+    void theCredentialOffer_followsTheHolderRegistration() {
+        // Both halves of this app's relationship with the issuer, in order: the holder entry says
+        // WHO may receive credentials, the offer is what moves them to the participant's wallet.
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+
+        var id = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
+
+        assertThat(credentialOffers.offered).hasSize(1);
+        assertThat(credentialOffers.offered.get(0).holderId()).isEqualTo(ACME_DID);
+        // Handed over in WALLET_PROVISIONED — a state only the holder registration produces, so the
+        // ordering is asserted rather than assumed.
+        assertThat(credentialOffers.offered.get(0).state()).isEqualTo(OnboardingState.WALLET_PROVISIONED);
+        assertThat(orchestrator.get(id).state()).isEqualTo(OnboardingState.COMPLETED);
+    }
+
+    @Test
+    void theCredentialOffer_isSentOnlyOnceEvenWhenReDriven() {
+        // A second offer would have the wallet request a second copy of every credential, and a
+        // wallet holding two MembershipCredentials fails presentations. The state machine is the
+        // guard: a terminal process does not re-run the step.
+        var orchestrator = orchestratorWith(new IdentityProofingServiceStub());
+
+        var id = orchestrator.start("osp-1", registration("BPNL0000000000XY"));
+        orchestrator.advance(id);
+        orchestrator.advance(id);
+
+        assertThat(credentialOffers.offered).hasSize(1);
+    }
+
+    @Test
+    void aFailingCredentialOffer_failsTheProcessAndAnnouncesTheOutcome() {
+        // Typically the participant's DID document or credential service being unreachable — a real
+        // defect of the registration, reported as DECLINED with the reason rather than swallowed.
+        var unreachableWallet = new CredentialOfferService() {
+            @Override
+            public void offerCredentials(OnboardingProcess process) {
+                throw new RuntimeException("credential service unreachable");
+            }
+        };
+        var orchestrator = new OnboardingOrchestratorImpl(validation, bpn, new IdentityProofingServiceStub(),
+                holderRegistration, unreachableWallet, repository,
+                new DefaultRegistrationStatusService(new InMemoryCallbackStore()),
+                events, RecordingOnboardingEventPublisher.didResolver());
+
+        var thrown = catchThrowable(() -> orchestrator.start("osp-1", registration("BPNL0000000000XY")));
+
+        assertThat(thrown).hasMessage("credential service unreachable");
+        var processId = events.started().get(0).processId();
+        assertThat(repository.findById(processId).orElseThrow().state()).isEqualTo(OnboardingState.FAILED);
+        // The holder was registered before the offer failed, so the step and the cause both have to
+        // be in the message — otherwise the operator cannot tell which half went wrong.
+        assertThat(holderRegistration.registered).hasSize(1);
+        assertThat(events.completed()).hasSize(1);
+        assertThat(events.completed().get(0).failureMessage())
+                .contains("WALLET_PROVISIONED", "credential service unreachable");
+        // The failed registration no longer blocks a retry.
+        assertThat(repository.findActiveByBpn("BPNL0000000000XY")).isEmpty();
     }
 }
