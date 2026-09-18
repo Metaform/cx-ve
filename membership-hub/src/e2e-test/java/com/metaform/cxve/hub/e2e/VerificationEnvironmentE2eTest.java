@@ -70,6 +70,7 @@ class VerificationEnvironmentE2eTest {
             .build();
 
     private static final String TOKEN_EXCHANGE_URL = "http://cxve.localhost/api/auth/token";
+    private static final String TENANT_MANAGER_URL = "http://cxve.localhost/api/tm";
     private static final String MANAGEMENT_API_URL = "http://cxve.localhost/api/management/v5";
     private static final String CERTO_API_URL = "http://cxve.localhost/api/certo/management/v1";
     // Transfer type of the CCM flows: the Data Plane Signaling HTTP transfer profile's pull value.
@@ -82,6 +83,7 @@ class VerificationEnvironmentE2eTest {
 
     private final TokenExchange tokenExchange = new TokenExchange(TOKEN_EXCHANGE_URL, KUBECONFIG);
     private final MembershipHubApi hub = new MembershipHubApi(MEMBERSHIP_HUB_URL);
+    private final TenantManagerApi tenantManager = new TenantManagerApi(TENANT_MANAGER_URL, tokenExchange);
 
     /**
      * Bearer token of the OSP caller, obtained exactly as an external onboarding service
@@ -429,9 +431,15 @@ class VerificationEnvironmentE2eTest {
      * The regression test for the OSP-facing surface of the Onboarding API itself, exercised the
      * way an external onboarding service provider uses it: register a status callback (the one
      * call gated on the {@code configure_partner_registration} scope), submit a registration, and
-     * receive the CONFIRMED callback carrying the caller-supplied externalId. This path covers
-     * the registration leg only — no EDC resources are provisioned (that is the Membership Hub's
-     * job, exercised by the certificate-exchange tests).
+     * receive the CONFIRMED callback carrying the caller-supplied externalId.
+     *
+     * <p>The partner is deployed FIRST, straight through the Tenant Manager rather than through
+     * the hub (which would register it itself, and the Onboarding API declines a DID it already
+     * knows). That is not scaffolding: a registration ends with the issuer pushing a credential
+     * offer to the credential service the partner's DID document advertises, so an OSP registers a
+     * partner whose resources already run — a vendor's own, or, for a member the VE hosts, the
+     * ones the hub deployed before registering it. Registering a partner that has no wallet is
+     * declined, with the unresolvable DID as the reason.
      */
     @Test
     void ospRegistrationStatusContract() {
@@ -457,7 +465,13 @@ class VerificationEnvironmentE2eTest {
                 .then().statusCode(204);
 
         var externalId = "osp-contract-" + UUID.randomUUID().toString().substring(0, 8);
-        submitOspRegistration("OSP Contract Corp " + externalId, "ospcontract-" + externalId.substring(13), externalId);
+        var shortName = "ospcontract-" + externalId.substring(13);
+        var name = "OSP Contract Corp " + externalId;
+        // The DID the partner is registered under — under this VE's own did:web authority, since
+        // the suite deploys the partner here; an external OSP would name its own.
+        var did = "did:web:identity.cxve.localhost:" + shortName;
+        tenantManager.deployParticipant(name, did, bpnFor(externalId));
+        submitOspRegistration(name, shortName, externalId, did);
 
         log("waiting for the CONFIRMED status callback (externalId=%s)...", externalId);
         await().atMost(Duration.ofMinutes(2)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
@@ -614,8 +628,12 @@ class VerificationEnvironmentE2eTest {
         return ("BPNL" + String.format("%08X", Math.abs(seed.hashCode())) + "000000").substring(0, 16);
     }
 
-    /** Submits a registration DIRECTLY to the Onboarding API, in the OSP role (osp-client). */
-    private static void submitOspRegistration(String name, String shortName, String runId) {
+    /**
+     * Submits a registration DIRECTLY to the Onboarding API, in the OSP role (osp-client), under
+     * the DID whose participant resources the caller has already deployed — the identity the
+     * credential holder is registered under and the credential offer is pushed to.
+     */
+    private static void submitOspRegistration(String name, String shortName, String runId, String did) {
         // bpn is optional per spec but supplied here so the duplicate checks bite (see bpnFor);
         // userDetails is spec-mandatory since the CX-0009 revision that reshaped the payload
         var bpn = bpnFor(runId);
@@ -632,6 +650,7 @@ class VerificationEnvironmentE2eTest {
                 .countryAlpha2Code("DE")
                 .uniqueId("VAT_ID", "DE" + runId)
                 .companyRole("ACTIVE_PARTICIPANT")
+                .did(did)
                 .userDetail(new NewParticipantData.UserDetail(
                         null, "e2e-user-" + runId, null, "E2e", "Tester", "e2e-" + runId + "@example.com"))
                 .autoSubmit(true)
@@ -646,6 +665,6 @@ class VerificationEnvironmentE2eTest {
                 .post("/api/administration/registration/network/partnerregistration")
                 .then()
                 .statusCode(200);
-        log("onboarding submitted: \"%s\" (shortName=%s, externalId=%s)", name, shortName, runId);
+        log("onboarding submitted: \"%s\" (shortName=%s, externalId=%s, did=%s)", name, shortName, runId, did);
     }
 }
