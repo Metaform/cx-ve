@@ -1,4 +1,4 @@
-# Runtime configuration for the CX-VE Verification UI. Values here are the defaults baked into
+# Runtime configuration for the Verification UI. Values here are the defaults baked into
 # the image; the local-development defaults point at a VE exposed on cxve.localhost.
 #
 # Every key can be overridden from outside without rebuilding, e.g. from a Kubernetes ConfigMap:
@@ -33,7 +33,8 @@ membership-hub:
 management-api:
   url: http://cxve.localhost/api/management/v5                   # MANAGEMENTAPI_URL
 
-# Certo's CX-0135 CCM management API (certo validates the jwtlet bearer itself).
+# Certo's CCM management API (certo validates the jwtlet bearer itself) — the use-case app of the
+# CCM verification, in every dataspace.
 certo:
   url: http://cxve.localhost/api/certo/management/v1             # CERTO_URL
 
@@ -51,7 +52,8 @@ token:
     audience: edcv                                              # TOKEN_EXCHANGE_AUDIENCE
 
 verification:
-  # Base of the platform's DSP endpoints; a provider's address is <base>/<pcid>/cx-neptune.
+  # Base of the platform's DSP endpoints; a provider's address is <base>/<pcid>/<dsp-profile> (the
+  # dsp-profile of the run's dataspace).
   # Deliberately the EXTERNAL gateway form even in-cluster (the controlplane dereferences it;
   # the CoreDNS rewrites installed by scripts/setup-did-dns.sh make it resolve in pods).
   dsp-base-url: http://cxve.localhost/api/dsp                    # VERIFICATION_DSPBASEURL
@@ -64,26 +66,11 @@ verification:
   certo-auth:
     token-resource: sudo                                        # VERIFICATION_CERTOAUTH_TOKENRESOURCE
     token-scope: certo-mgmt-api:write                           # VERIFICATION_CERTOAUTH_TOKENSCOPE
-  # The permanent verification participant's fixed identity. The BPN is the rediscovery key
-  # after restarts (hub lookup), so keep it stable; it is pinned rather than hash-derived to be
-  # readable in logs and the UI.
-  participant:
-    name: "Verification Participant"                            # VERIFICATION_PARTICIPANT_NAME
-    short-name: verification-participant                        # VERIFICATION_PARTICIPANT_SHORTNAME
-    bpn: BPNLVERIFY000001                                       # VERIFICATION_PARTICIPANT_BPN
-    vat-id: DEVERIFY0001                                        # VERIFICATION_PARTICIPANT_VATID
-  # The verification participant's permanent CCM inbox asset (the push-flow target).
-  inbox-asset-id: ccm-inbox-verification                        # VERIFICATION_INBOXASSETID
   # Transfer type of the CCM flows: the Data Plane Signaling HTTP transfer profile's pull value
   # (https://eclipse-dataplane-signaling.github.io/profiles/HEAD/#transfer-profiles). It keys the
   # participant's siglet transfer-type mapping (membership-hub participant.ccm.transfer-type), the
   # data-plane registration and the catalog distribution format, so all of them must agree.
   transfer-type: https://w3id.org/dspace-sig/profile/http-pull  # VERIFICATION_TRANSFERTYPE
-  # CX-0135 API version (cx-common:version) the CCM assets declare and are looked up by, together
-  # with their dct:subject: this environment's own inbox as the consumer API, a system under test's
-  # offer as the provider API. Asset ids play no part — CX-0135 identifies an API offer by subject
-  # and version, of which a business partner may offer only one.
-  ccm-api-version: "3.0"                                        # VERIFICATION_CCMAPIVERSION
   # The ledger subject that proves a participant's wallet actually holds its credentials. Every
   # member is offered them over DCP — the hub asks the issuer, the wallet requests them — so a run
   # waits for this delivery before it negotiates anything, whether the participant runs here or
@@ -97,21 +84,6 @@ verification:
     certo: 2m                                                   # VERIFICATION_TIMEOUTS_CERTO
     events: 3m                                                  # VERIFICATION_TIMEOUTS_EVENTS
   poll-interval: 2s                                             # VERIFICATION_POLLINTERVAL
-  # The verdict's expected-events checklist: eventlog subject -> minimum count on the
-  # participant-under-test's log. The >=2 counts assume the provider-side controlplane events of
-  # both CCM flows carry the participant-under-test's context id — tune here (chart-overridable,
-  # no rebuild) if a live run shows different attribution.
-  expected-events:
-    "[events.onboarding.started]": 1
-    "[events.onboarding.completed]": 1
-    "[events.participantcontext.created]": 1
-    "[events.diddocument.published]": 1
-    "[events.keypair.added]": 1
-    "[events.issuance.credential.delivered]": 1
-    "[events.contract.negotiation.finalized]": 2
-    "[events.transfer.process.started]": 2
-    "[events.certificate.exchange.fulfilled]": 1
-    "[events.certificate.exchange.accepted]": 1
   # A run against a third-party system under test: everything this environment cannot derive
   # because it belongs to the SUT or was agreed with its operator up front.
   external:
@@ -124,13 +96,155 @@ verification:
     credentials-timeout: 15m                                    # VERIFICATION_EXTERNAL_CREDENTIALSTIMEOUT
     provider-offer-timeout: 15m                                 # VERIFICATION_EXTERNAL_PROVIDEROFFERTIMEOUT
     publish-timeout: 15m                                        # VERIFICATION_EXTERNAL_PUBLISHTIMEOUT
-    # The ledger checklist for an external participant. Deliberately short: the identity events
-    # above belong to wallets THIS environment provisions, and the exchange's own events carry the
-    # verification participant's context rather than the SUT's, so they attribute to the
-    # verification participant's log and not the SUT's. What remains is what the tracker can
-    # honestly attribute to a participant hosted elsewhere — and the credential delivery is the
-    # load-bearing one: it proves the SUT accepted this environment's offer over DCP.
-    expected-events:
-      "[events.onboarding.started]": 1
-      "[events.onboarding.completed]": 1
-      "[events.issuance.credential.delivered]": 1
+
+  # The dataspaces a run can verify against, in the order the UI offers them, keyed by the
+  # dataspace id the Membership Hub knows them by. A dataspace is offered as available only while
+  # the hub serves it (GET /hub/api/dataspaces); a use case only when it is enabled here AND this
+  # environment implements its verification (so far: ccm).
+  dataspaces:
+    catena-x:
+      display-name: Catena-X
+      # What a member id is called and looks like here — the run form's label, placeholder and
+      # validation. Catena-X: the BPNL, the legal-entity BPN (CX-0010).
+      member-id:
+        label: BPN
+        pattern: "BPNL[0-9A-Z]{12}"
+        example: BPNL000000000001
+      # The DSP dataspace profile of every catalog, negotiation and transfer request — and the last
+      # segment of a provider's DSP address. Must be what the connector advertises.
+      dsp-profile: cx-neptune
+      # The policies of every offer this environment seeds. The leftOperands are Catena-X policy
+      # terms (in policy-context), each backed by a CEL expression the catenax-profile chart seeds;
+      # the rightOperands are placeholders — the CEL expressions check fixed credential claims.
+      policy-context: https://w3id.org/catenax/2025/9/policy/context.jsonld
+      access-constraints:
+        - { left-operand: Membership, operator: eq, right-operand: active }
+      contract-constraints:
+        - { left-operand: FrameworkAgreement, operator: eq, right-operand: "DataExchangeGovernance:1.0" }
+        - { left-operand: UsagePurpose, operator: isAnyOf, right-operand: "cx.pcf.base:1" }
+        - { left-operand: DataUsageEndDefinition, operator: eq, right-operand: "cx.dataUsageEnd.unlimited:1" }
+      # The Catena-X `registration` object of a hub member request (the CX-0009 registration
+      # beyond the common fields). The ACTIVE "Catena-X" agreement matters: it becomes the
+      # member's memberOf, which the Membership policy checks.
+      registration-template: |
+        {
+          "city": "Munich",
+          "streetName": "Otto-Hahn-Ring",
+          "countryAlpha2Code": "DE",
+          "region": "BY",
+          "uniqueIds": [ { "type": "VAT_ID", "value": "{{uniqueId}}" } ],
+          "companyRoles": [ "ACTIVE_PARTICIPANT" ],
+          "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
+          "userDetails": [ {
+            "providerId": "vui-user-{{uniqueId}}",
+            "firstName": "Verification", "lastName": "Runner",
+            "email": "vui-{{uniqueId}}@example.com"
+          } ]
+        }
+      # The dataspace's permanent verification participant. Its member id is the rediscovery key
+      # after restarts (hub lookup), so keep it stable; it is pinned rather than hash-derived to be
+      # readable in logs and the UI. The short name forms its hosted DID and must be unique across
+      # dataspaces (the hub deploys a DID only once).
+      verification-participant:
+        name: "Verification Participant"
+        short-name: verification-participant
+        member-id: BPNLVERIFY000001
+        unique-id: DEVERIFY0001
+      use-cases:
+        ccm:
+          display-name: Company Certificate Management
+          enabled: true
+          ccm:
+            # The verification participant's permanent CCM inbox asset (the push-flow target).
+            inbox-asset-id: ccm-inbox-verification
+            # CX-0135: how a CCM API offer is identified in a catalog — dct:type cx-taxo:CCMAPI, a
+            # dct:subject naming the provider or consumer API, and cx-common:version. This
+            # environment's own inbox declares the consumer API, a system under test's offer is
+            # looked up as the provider API. Asset ids play no part — a business partner may offer
+            # only one asset per API and version.
+            api:
+              taxonomy: "https://w3id.org/catenax/taxonomy#"
+              taxonomy-prefix: cx-taxo
+              version-property: "https://w3id.org/catenax/ontology/common#version"
+              version-prefix: cx-common
+              version: "3.0"
+            # The sample certificate a managed run publishes: its issuer and certified site (BPNs).
+            certificate:
+              issuer-name: Verification Environment CA
+              issuer-id: BPNL00000000ISSUER
+              site-id: BPNA00000000MAIN0
+            # The verdict's expected-events checklist: eventlog subject -> minimum count on the
+            # participant-under-test's log. The >=2 counts assume the provider-side controlplane
+            # events of both CCM flows carry the participant-under-test's context id — tune here
+            # (chart-overridable, no rebuild) if a live run shows different attribution.
+            expected-events:
+              "[events.onboarding.started]": 1
+              "[events.onboarding.completed]": 1
+              "[events.participantcontext.created]": 1
+              "[events.diddocument.published]": 1
+              "[events.keypair.added]": 1
+              "[events.issuance.credential.delivered]": 1
+              "[events.contract.negotiation.finalized]": 2
+              "[events.transfer.process.started]": 2
+              "[events.certificate.exchange.fulfilled]": 1
+              "[events.certificate.exchange.accepted]": 1
+            # The ledger checklist for an external participant. Deliberately short: the identity
+            # events above belong to wallets THIS environment provisions, and the exchange's own
+            # events carry the verification participant's context rather than the SUT's. What
+            # remains is what the tracker can honestly attribute to a participant hosted elsewhere —
+            # and the credential delivery is the load-bearing one: it proves the SUT accepted this
+            # environment's offer over DCP.
+            external-expected-events:
+              "[events.onboarding.started]": 1
+              "[events.onboarding.completed]": 1
+              "[events.issuance.credential.delivered]": 1
+        # Listed so operators see it exists; not verifiable yet (no implementation).
+        parts-tracking:
+          display-name: Parts Tracking
+          enabled: false
+    # Decade-X: listed so the UI offers it; available once the hub serves it (dataspaces.decade-x
+    # in the hub, backed by the dx-onboarding-api). The profile below is a PLACEHOLDER to fill in
+    # when the VE hosts the dataspace: its DSP profile, policy vocabulary and CCM vocabulary are
+    # not settled yet — the CCM vocabulary assumes Certo's Catena-X API identity carries over.
+    decade-x:
+      display-name: Decade-X
+      member-id:
+        label: Member number
+        pattern: "DX-[0-9]{8}"
+        example: DX-00000001
+      dsp-profile: dx-dsp
+      policy-context: https://w3id.org/decadex/policy/context.jsonld
+      registration-template: |
+        { "country": "DE", "contactEmail": "vui-{{uniqueId}}@example.com" }
+      verification-participant:
+        name: "Verification Participant (Decade-X)"
+        short-name: verification-participant-dx
+        member-id: DX-99999999
+        unique-id: DXVERIFY0001
+      use-cases:
+        ccm:
+          display-name: Company Certificate Management
+          enabled: true
+          ccm:
+            inbox-asset-id: ccm-inbox-verification
+            api:
+              taxonomy: "https://w3id.org/catenax/taxonomy#"
+              taxonomy-prefix: cx-taxo
+              version-property: "https://w3id.org/catenax/ontology/common#version"
+              version-prefix: cx-common
+              version: "3.0"
+            certificate:
+              issuer-name: Verification Environment CA
+              issuer-id: DX-00000000
+              site-id: DX-00000000-MAIN
+            expected-events:
+              "[events.participantcontext.created]": 1
+              "[events.diddocument.published]": 1
+              "[events.keypair.added]": 1
+              "[events.contract.negotiation.finalized]": 2
+              "[events.transfer.process.started]": 2
+              "[events.certificate.exchange.fulfilled]": 1
+              "[events.certificate.exchange.accepted]": 1
+        parts-tracking:
+          display-name: Parts Tracking
+          enabled: false

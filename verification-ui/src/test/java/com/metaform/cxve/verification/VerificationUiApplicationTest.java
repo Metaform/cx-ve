@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * Context smoke test: the full application context (incl. the {@code verification.*} properties
- * binding — durations, nested records, the bracketed-key expected-events map) must assemble from
+ * binding — durations, nested records, the dataspace profiles, the bracketed-key expected-events maps) must assemble from
  * the packaged defaults alone.
  */
 @SpringBootTest
@@ -21,9 +21,18 @@ class VerificationUiApplicationTest {
 
     @Test
     void contextLoadsAndPropertiesBind() {
-        assertEquals("BPNLVERIFY000001", properties.participant().bpn());
-        assertEquals("ccm-inbox-verification", properties.inboxAssetId());
-        assertEquals(2, properties.expectedEvents().get("events.contract.negotiation.finalized"));
+        var catenaX = properties.dataspace("catena-x");
+        assertEquals("BPNLVERIFY000001", catenaX.verificationParticipant().memberId());
+        assertEquals("cx-neptune", catenaX.dspProfile());
+        assertEquals(3, catenaX.contractConstraints().size());
+        var ccm = catenaX.useCase("ccm").ccm();
+        assertEquals("ccm-inbox-verification", ccm.inboxAssetId());
+        assertEquals("3.0", ccm.api().version());
+        assertEquals(2, ccm.expectedEvents().get("events.contract.negotiation.finalized"));
+        assertFalse(catenaX.useCase("parts-tracking").enabled());
+        // a dataspace may leave its policies and an external checklist unset
+        assertEquals(0, properties.dataspace("decade-x").accessConstraints().size());
+        assertEquals(0, properties.dataspace("decade-x").useCase("ccm").ccm().externalExpectedEvents().size());
         assertFalse(properties.timeouts().onboarding().isZero());
     }
 }

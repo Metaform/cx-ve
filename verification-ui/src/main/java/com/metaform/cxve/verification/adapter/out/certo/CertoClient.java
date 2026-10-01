@@ -78,9 +78,12 @@ public class CertoClient {
 
     /**
      * Issues a sample ISO9001 certificate in the provider tenant referencing the uploaded
-     * document (state change only, notifies no one). Returns the certificateId.
+     * document (state change only, notifies no one). Returns the certificateId. Certo names member
+     * ids after Catena-X's BPNs on its API; the values are the run's dataspace's member ids, and
+     * the issuer and site come from the dataspace's CCM settings.
      */
-    public String addCertificate(String pcid, String holderBpn, String documentId, String registrationNumber) {
+    public String addCertificate(String pcid, String holderMemberId, String documentId, String registrationNumber,
+                                 VerificationProperties.SampleCertificate sample) {
         var body = """
                 {
                   "certificateType": "ISO9001",
@@ -91,16 +94,17 @@ public class CertoClient {
                   "trustLevel": "high",
                   "certifiedLocations": [{
                     "bpnl": "%s",
-                    "bpna": "BPNA00000000MAIN0",
+                    "bpna": "%s",
                     "locationRole": "MAIN_LOCATION"
                   }],
-                  "issuer": {"issuerName": "CXVE verification CA", "issuerBpn": "BPNL00000000ISSUER"},
+                  "issuer": {"issuerName": "%s", "issuerBpn": "%s"},
                   "documentIds": ["%s"]
-                }""".formatted(registrationNumber, holderBpn, documentId);
+                }""".formatted(registrationNumber, holderMemberId, sample.siteId(), sample.issuerName(),
+                sample.issuerId(), documentId);
         var response = post("/participant-contexts/%s/certificates".formatted(pcid), body);
         expect2xx(response, "certificate issuance");
         var certificateId = json(response.body()).path("certificateId").asText();
-        log.info("certificate issued: {} (ISO9001, holder {})", certificateId, holderBpn);
+        log.info("certificate issued: {} (ISO9001, holder {})", certificateId, holderMemberId);
         return certificateId;
     }
 
@@ -110,11 +114,11 @@ public class CertoClient {
      * consumer was actually notified; retried on 5xx and on consumerNotified=false — the stable
      * idempotencyKey makes a repeat reuse the SAME exchange and just re-notify.
      */
-    public String publish(String pcid, String certificateId, String consumerBpn, String consumerDid, String flowId) {
+    public String publish(String pcid, String certificateId, String consumerMemberId, String consumerDid, String flowId) {
         var body = """
                 {"consumerBpn": "%s", "consumerDid": "%s", "flowId": "%s", "idempotencyKey": "vui-%s", \
                 "protocolVersion": "3.0.0", "embedded": false}"""
-                .formatted(consumerBpn, consumerDid, flowId, certificateId);
+                .formatted(consumerMemberId, consumerDid, flowId, certificateId);
         var publication = Poller.poll("publish of certificate " + certificateId,
                 properties.timeouts().certo(), properties.pollInterval(), () -> {
                     var response = postPolled(

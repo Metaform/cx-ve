@@ -1,7 +1,7 @@
-# Catena-X Membership Hub
+# Membership Hub
 
-Drives a partner's full path into the dataspace by combining the two halves the VE deliberately
-keeps apart:
+Drives a partner's full path into one of the dataspaces this VE hosts (Catena-X; Decade-X as a
+stub, off by default) by combining the two halves the VE deliberately keeps apart:
 
 1. **Provisioning** — for a member this VE hosts, creates a tenant and deploys the participant
    profile via the CFM Tenant Manager, which runs the VPA orchestration (connector, IdentityHub,
@@ -9,11 +9,18 @@ keeps apart:
    id is stored on the record; reading the member resolves it and fetches the profile's current
    state from the Tenant Manager — that is where the `participantContextId` appears and
    deployment errors surface.
-2. **Registration** — once the participant context exists, submits the partner to the Onboarding
-   API (CX-0006), acting as an onboarding service provider (OAuth2 client-credentials against the
-   VE's OSP IdP). The Onboarding API validates, assigns the BPN, proves identity, registers the
-   credential holder with the IssuerService and has it offer the member its credentials; its
-   CONFIRMED status callback lands on this app and is the membership's terminal success.
+2. **Registration** — once the participant context exists, submits the partner to its
+   dataspace's onboarding API, acting as an onboarding service provider (OAuth2
+   client-credentials against the VE's OSP IdP). For Catena-X that is the `cx-onboarding-api`
+   (CX-0006/CX-0009): it validates, proves identity, registers the credential holder with the
+   IssuerService and has it offer the member its credentials; its CONFIRMED status callback lands
+   on this app and is the membership's terminal success.
+
+Everything dataspace-specific sits behind one `DataspaceOnboarding` implementation per dataspace
+(`adapter/out/onboarding/<dataspace>`): the shape of the request's `registration` object, the
+onboarding API's endpoints, payloads and authentication, the wire format of its status callback,
+and the `cfm.issuer` properties of a hosted member's participant profile. The choreography itself
+is the same for every dataspace.
 
 Deployment comes first because the credential offer is PUSHED to the credential service the
 member's DID document advertises — the wallet has to exist by the time the registration runs.
@@ -25,9 +32,11 @@ status callbacks carry) and the `participantContextId` provisioning assigns.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/members` | Submit a member (name, shortName, bpn, city, streetName, countryAlpha2Code, region, optional did, uniqueIds, companyRoles, agreements, userDetails). Returns the membership record incl. its `externalId`. |
+| `GET /api/dataspaces` | The dataspaces members can be onboarded into (`id`, `displayName`) — the enabled entries of `dataspaces.*`. |
+| `POST /api/members` | Submit a member: `dataspace`, `name`, `shortName`, `memberId` (the id within the dataspace — the BPN in Catena-X), optional `did`, and the dataspace-specific `registration` object (Catena-X: city, streetName, countryAlpha2Code, region, uniqueIds, companyRoles, agreements, userDetails; Decade-X: country, contactEmail). Returns the membership record incl. its `externalId`. `400` for a dataspace the hub does not serve or a `registration` it refuses. |
 | `GET /api/members/{externalId}` | The correlated view. For a member with a deployed profile, resolves the stored profile id and reads its current state from the Tenant Manager. |
-| `POST /api/callbacks/registration-status` | The status-callback endpoint registered with the Onboarding API. OAuth2-protected: the caller presents a client-credentials bearer from the OSP IdP, obtained with the client this app registers alongside its callback URL. Not meant for humans. |
+| `GET /api/members?dataspace=&memberId=` / `?did=[&dataspace=]` | Rediscovery: the memberships under a member id (of one dataspace) or a DID. |
+| `POST /api/callbacks/{dataspace}/registration-status` | The status-callback endpoint registered with each dataspace's onboarding API, in that API's own wire format. OAuth2-protected: the caller presents a client-credentials bearer from the OSP IdP, obtained with the client this app registers alongside its callback URL. Not meant for humans. |
 
 States: `PROVISIONING → PROVISIONED → SUBMITTED → CREDENTIALS_OFFERED`, with `REJECTED`/`FAILED`
 as terminal off-ramps. A member that brought its own DID starts at `SUBMITTED` and its `POST`
@@ -37,19 +46,22 @@ states, no longer produced but still readable and still able to advance, so rows
 left behind heal on a redelivered callback.
 
 `CREDENTIALS_OFFERED` is the terminal success of EVERY member: its registration was confirmed,
-which means the Onboarding API registered the credential holder AND had the IssuerService offer
-the membership credentials, which the member's own wallet then requests over DCP.
+which (for Catena-X) means the onboarding API registered the credential holder AND had the
+IssuerService offer the membership credentials, which the member's own wallet then requests over
+DCP. The Decade-X stub's approval issues nothing — there is no Decade-X issuer in the VE yet.
 
 Whether a member's resources are provisioned here follows from the `did`: **supply one** and the
 member is taken to run elsewhere (nothing is deployed, and `PROVISIONING`/`PROVISIONED` are
 skipped); **omit it** and the hub mints one under `participant.did.template` and deploys the
-member's EDC resources before registering it. The BPN is required on ingress either way: the
-status callback does not carry an assigned BPN back, and provisioning (the certo activity) needs
-it.
+member's EDC resources before registering it. The member id is required on ingress either way:
+the status callback does not carry an assigned one back, and provisioning (the certo activity)
+needs it.
 
-`POST /api/members` refuses a DID or BPN that a live membership already holds with `409` —
-before anything is deployed, since a registration the Onboarding API declines does NOT undo a
-deployment that already happened. Dead attempts (`REJECTED`, `FAILED`) release their identities.
+`POST /api/members` refuses, with `409`, a member id a live membership of the same dataspace
+already holds, and a DID a live membership of the same dataspace holds — for a member hosted
+HERE, a DID held in ANY dataspace, since its DID is a deployed participant profile. All before
+anything is deployed, since a registration the onboarding API declines does NOT undo a deployment
+that already happened. Dead attempts (`REJECTED`, `FAILED`) release their identities.
 
 > **Known gap:** a registration declined or failed AFTER the deployment leaves the member's EDC
 > resources behind; nothing disposes of them (offboarding is not a flow here yet). The duplicate
@@ -72,17 +84,20 @@ See `src/main/resources/application.yaml` — every key is annotated with its en
 override. The deployed configuration lives in `charts/membership-hub/values.yaml` (`config:` is
 rendered 1:1 into the pod's application.yaml). Notable:
 
-- `onboarding-api.*` — base URL, OSP OAuth2 client (must be seeded in the OSP IdP with the
-  `configure_partner_registration` scope; the umbrella chart does this) and the callback block
-  this app registers: its URL plus the token-url/client-id/client-secret the Onboarding API uses
-  to authenticate the status callbacks (a second seeded Hydra client, validated by this app via
-  `spring.security.oauth2.resourceserver.jwt.*`).
+- `dataspaces.<id>.*` — one entry per dataspace: `enabled`, `display-name`, the onboarding API
+  (`onboarding.url`, the OSP OAuth2 client under `onboarding.auth` — seeded in the OSP IdP by the
+  umbrella chart — and the `onboarding.callback` block this app registers: its URL, ending in
+  `/api/callbacks/<id>/registration-status`, plus the token-url/client-id/client-secret the
+  onboarding API authenticates the callbacks with, validated via
+  `spring.security.oauth2.resourceserver.jwt.*`), the connector's `dataspace-profiles`, and the
+  `member-id-claim` the data plane stamps into flow tokens (Catena-X: `BpnCredential`'s `bpn`).
+  A dataspace also needs its `DataspaceOnboarding` bean (`DataspacesConfig`).
 - `tenant-manager.*` — base URL and the jwtlet mapping (`token-resource`) the workload token is
   exchanged under; the chart's jwtlet-seed job registers it with the
   `tenant-manager-api:read/write` scopes.
 - `participant.*` — the DID template and the `cfm.dataplane`/CCM transfer-type mappings sent with
   the participant profile. The `cfm.issuer` VPA properties are always sent (the certo activity
-  reads the BPN from them).
+  reads the member id from them, under `bpn`); their content is the dataspace's.
 
 The image is published by `.github/workflows/publish.yml` to
 `ghcr.io/metaform/cx-ve/membership-hub`.

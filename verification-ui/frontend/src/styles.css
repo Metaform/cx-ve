@@ -1,7 +1,7 @@
-/* CX-VE Verification — design tokens & shared primitives.
+/* Dataspace Verification — design tokens & shared primitives.
    Cool "control room" light theme: ink-blue text on a cool neutral ground, emerald as the
    tool's identity (the color of a verification seal), brick red strictly for failure and
-   amber strictly for in-flight. Identifiers (DIDs, BPNs, states, event subjects) are the
+   amber strictly for in-flight. Identifiers (DIDs, member ids, states, event subjects) are the
    protocol's own vocabulary and always render in mono. */
 
 :root {
@@ -228,7 +228,8 @@ input[type="text"]::placeholder {
 /* --- key/value identity rows --- */
 .kv {
   display: grid;
-  grid-template-columns: 96px 1fr;
+  /* labels come from the dataspace ("BPN", "Member number"): the column grows to fit them */
+  grid-template-columns: minmax(96px, max-content) 1fr;
   gap: 4px 12px;
   font-size: 13px;
 }

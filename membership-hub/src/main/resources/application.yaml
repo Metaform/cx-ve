@@ -1,4 +1,4 @@
-# Runtime configuration for the Catena-X Membership Hub. Values here are the defaults baked into
+# Runtime configuration for the Membership Hub. Values here are the defaults baked into
 # the image; the local-development defaults point at a VE exposed on cxve.localhost.
 #
 # Every key can be overridden from outside without rebuilding, e.g. from a Kubernetes ConfigMap:
@@ -23,9 +23,9 @@ spring:
       ddl-auto: update                                          # SPRING_JPA_HIBERNATE_DDLAUTO
     open-in-view: false
   # Bearer-JWT validation on /api/callbacks/** against the VE's OSP IdP, Ory Hydra
-  # (CallbackSecurityConfig): the Onboarding API authenticates its status callbacks with the
-  # client this app registers alongside its callback URL. The JWKS is fetched lazily on the
-  # first request, so startup does not need the IdP to be reachable. issuer-uri is the expected
+  # (CallbackSecurityConfig): the dataspaces' onboarding APIs authenticate their status callbacks
+  # with the client this app registers alongside its callback URL. The JWKS is fetched lazily on
+  # the first request, so startup does not need the IdP to be reachable. issuer-uri is the expected
   # `iss` value — Hydra's urls.self.issuer, the EXTERNAL gateway URL; with jwk-set-uri also set,
   # Boot performs no discovery against it.
   security:
@@ -43,25 +43,65 @@ logging:
   level:
     com.metaform.cxve.hub: INFO                                 # LOGGING_LEVEL_COM_METAFORM_CXVE_HUB
 
-# The Onboarding API, called in the onboarding-service-provider role: OAuth2 client-credentials
-# against the VE's OSP IdP (Ory Hydra). The client must be seeded there (see the umbrella chart's
-# ospIdp.clients) with the configure_partner_registration scope. The callback block is what the
-# hub registers as its status-callback address: the url must be reachable FROM the Onboarding
-# API, and token-url/client-id/client-secret are the credentials it uses to authenticate its
-# callback calls (a second seeded Hydra client) — this app's callback endpoint validates the
-# resulting bearer (see spring.security below).
-onboarding-api:
-  url: http://cxve.localhost/cx-onboarding                          # ONBOARDING_API_URL
-  callback:
-    url: http://localhost:8080/api/callbacks/registration-status # ONBOARDING_API_CALLBACK_URL
-    token-url: http://cxve.localhost/auth/osp/oauth2/token       # ONBOARDING_API_CALLBACK_TOKEN_URL
-    client-id: membership-hub-callback                          # ONBOARDING_API_CALLBACK_CLIENT_ID
-    client-secret: ""                                           # ONBOARDING_API_CALLBACK_CLIENT_SECRET
-  auth:
-    token-url: http://cxve.localhost/auth/osp/oauth2/token       # ONBOARDING_API_AUTH_TOKEN_URL
-    client-id: membership-hub                                   # ONBOARDING_API_AUTH_CLIENT_ID
-    client-secret: ""                                           # ONBOARDING_API_AUTH_CLIENT_SECRET
-    scope: configure_partner_registration                       # ONBOARDING_API_AUTH_SCOPE
+# The dataspaces members can be onboarded into, keyed by dataspace id — the `dataspace` of a
+# member request. Only `enabled` ones are served (GET /api/dataspaces lists them); each needs a
+# DataspaceOnboarding implementation in the hub (see DataspacesConfig).
+#
+# onboarding: the dataspace's onboarding API, called in the onboarding-service-provider role —
+#   OAuth2 client-credentials (auth) against the VE's OSP IdP (Ory Hydra); the client must be
+#   seeded there (see the umbrella chart's ospIdp.clients). The callback block is what the hub
+#   registers as its status-callback address: the url must be reachable FROM the onboarding API
+#   and end in /api/callbacks/<dataspace id>/registration-status, and token-url/client-id/
+#   client-secret are the credentials it authenticates its callback calls with (a second seeded
+#   Hydra client) — this app's callback endpoint validates the resulting bearer.
+# dataspace-profiles: the DSP dataspace profiles a hosted member's connector is deployed with.
+# member-id-claim: where data-plane flow tokens take the caller's member id from — the `claim` of
+#   its `credential-type` credential, stamped into the token as `flow-claim` (certo requires it).
+dataspaces:
+  catena-x:
+    enabled: true                                               # DATASPACES_CATENAX_ENABLED
+    display-name: Catena-X
+    onboarding:
+      url: http://cxve.localhost/cx-onboarding                  # DATASPACES_CATENAX_ONBOARDING_URL
+      callback:
+        url: http://localhost:8080/api/callbacks/catena-x/registration-status  # DATASPACES_CATENAX_ONBOARDING_CALLBACK_URL
+        token-url: http://cxve.localhost/auth/osp/oauth2/token
+        client-id: membership-hub-callback
+        client-secret: ""                                       # DATASPACES_CATENAX_ONBOARDING_CALLBACK_CLIENTSECRET
+      auth:
+        token-url: http://cxve.localhost/auth/osp/oauth2/token
+        client-id: membership-hub
+        client-secret: ""                                       # DATASPACES_CATENAX_ONBOARDING_AUTH_CLIENTSECRET
+        scope: configure_partner_registration
+    dataspace-profiles:
+      - cx-neptune
+    member-id-claim:
+      credential-type: BpnCredential
+      claim: bpn
+      flow-claim: bpn
+  # Decade-X, through the VE's dx-onboarding-api stub. Disabled until the VE hosts the dataspace
+  # (its onboarding API, issuer and connector profile); enable it together with those.
+  decade-x:
+    enabled: false                                              # DATASPACES_DECADEX_ENABLED
+    display-name: Decade-X
+    onboarding:
+      url: http://cxve.localhost/dx-onboarding                  # DATASPACES_DECADEX_ONBOARDING_URL
+      callback:
+        url: http://localhost:8080/api/callbacks/decade-x/registration-status  # DATASPACES_DECADEX_ONBOARDING_CALLBACK_URL
+        token-url: http://cxve.localhost/auth/osp/oauth2/token
+        client-id: membership-hub-callback
+        client-secret: ""                                       # DATASPACES_DECADEX_ONBOARDING_CALLBACK_CLIENTSECRET
+      auth:
+        token-url: http://cxve.localhost/auth/osp/oauth2/token
+        client-id: membership-hub
+        client-secret: ""                                       # DATASPACES_DECADEX_ONBOARDING_AUTH_CLIENTSECRET
+        scope: ""
+    dataspace-profiles:
+      - dx-dsp
+    member-id-claim:
+      credential-type: DecadeXMembershipCredential
+      claim: memberNumber
+      flow-claim: bpn
 
 # The CFM Tenant Manager, where the member's EDC resources are provisioned. token-resource is the
 # jwtlet mapping (RFC 8693 `resource`) the workload token is exchanged under; its scopes must
@@ -110,8 +150,9 @@ participant:
     endpoint-type: https://w3id.org/dspace-sig/profile/http-pull  # PARTICIPANT_DATAPLANE_ENDPOINTTYPE
     endpoint: ""                                                # PARTICIPANT_DATAPLANE_ENDPOINT
     token-source: provider                                      # PARTICIPANT_DATAPLANE_TOKENSOURCE
-  # Second transfer-type mapping, pointing at Certo's CCM protocol API (CX-0135 certificate
-  # exchange). Same semantics as `dataplane` above: an empty endpoint leaves the mapping out.
+  # Second transfer-type mapping, pointing at Certo's CCM protocol API (the CCM use case's
+  # certificate exchange, CX-0135 in Catena-X). Same semantics as `dataplane` above: an empty
+  # endpoint leaves the mapping out.
   ccm:
     transfer-type: https://w3id.org/dspace-sig/profile/http-pull  # PARTICIPANT_CCM_TRANSFERTYPE
     endpoint-type: https://w3id.org/dspace-sig/profile/http-pull  # PARTICIPANT_CCM_ENDPOINTTYPE

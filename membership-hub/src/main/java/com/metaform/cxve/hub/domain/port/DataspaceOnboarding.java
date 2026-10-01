@@ -1,0 +1,69 @@
+package com.metaform.cxve.hub.domain.port;
+
+import com.metaform.cxve.hub.domain.model.MemberData;
+import com.metaform.cxve.hub.domain.model.RegistrationOutcome;
+import java.util.Map;
+
+/**
+ * One dataspace's onboarding, as the hub drives it. Everything dataspace-specific about getting a
+ * member registered lives behind this port: the shape of the {@link MemberData#registration()}
+ * object, the onboarding API's endpoints, payloads and authentication, and the wire format of its
+ * status callbacks. The hub's own choreography (deploy first, register second, the callback as the
+ * terminal signal) is the same for every dataspace.
+ *
+ * <p>One implementation per dataspace, registered as a bean only while that dataspace is enabled
+ * ({@code dataspaces.<id>.enabled}); {@link #dataspace()} is the id the member requests and the
+ * callback path carry.
+ */
+public interface DataspaceOnboarding {
+
+    /** The dataspace id, e.g. {@code catena-x} — the key under {@code dataspaces.*}. */
+    String dataspace();
+
+    /**
+     * Checks the dataspace-specific {@code registration} object BEFORE anything is persisted or
+     * deployed, so a bad request fails in the caller's call rather than on the worker.
+     *
+     * @throws InvalidRegistrationException naming every violation
+     */
+    void validate(MemberData data);
+
+    /**
+     * The {@code cfm.issuer} VPA properties the member's participant profile is deployed with —
+     * what the platform's provisioning activities (certo's in particular) read the member's
+     * dataspace identity from.
+     */
+    Map<String, Object> issuerProperties(String did, MemberData data);
+
+    /**
+     * Registers (or overwrites) this hub's status-callback address with the dataspace's onboarding
+     * API. Called before every submission, so it must be idempotent.
+     */
+    void registerCallback();
+
+    /**
+     * Submits the registration under the given external id and DID.
+     *
+     * @return the id of the onboarding process the dataspace's API created.
+     */
+    String submitRegistration(String externalId, String did, MemberData data);
+
+    /** Translates a status callback in the dataspace's own wire format into the hub's outcome. */
+    RegistrationOutcome readCallback(Map<String, Object> body);
+
+    /** Raised by {@link #validate} for a {@code registration} object the dataspace refuses. */
+    class InvalidRegistrationException extends RuntimeException {
+
+        public InvalidRegistrationException(String message) {
+            super(message);
+        }
+    }
+
+    /** A request named a dataspace this hub does not serve (unknown, or not enabled). */
+    class UnknownDataspaceException extends RuntimeException {
+
+        public UnknownDataspaceException(String dataspace) {
+            super("Dataspace '%s' is not enabled on this hub".formatted(dataspace));
+        }
+    }
+}

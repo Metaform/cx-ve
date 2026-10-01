@@ -4,6 +4,7 @@ import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.model.MembershipState;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,17 +36,13 @@ class JpaMembershipRepositoryTest {
     }
 
     private static MemberData payload() {
-        return new MemberData("Acme Corp", "Acme", "BPNL0000000000XY",
-                "Berlin", "Musterstrasse", "DE", "BE", null,
-                List.of(new MemberData.UniqueId("VAT_ID", "DE123456789")),
-                List.of("ACTIVE_PARTICIPANT"),
-                List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE")),
-                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")));
+        return new MemberData("catena-x", "Acme Corp", "Acme", "BPNL0000000000XY", null,
+                Map.of("city", "Berlin", "uniqueIds", List.of(Map.of("type", "VAT_ID", "value", "DE123456789"))));
     }
 
     @Test
     void createAndFindByExternalId_roundTripsEveryField() {
-        var membership = new Membership("ext-1", "Acme Corp", "did:web:acme", "BPNL0000000000XY",
+        var membership = new Membership("ext-1", "catena-x", "Acme Corp", "did:web:acme", "BPNL0000000000XY",
                 MembershipState.PROVISIONING, "process-1", "tenant-1", "profile-1", "pctx-1", "why not", null);
 
         repository.create(membership, payload());
@@ -59,12 +56,12 @@ class JpaMembershipRepositoryTest {
     @Test
     void findByDid_listsEveryAttemptUnderTheDid() {
         var data = payload();
-        repository.create(Membership.submitted("ext-1", "SUT GmbH", "did:web:sut.example.com",
+        repository.create(Membership.submitted("ext-1", "catena-x", "SUT GmbH", "did:web:sut.example.com",
                 "BPNL0000000000SU"), data);
         // a second attempt under the SAME DID (e.g. after a failed one) must show up too
-        repository.create(Membership.submitted("ext-2", "SUT GmbH", "did:web:sut.example.com",
+        repository.create(Membership.submitted("ext-2", "catena-x", "SUT GmbH", "did:web:sut.example.com",
                 "BPNL0000000000SU"), data);
-        repository.create(Membership.submitted("ext-3", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), data);
+        repository.create(Membership.submitted("ext-3", "catena-x", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), data);
 
         assertThat(repository.findByDid("did:web:sut.example.com"))
                 .extracting(Membership::externalId)
@@ -75,30 +72,32 @@ class JpaMembershipRepositoryTest {
     @Test
     void findPayload_roundTripsTheRequestData() {
         var data = payload();
-        repository.create(Membership.submitted("ext-1", data.name(), "did:web:acme", data.bpn()), data);
+        repository.create(Membership.submitted("ext-1", "catena-x", data.name(), "did:web:acme", data.memberId()), data);
 
         // Record equality covers every component, nested records included.
         assertThat(repository.findPayload("ext-1")).contains(data);
     }
 
     @Test
-    void findByBpn_listsEveryAttemptUnderTheBpn() {
+    void findByMemberId_listsEveryAttemptUnderTheMemberIdOfTheDataspace() {
         var data = payload();
-        repository.create(Membership.submitted("ext-1", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), data);
-        // a second attempt under the SAME BPN (e.g. after a rejected registration) must show up too
-        repository.create(Membership.submitted("ext-2", "Acme Corp", "did:web:acme2", "BPNL0000000000XY"), data);
-        repository.create(Membership.submitted("ext-3", "Other Corp", "did:web:other", "BPNLOTHER0000001"), data);
+        repository.create(Membership.submitted("ext-1", "catena-x", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), data);
+        // a second attempt under the SAME member id (e.g. after a rejected registration) must show up too
+        repository.create(Membership.submitted("ext-2", "catena-x", "Acme Corp", "did:web:acme2", "BPNL0000000000XY"), data);
+        repository.create(Membership.submitted("ext-3", "catena-x", "Other Corp", "did:web:other", "BPNLOTHER0000001"), data);
+        // the same member id in ANOTHER dataspace is a different member
+        repository.create(Membership.submitted("ext-4", "decade-x", "Acme Corp", "did:web:acme3", "BPNL0000000000XY"), data);
 
-        assertThat(repository.findByBpn("BPNL0000000000XY"))
+        assertThat(repository.findByMemberId("catena-x", "BPNL0000000000XY"))
                 .extracting(Membership::externalId)
                 .containsExactlyInAnyOrder("ext-1", "ext-2");
-        assertThat(repository.findByBpn("BPNLUNKNOWN00001")).isEmpty();
+        assertThat(repository.findByMemberId("catena-x", "BPNLUNKNOWN00001")).isEmpty();
     }
 
     @Test
     void save_transitionsTheMembershipWithoutLosingThePayload() {
         var data = payload();
-        repository.create(Membership.submitted("ext-1", data.name(), "did:web:acme", data.bpn()), data);
+        repository.create(Membership.submitted("ext-1", "catena-x", data.name(), "did:web:acme", data.memberId()), data);
         springData.flush();
 
         // save wants the STORED snapshot (its version is the lock token), not the pre-create one
@@ -114,7 +113,7 @@ class JpaMembershipRepositoryTest {
     @Test
     void save_rejectsAStaleSnapshot() {
         var data = payload();
-        repository.create(Membership.submitted("ext-1", data.name(), "did:web:acme", data.bpn()), data);
+        repository.create(Membership.submitted("ext-1", "catena-x", data.name(), "did:web:acme", data.memberId()), data);
         springData.flush();
         var snapshot = repository.findByExternalId("ext-1").orElseThrow();
 

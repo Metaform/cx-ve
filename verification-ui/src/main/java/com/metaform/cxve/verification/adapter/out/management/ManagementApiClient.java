@@ -6,11 +6,13 @@ import com.metaform.cxve.verification.adapter.out.http.RestCalls;
 import com.metaform.cxve.verification.application.Poller;
 import com.metaform.cxve.verification.application.VerificationException;
 import com.metaform.cxve.verification.config.VerificationProperties;
+import com.metaform.cxve.verification.config.VerificationProperties.PolicyConstraint;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,18 +37,15 @@ import tools.jackson.databind.node.ObjectNode;
  * <p>The create methods are idempotent by design — the verification participant's permanent
  * offer is re-seeded on every ensure: GET first, create on absence, and a concurrent 409 counts
  * as created. Assets are the exception: they are written through, so one created by an earlier
- * version gains the CX-0135 properties that make it discoverable.
+ * version gains the CCM API properties that make it discoverable.
+ *
+ * <p>Nothing here is dataspace-specific: the DSP profile ({@code protocol}), the policy context and
+ * the constraints are the caller's — the run's dataspace profile.
  */
 @Component
 public class ManagementApiClient {
 
     public static final String MANAGEMENT_CONTEXT = "https://w3id.org/edc/connector/management/v2";
-    public static final String CX_POLICY_CONTEXT = "https://w3id.org/catenax/2025/9/policy/context.jsonld";
-
-    public static final Constraint MEMBERSHIP_CONSTRAINT = new Constraint("Membership", "eq", "active");
-    public static final Constraint FRAMEWORK_AGREEMENT_CONSTRAINT = new Constraint("FrameworkAgreement", "eq", "DataExchangeGovernance:1.0");
-    public static final Constraint USAGE_PURPOSE_CONSTRAINT = new Constraint("UsagePurpose", "isAnyOf", "cx.pcf.base:1");
-    public static final Constraint DATA_USAGE_DEFINITION_CONSTRAINT = new Constraint("DataUsageEndDefinition", "eq", "cx.dataUsageEnd.unlimited:1");
 
     private static final Logger log = LoggerFactory.getLogger(ManagementApiClient.class);
 
@@ -66,7 +65,7 @@ public class ManagementApiClient {
     }
 
     /**
-     * Asset of a CCM offer, declaring the CX-0135 API it offers — the properties a counterparty
+     * Asset of a CCM offer, declaring the CCM API it offers — the properties a counterparty
      * finds it by, whatever its id. It carries no address: under Data Plane Signaling the data
      * plane owns the endpoint — the participant's transfer-type mapping points the CCM transfer
      * type at Certo's protocol API, and the data plane hands it to the consumer as the DataAddress
@@ -75,7 +74,7 @@ public class ManagementApiClient {
      * <p>Create or update: an existing asset is overwritten, so its properties always match.
      */
     public void upsertAsset(String pcid, String assetId, CcmApi api) {
-        var properties = api.assetProperties(mapper).put("name", "cxve verification asset");
+        var properties = api.assetProperties(mapper).put("name", "verification environment asset");
         var body = mapper.createObjectNode();
         body.putArray("@context").add(MANAGEMENT_CONTEXT);
         body.put("@type", "Asset");
@@ -94,11 +93,13 @@ public class ManagementApiClient {
     }
 
     /**
-     * Policy whose constraints reference the given leftOperand IRIs (each backed by a CEL
-     * expression seeded by the deployed catenax-profile). The rightOperand is a placeholder —
-     * the CEL expressions check fixed credential claims and ignore it.
+     * Policy whose constraints reference leftOperands of the dataspace's policy vocabulary
+     * ({@code policyContext}; in Catena-X each is backed by a CEL expression the catenax-profile
+     * seeds). The rightOperand is a placeholder there — the CEL expressions check fixed credential
+     * claims and ignore it.
      */
-    public void createPolicyIdempotent(String pcid, String policyId, String action, List<Constraint> constraints) {
+    public void createPolicyIdempotent(String pcid, String policyId, String action, String policyContext,
+                                       List<PolicyConstraint> constraints) {
         var policyConstraints = mapper.createArrayNode();
         constraints.forEach(op -> {
             var c = mapper.createObjectNode();
@@ -120,7 +121,7 @@ public class ManagementApiClient {
                       "constraint": [%s]
                     }]
                   }
-                }""".formatted(MANAGEMENT_CONTEXT, CX_POLICY_CONTEXT, policyId, action, and.toString());
+                }""".formatted(MANAGEMENT_CONTEXT, policyContext, policyId, action, and.toString());
         createIdempotent("policy " + policyId,
                 "/participants/%s/policydefinitions/%s".formatted(pcid, policyId),
                 "/participants/%s/policydefinitions".formatted(pcid), body);
@@ -164,48 +165,52 @@ public class ManagementApiClient {
      * For a catalog this environment filled itself, where the id is known.
      */
     public CatalogOffer awaitCatalogOffer(String consumerPcid, String providerDsp, String providerDid,
-                                          String assetId, Duration timeout) {
-        return awaitCatalogOffer(consumerPcid, providerDsp, providerDid, "dataset '%s'".formatted(assetId),
+                                          String protocol, String assetId, Duration timeout) {
+        return awaitCatalogOffer(consumerPcid, providerDsp, providerDid, protocol, "dataset '%s'".formatted(assetId),
                 datasets -> datasets.stream()
                         .filter(dataset -> assetId.equals(dataset.path("@id").asText()))
                         .findFirst()
                         .orElse(null),
+                datasets -> describe(datasets, null),
                 timeout);
     }
 
     /**
      * As above, but for a catalog this environment does not fill itself: the counterparty names its
-     * assets as it likes, so the dataset is found by the CX-0135 API it offers. The wait is for the
+     * assets as it likes, so the dataset is found by the CCM API it offers. The wait is for the
      * counterparty's operator to seed the offer at all, not for a contract definition to settle.
      *
-     * <p>More than one dataset offering the same API and version fails immediately: CX-0135 allows
-     * one per business partner, and picking one would verify an arbitrary offer.
+     * <p>More than one dataset offering the same API and version fails immediately: the CCM
+     * standard allows one per business partner, and picking one would verify an arbitrary offer.
      */
     public CatalogOffer awaitCatalogOffer(String consumerPcid, String providerDsp, String providerDid,
-                                          CcmApi api, Duration timeout) {
-        return awaitCatalogOffer(consumerPcid, providerDsp, providerDid, "a dataset offering " + api,
+                                          String protocol, CcmApi api, Duration timeout) {
+        return awaitCatalogOffer(consumerPcid, providerDsp, providerDid, protocol, "a dataset offering " + api,
                 datasets -> {
                     var matches = datasets.stream().filter(api::offeredBy).toList();
                     if (matches.size() > 1) {
-                        throw new VerificationException(("the catalog at %s offers %s %d times (%s) — CX-0135 "
-                                + "allows one asset per API and version, so the offer under test is ambiguous")
-                                .formatted(providerDsp, api, matches.size(), describe(matches)));
+                        throw new VerificationException(("the catalog at %s offers %s %d times (%s) — the CCM "
+                                + "standard allows one asset per API and version, so the offer under test is ambiguous")
+                                .formatted(providerDsp, api, matches.size(), describe(matches, api)));
                     }
                     return matches.isEmpty() ? null : matches.get(0);
                 },
+                datasets -> describe(datasets, api),
                 timeout);
     }
 
     private CatalogOffer awaitCatalogOffer(String consumerPcid, String providerDsp, String providerDid,
-                                           String wanted, DatasetSelection selection, Duration timeout) {
+                                           String protocol, String wanted, DatasetSelection selection,
+                                           Function<List<JsonNode>, String> describer,
+                                           Duration timeout) {
         var request = """
                 {
                   "@context": ["%s"],
                   "@type": "CatalogRequest",
                   "counterPartyAddress": "%s",
                   "counterPartyId": "%s",
-                  "protocol": "cx-neptune"
-                }""".formatted(MANAGEMENT_CONTEXT, providerDsp, providerDid);
+                  "protocol": "%s"
+                }""".formatted(MANAGEMENT_CONTEXT, providerDsp, providerDid, protocol);
         log.info("requesting provider catalog as consumer {}, waiting for {}", consumerPcid, wanted);
         var result = Poller.poll("%s in the provider catalog".formatted(wanted),
                 timeout, properties.pollInterval(), () -> {
@@ -229,7 +234,7 @@ public class ManagementApiClient {
                         // Name what IS offered: an offer under the wrong identity looks exactly like
                         // a missing one otherwise, for as long as the wait lasts.
                         throw new Poller.RetryException("%s not (yet) in the provider catalog, which offers %s"
-                                .formatted(wanted, datasets.isEmpty() ? "no datasets" : describe(datasets)));
+                                .formatted(wanted, datasets.isEmpty() ? "no datasets" : describer.apply(datasets)));
                     }
                     var datasetId = dataset.path("@id").asText();
                     var offer = first(dataset.path("hasPolicy"));
@@ -274,7 +279,7 @@ public class ManagementApiClient {
      * own JSON-LD context, so compacted terms expand to the same IRIs) plus assigner/target — the
      * target being the dataset the offer was found on. Returns the negotiation id.
      */
-    public String startNegotiation(String consumerPcid, String providerDsp, String providerDid,
+    public String startNegotiation(String consumerPcid, String providerDsp, String providerDid, String protocol,
                                    CatalogOffer catalogOffer) {
         var policy = (ObjectNode) catalogOffer.offer().deepCopy();
         policy.put("assigner", providerDid);
@@ -287,7 +292,7 @@ public class ManagementApiClient {
         body.set("@context", context);
         body.put("@type", "ContractRequest");
         body.put("counterPartyAddress", providerDsp);
-        body.put("protocol", "cx-neptune");
+        body.put("protocol", protocol);
         body.set("policy", policy);
 
         var response = post("/participants/%s/contractnegotiations".formatted(consumerPcid), body.toString());
@@ -297,16 +302,17 @@ public class ManagementApiClient {
         return id;
     }
 
-    public String startTransfer(String consumerPcid, String agreementId, String providerDsp, String transferType) {
+    public String startTransfer(String consumerPcid, String agreementId, String providerDsp, String protocol,
+                                String transferType) {
         var body = """
                 {
                   "@context": ["%s"],
                   "@type": "TransferRequest",
                   "contractId": "%s",
                   "counterPartyAddress": "%s",
-                  "protocol": "cx-neptune",
+                  "protocol": "%s",
                   "transferType": "%s"
-                }""".formatted(MANAGEMENT_CONTEXT, agreementId, providerDsp, transferType);
+                }""".formatted(MANAGEMENT_CONTEXT, agreementId, providerDsp, protocol, transferType);
         var response = post("/participants/%s/transferprocesses".formatted(consumerPcid), body);
         expect2xx(response, "transfer process");
         var id = idOf(response);
@@ -423,8 +429,11 @@ public class ManagementApiClient {
         return list;
     }
 
-    private static String describe(List<JsonNode> datasets) {
-        return datasets.stream().map(CcmApi::describe).collect(Collectors.joining(", "));
+    /** The datasets for diagnostics — with the CCM API each declares, when that is what is looked for. */
+    private static String describe(List<JsonNode> datasets, CcmApi api) {
+        return datasets.stream()
+                .map(dataset -> api == null ? dataset.path("@id").asText() : api.describe(dataset))
+                .collect(Collectors.joining(", "));
     }
 
     private static JsonNode first(JsonNode node) {
@@ -440,8 +449,5 @@ public class ManagementApiClient {
         } else if (!context.isMissingNode()) {
             target.add(context);
         }
-    }
-
-    public record Constraint(String leftOperand, String operator, String rightOperand) {
     }
 }

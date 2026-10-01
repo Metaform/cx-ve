@@ -49,9 +49,10 @@ public class InMemoryMembershipRepository implements MembershipRepository {
     }
 
     @Override
-    public List<Membership> findByBpn(String bpn) {
+    public List<Membership> findByMemberId(String dataspace, String memberId) {
         return memberships.values().stream()
-                .filter(membership -> Objects.equals(membership.bpn(), bpn))
+                .filter(membership -> Objects.equals(membership.dataspace(), dataspace))
+                .filter(membership -> Objects.equals(membership.memberId(), memberId))
                 .toList();
     }
 

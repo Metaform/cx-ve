@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Onboards a new member through the Membership Hub: submits it to POST /api/members (which runs
-# the CX-0006 registration against the Onboarding API and, on its confirmation, deploys the
+# Onboards a new Catena-X member through the Membership Hub: submits it to POST /api/members
+# (which runs the CX-0006 registration against the CX onboarding API and, on its confirmation, deploys the
 # participant profile to the CFM Tenant Manager) and then polls GET /api/members/<externalId>
 # until the membership reaches a terminal state — CREDENTIALS_OFFERED is success (the member is
 # provisioned AND the issuer has been asked to offer it the membership credentials). The hub reads the
@@ -29,7 +29,7 @@
 #   TIMEOUT   polling budget in seconds (default: 300)
 #
 # The hub's API is unauthenticated (an operator surface); no OSP client or token is needed —
-# the hub itself authenticates to the Onboarding API with its own seeded OSP client.
+# the hub itself authenticates to the CX onboarding API with its own seeded OSP client.
 #
 # Requires: curl, jq
 
@@ -98,22 +98,25 @@ payload=$(jq -n \
   --arg vatId "DE${RUN_ID:0:8}" \
   --arg bpn "$BPN" \
   '{
+    dataspace: "catena-x",
     name: $name,
     shortName: $shortName,
-    bpn: $bpn,
-    city: "Munich",
-    streetName: "Otto-Hahn-Ring",
-    countryAlpha2Code: "DE",
-    region: "BY",
-    uniqueIds: [ { type: "VAT_ID", value: $vatId } ],
-    companyRoles: [ "ACTIVE_PARTICIPANT" ],
-    agreements: [ { agreementId: "Catena-X", consentStatus: "ACTIVE" } ],
-    userDetails: [ {
-      providerId: ("user-" + $vatId),
-      firstName: "Test",
-      lastName: "Operator",
-      email: (("op-" + $vatId) + "@example.com")
-    } ]
+    memberId: $bpn,
+    registration: {
+      city: "Munich",
+      streetName: "Otto-Hahn-Ring",
+      countryAlpha2Code: "DE",
+      region: "BY",
+      uniqueIds: [ { type: "VAT_ID", value: $vatId } ],
+      companyRoles: [ "ACTIVE_PARTICIPANT" ],
+      agreements: [ { agreementId: "Catena-X", consentStatus: "ACTIVE" } ],
+      userDetails: [ {
+        providerId: ("user-" + $vatId),
+        firstName: "Test",
+        lastName: "Operator",
+        email: (("op-" + $vatId) + "@example.com")
+      } ]
+    }
   }')
 
 echo "Onboarding member \"$NAME\" (shortName=$SHORT_NAME, bpn=$BPN)"

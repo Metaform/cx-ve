@@ -69,8 +69,8 @@ public class JpaMembershipRepository implements MembershipRepository {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Membership> findByBpn(String bpn) {
-        return repository.findByBpn(bpn).stream().map(this::toDomain).toList();
+    public List<Membership> findByMemberId(String dataspace, String memberId) {
+        return repository.findByDataspaceAndMemberId(dataspace, memberId).stream().map(this::toDomain).toList();
     }
 
     @Override
@@ -89,9 +89,10 @@ public class JpaMembershipRepository implements MembershipRepository {
 
     private void updateEntity(MembershipEntity entity, Membership membership) {
         entity.setExternalId(membership.externalId());
+        entity.setDataspace(membership.dataspace());
         entity.setName(membership.name());
         entity.setDid(membership.did());
-        entity.setBpn(membership.bpn());
+        entity.setMemberId(membership.memberId());
         entity.setState(membership.state());
         entity.setOnboardingProcessId(membership.onboardingProcessId());
         entity.setTenantId(membership.tenantId());
@@ -103,9 +104,10 @@ public class JpaMembershipRepository implements MembershipRepository {
     private Membership toDomain(MembershipEntity entity) {
         return new Membership(
                 entity.getExternalId(),
+                entity.getDataspace(),
                 entity.getName(),
                 entity.getDid(),
-                entity.getBpn(),
+                entity.getMemberId(),
                 entity.getState(),
                 entity.getOnboardingProcessId(),
                 entity.getTenantId(),

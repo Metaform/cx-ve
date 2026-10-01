@@ -3,9 +3,9 @@ package com.metaform.cxve.hub.domain.model;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 /**
- * One partner's membership as it moves through {@link MembershipState} — and the correlation
- * record between the two id spaces this app bridges: {@code externalId} is minted here and is the
- * key the Onboarding API's status callbacks carry; {@code participantContextId} (with
+ * One partner's membership of one dataspace as it moves through {@link MembershipState} — and the
+ * correlation record between the two id spaces this app bridges: {@code externalId} is minted here
+ * and is the key the dataspace's onboarding status callbacks carry; {@code participantContextId} (with
  * {@code tenantId}/{@code participantProfileId}) is what the Tenant Manager's provisioning
  * assigns. Both live on this one record, keyed by the {@code externalId}.
  *
@@ -26,9 +26,10 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  */
 public record Membership(
         String externalId,
+        String dataspace,
         String name,
         String did,
-        String bpn,
+        String memberId,
         MembershipState state,
         String onboardingProcessId,
         String tenantId,
@@ -39,35 +40,37 @@ public record Membership(
 ) {
 
     /** A member whose resources this environment deploys: provisioning first, registration after. */
-    public static Membership provisioning(String externalId, String name, String did, String bpn) {
-        return new Membership(externalId, name, did, bpn, MembershipState.PROVISIONING,
+    public static Membership provisioning(String externalId, String dataspace, String name, String did,
+                                          String memberId) {
+        return new Membership(externalId, dataspace, name, did, memberId, MembershipState.PROVISIONING,
                 null, null, null, null, null, null);
     }
 
     /** A member that brought its own resources: nothing to deploy, the registration goes out now. */
-    public static Membership submitted(String externalId, String name, String did, String bpn) {
-        return new Membership(externalId, name, did, bpn, MembershipState.SUBMITTED,
+    public static Membership submitted(String externalId, String dataspace, String name, String did,
+                                       String memberId) {
+        return new Membership(externalId, dataspace, name, did, memberId, MembershipState.SUBMITTED,
                 null, null, null, null, null, null);
     }
 
     public Membership withState(MembershipState newState) {
-        return new Membership(externalId, name, did, bpn, newState, onboardingProcessId, tenantId,
+        return new Membership(externalId, dataspace, name, did, memberId, newState, onboardingProcessId, tenantId,
                 participantProfileId, participantContextId, failureReason, version);
     }
 
     public Membership withOnboardingProcessId(String processId) {
-        return new Membership(externalId, name, did, bpn, state, processId, tenantId,
+        return new Membership(externalId, dataspace, name, did, memberId, state, processId, tenantId,
                 participantProfileId, participantContextId, failureReason, version);
     }
 
     /** Records what the Tenant Manager assigned when the deployment was accepted. */
     public Membership withProfile(String tenantId, String participantProfileId) {
-        return new Membership(externalId, name, did, bpn, state, onboardingProcessId, tenantId,
+        return new Membership(externalId, dataspace, name, did, memberId, state, onboardingProcessId, tenantId,
                 participantProfileId, participantContextId, failureReason, version);
     }
 
     public Membership withParticipantContextId(String participantContextId) {
-        return new Membership(externalId, name, did, bpn, state, onboardingProcessId, tenantId,
+        return new Membership(externalId, dataspace, name, did, memberId, state, onboardingProcessId, tenantId,
                 participantProfileId, participantContextId, failureReason, version);
     }
 
@@ -81,25 +84,25 @@ public record Membership(
     }
 
     public Membership rejected(String reason) {
-        return new Membership(externalId, name, did, bpn, MembershipState.REJECTED,
+        return new Membership(externalId, dataspace, name, did, memberId, MembershipState.REJECTED,
                 onboardingProcessId, tenantId, participantProfileId, participantContextId, reason,
                 version);
     }
 
     public Membership failed(String reason) {
-        return new Membership(externalId, name, did, bpn, MembershipState.FAILED,
+        return new Membership(externalId, dataspace, name, did, memberId, MembershipState.FAILED,
                 onboardingProcessId, tenantId, participantProfileId, participantContextId, reason,
                 version);
     }
 
     /** The stored snapshot's lock token — set by the repositories on load and save. */
     public Membership withVersion(Long version) {
-        return new Membership(externalId, name, did, bpn, state, onboardingProcessId, tenantId,
+        return new Membership(externalId, dataspace, name, did, memberId, state, onboardingProcessId, tenantId,
                 participantProfileId, participantContextId, failureReason, version);
     }
 
     /**
-     * Whether this record still OCCUPIES its DID and BPN. A rejected or failed attempt does not —
+     * Whether this record still OCCUPIES its DID and member id. A rejected or failed attempt does not —
      * neither does a row stranded in the legacy REGISTERING state, which nothing drives any more —
      * so onboarding the same member again is allowed after one of those.
      */

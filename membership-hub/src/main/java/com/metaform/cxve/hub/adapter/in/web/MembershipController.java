@@ -4,6 +4,7 @@ import com.metaform.cxve.hub.application.DuplicateMembershipException;
 import com.metaform.cxve.hub.application.MembershipService;
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
+import com.metaform.cxve.hub.domain.port.DataspaceOnboarding;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -37,7 +38,8 @@ public class MembershipController {
      * Starts the member and returns as soon as its first leg is under way: PROVISIONING for a
      * member this environment hosts (its resources are deployed before it is registered), SUBMITTED
      * for one that brought its own DID. The rest arrives asynchronously — poll {@link #get}. A DID
-     * or BPN a live membership already holds is refused with 409, before anything is deployed.
+     * or member id a live membership already holds is refused with 409, before anything is
+     * deployed; a dataspace this hub does not serve, or a registration object it refuses, with 400.
      */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -52,22 +54,32 @@ public class MembershipController {
     }
 
     /**
-     * The memberships registered under a BPN or a DID — a list, because rejected/failed attempts
-     * retire neither. Exactly one filter must be given (there is deliberately no unpaged
-     * list-everything, and two filters would leave the intended semantics of the combination
-     * ambiguous), and unlike {@link #get} this is a plain read without a Tenant Manager refresh.
+     * The memberships registered under a member id (of one dataspace) or a DID (optionally
+     * narrowed to one dataspace) — a list, because rejected/failed attempts retire neither.
+     * Exactly one of {@code memberId} and {@code did} must be given (there is deliberately no
+     * unpaged list-everything), a member id only together with its {@code dataspace}, and unlike
+     * {@link #get} this is a plain read without a Tenant Manager refresh.
      *
      * <p>The DID filter is what lets a caller find the membership an externally hosted member
      * already has: its DID is the identity its operator supplies, and re-onboarding it would be
-     * declined by the Onboarding API as a duplicate registration rather than repeated.
+     * declined by the onboarding API as a duplicate registration rather than repeated.
      */
     @GetMapping
-    public List<Membership> find(@RequestParam(required = false) String bpn,
+    public List<Membership> find(@RequestParam(required = false) String dataspace,
+                                 @RequestParam(required = false) String memberId,
                                  @RequestParam(required = false) String did) {
-        if (isBlank(bpn) == isBlank(did)) {
-            throw new IllegalArgumentException("Exactly one of the 'bpn' and 'did' filters must be given");
+        if (isBlank(memberId) == isBlank(did)) {
+            throw new IllegalArgumentException("Exactly one of the 'memberId' and 'did' filters must be given");
         }
-        return isBlank(did) ? membershipService.findByBpn(bpn) : membershipService.findByDid(did);
+        if (!isBlank(memberId)) {
+            if (isBlank(dataspace)) {
+                throw new IllegalArgumentException("The 'memberId' filter requires the 'dataspace' it is an id of");
+            }
+            return membershipService.findByMemberId(dataspace, memberId);
+        }
+        var memberships = membershipService.findByDid(did);
+        return isBlank(dataspace) ? memberships
+                : memberships.stream().filter(m -> dataspace.equals(m.dataspace())).toList();
     }
 
     private static boolean isBlank(String value) {
@@ -80,10 +92,18 @@ public class MembershipController {
         return e.getMessage();
     }
 
-    /** The DID or BPN is already taken by a live membership — nothing was created for this call. */
+    /** The DID or member id is already taken by a live membership — nothing was created for this call. */
     @ExceptionHandler(DuplicateMembershipException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public String conflict(DuplicateMembershipException e) {
+        return e.getMessage();
+    }
+
+    /** A dataspace this hub does not serve, or a registration object the dataspace refuses. */
+    @ExceptionHandler({DataspaceOnboarding.UnknownDataspaceException.class,
+            DataspaceOnboarding.InvalidRegistrationException.class})
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public String invalidRequest(RuntimeException e) {
         return e.getMessage();
     }
 

@@ -182,7 +182,7 @@ catenax-profile:
     # bump the pin in Chart.yaml.
     trustedIssuers: []
 
-# ---- Onboarding API --------------------------------------------------------------------------
+# ---- Catena-X onboarding API -----------------------------------------------------------------
 # The app chart's own defaults already target this umbrella (cx-ve-* infra names, cxve.localhost
 # hostnames); only deltas belong here.
 cx-onboarding-api:
@@ -199,13 +199,22 @@ cx-onboarding-api:
   #   nats:
   #     nkey-seed-path: ""
 
+# ---- Decade-X onboarding API (stub) ----------------------------------------------------------
+# OFF: the VE does not host Decade-X yet. Enabling it takes, together: this switch, the hub's
+# membership-hub.config.dataspaces.decade-x (enabled, plus the in-cluster url
+# http://cx-ve-dx-onboarding-api.edc-v.svc.cluster.local:8080 and the callback/auth clients), and
+# a Decade-X issuer and dataspace profile on the platform — the stub itself issues nothing.
+dx-onboarding-api:
+  enabled: false
+  image:
+    pullPolicy: IfNotPresent
 
-# ---- Catena-X Membership Hub ------------------------------------------------------------------
-# Drives the full member journey: EDC resource provisioning via the CFM Tenant Manager for a
-# member this VE hosts, then registration via the Onboarding API (as OSP client membership-hub,
-# seeded under ospIdp.clients below), which registers the credential holder and offers it the
-# credentials. All URLs in the subchart's defaults already point at the umbrella's in-cluster
-# services.
+# ---- Membership Hub ---------------------------------------------------------------------------
+# Drives the full member journey in each dataspace it serves: EDC resource provisioning via the
+# CFM Tenant Manager for a member this VE hosts, then registration via the dataspace's onboarding
+# API (as OSP client membership-hub, seeded under ospIdp.clients below) — for Catena-X it
+# registers the credential holder and offers it the credentials. All URLs in the subchart's
+# defaults already point at the umbrella's in-cluster services.
 membership-hub:
   image:
     pullPolicy: IfNotPresent
@@ -330,14 +339,14 @@ ospIdp:
       scope: "configure_partner_registration registration:read registration:write callback-config:read callback-config:write"
     # The Membership Hub's own OSP identity — a separate client, so its callback registration
     # cannot collide with osp-client's (e.g. the e2e suite's). Must agree with the
-    # membership-hub chart's config onboarding-api.auth.*
+    # membership-hub chart's config dataspaces.catena-x.onboarding.auth.*
     - id: membership-hub
       secret: membership-hub-secret
       scope: "configure_partner_registration registration:read registration:write callback-config:read callback-config:write"
     # The credentials the hub registers ALONGSIDE its callback URL: the Onboarding API uses them
     # (client_credentials) to authenticate the status callbacks it sends BACK to the hub, whose
     # callback endpoint validates the bearer against this IdP. Must agree with the membership-hub
-    # chart's config onboarding-api.callback.*
+    # chart's config dataspaces.catena-x.onboarding.callback.*
     - id: membership-hub-callback
       secret: membership-hub-callback-secret
       scope: "callback"

@@ -28,6 +28,8 @@ jobs:
         image:
           - name: cx-onboarding-api
             context: cx-onboarding-api
+          - name: dx-onboarding-api
+            context: dx-onboarding-api
           - name: compliance-tracker
             context: compliance-tracker
           - name: membership-hub
@@ -116,6 +118,9 @@ jobs:
           helm lint charts/cx-onboarding-api
           helm template charts/cx-onboarding-api > /dev/null
           helm package charts/cx-onboarding-api --destination dist --version "$version" --app-version "$version"
+          helm lint charts/dx-onboarding-api
+          helm template charts/dx-onboarding-api > /dev/null
+          helm package charts/dx-onboarding-api --destination dist --version "$version" --app-version "$version"
           helm lint charts/membership-hub
           helm template charts/membership-hub > /dev/null
           helm package charts/membership-hub --destination dist --version "$version" --app-version "$version"

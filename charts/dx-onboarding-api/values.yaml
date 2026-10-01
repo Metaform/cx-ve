@@ -1,0 +1,36 @@
+image:
+  repository: ghcr.io/metaform/cx-ve/dx-onboarding-api
+  # Defaults to the chart's appVersion
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+
+# Gateway API exposure (there is deliberately no Ingress template)
+httpRoute:
+  enabled: true
+  # The Gateway this route attaches to — adjust to the target cluster
+  parentRefs:
+    - name: edcv-gateway
+  hostnames:
+    - cxve.localhost
+  pathPrefix: /dx-onboarding
+
+resources: {}
+
+# Complete application configuration. Rendered 1:1 into the ConfigMap as application.yaml and
+# mounted over the image's packaged defaults (SPRING_CONFIG_ADDITIONALLOCATION).
+config:
+  spring:
+    security:
+      oauth2:
+        resourceserver:
+          jwt:
+            # The VE's OSP IdP — the same one the CX onboarding API trusts. issuer-uri is the
+            # EXTERNAL gateway URL clients obtain tokens from (host-derived: the install scripts
+            # override it for a non-default host).
+            jwk-set-uri: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
+            issuer-uri: http://cxve.localhost/auth/osp
+  dx-onboarding:
+    decision-delay: 0s

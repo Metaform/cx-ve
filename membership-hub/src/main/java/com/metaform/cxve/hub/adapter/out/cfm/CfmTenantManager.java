@@ -19,7 +19,10 @@ import org.springframework.stereotype.Service;
  * feeds no longer contains it.
  *
  * <p>The {@code cfm.issuer} VPA properties are STILL sent even though no registration activity
- * consumes them: the certo activity reads the member's BPN from exactly these properties.
+ * consumes them: the certo activity reads the member's dataspace identity from exactly these
+ * properties. What they contain, which DSP dataspace profiles the connector runs and how flow
+ * tokens get the caller's member id all depend on the member's dataspace — the
+ * {@link DeploymentSpec} carries them.
  */
 @Service
 public class CfmTenantManager implements TenantManager {
@@ -57,11 +60,11 @@ public class CfmTenantManager implements TenantManager {
     }
 
     @Override
-    public ProvisionedProfile deployParticipant(Membership membership, List<String> activeAgreementIds) {
+    public ProvisionedProfile deployParticipant(Membership membership, DeploymentSpec spec) {
         var tenant = client.createTenant(new TenantCreationRequest(Map.of("name", membership.name())));
         log.debug("Created tenant '{}' for membership '{}'", tenant.id(), membership.externalId());
 
-        var profile = toParticipantProfile(membership, activeAgreementIds);
+        var profile = toParticipantProfile(membership, spec);
         log.info("Deploying participant profile for DID = {} (tenant {})", membership.did(), tenant.id());
         // The deploy response predates any provisioning progress — its id is what gets stored;
         // the profile's state is read through refresh() from then on.
@@ -79,10 +82,10 @@ public class CfmTenantManager implements TenantManager {
         return new ProvisionedProfile(tenantId, profile.getId(), profile.getParticipantContextId(), profile.isError());
     }
 
-    private ParticipantProfile toParticipantProfile(Membership membership, List<String> activeAgreementIds) {
+    private ParticipantProfile toParticipantProfile(Membership membership, DeploymentSpec spec) {
         var builder = ParticipantProfile.builder()
                 .identifier(membership.did())
-                .vpaProperty("cfm.issuer", holderProperties(membership, activeAgreementIds));
+                .vpaProperty("cfm.issuer", spec.issuerProperties());
         // For each configured endpoint, the CFM siglet agent configures a transfer-type mapping in
         // Siglet and registers the participant's data-plane instance with the control plane — the
         // prerequisite for the participant's assets to carry catalog distributions. Without any,
@@ -91,11 +94,13 @@ public class CfmTenantManager implements TenantManager {
         var transferTypeMappings = new HashMap<String, Object>();
         if (!dataplaneEndpoint.isBlank()) {
             transferTypeMappings.put(dataplaneTransferType,
-                    transferTypeMapping(dataplaneTransferType, dataplaneEndpointType, dataplaneEndpoint, dataplaneTokenSource));
+                    transferTypeMapping(dataplaneTransferType, dataplaneEndpointType, dataplaneEndpoint, dataplaneTokenSource,
+                            spec.memberIdClaim()));
         }
         if (!ccmEndpoint.isBlank()) {
             transferTypeMappings.put(ccmTransferType,
-                    transferTypeMapping(ccmTransferType, ccmEndpointType, ccmEndpoint, ccmTokenSource));
+                    transferTypeMapping(ccmTransferType, ccmEndpointType, ccmEndpoint, ccmTokenSource,
+                            spec.memberIdClaim()));
         }
         if (!transferTypeMappings.isEmpty()) {
             // The authorization profile opts the data-plane registration into DPS signaling auth:
@@ -106,29 +111,26 @@ public class CfmTenantManager implements TenantManager {
                     "authorization", Map.of("type", "oauth2_token_exchange"),
                     "transferTypeMappings", transferTypeMappings));
         }
-        builder.vpaProperty("cfm.connector", Map.of("dataspaceProfiles", List.of("cx-neptune")));
+        builder.vpaProperty("cfm.connector", Map.of("dataspaceProfiles", spec.dataspaceProfiles()));
         return builder.build();
     }
 
-    private Map<String, Object> transferTypeMapping(String transferType, String endpointType, String endpoint, String tokenSource) {
-        return Map.of(
+    private Map<String, Object> transferTypeMapping(String transferType, String endpointType, String endpoint,
+                                                    String tokenSource, MemberIdClaim memberIdClaim) {
+        var mapping = new HashMap<String, Object>(Map.of(
                 "transferType", transferType,
                 "endpointType", endpointType,
                 "endpoint", endpoint,
-                "tokenSource", tokenSource,
-                // Siglet stamps the caller's BPN into the flow token from its BpnCredential —
-                // certo's inbound verification requires the claim; no static asset property needed.
-                "claimMappings", List.of(
-                        Map.of("from", "flow.claims.vc.withType('BpnCredential').claim('bpn')", "to", "bpn")
-                ));
-    }
-
-    private Map<String, Object> holderProperties(Membership membership, List<String> activeAgreementIds) {
-        return Map.of(
-                "id", membership.did(),
-                "contractVersion", "1.0",
-                "memberOf", String.join(", ", activeAgreementIds),
-                "bpn", membership.bpn()
-        );
+                "tokenSource", tokenSource));
+        if (memberIdClaim != null) {
+            // Siglet stamps the caller's member id (Catena-X: the BPN from its BpnCredential) into
+            // the flow token — certo's inbound verification requires the claim; no static asset
+            // property needed.
+            mapping.put("claimMappings", List.of(Map.of(
+                    "from", "flow.claims.vc.withType('%s').claim('%s')"
+                            .formatted(memberIdClaim.credentialType(), memberIdClaim.claim()),
+                    "to", memberIdClaim.flowClaim())));
+        }
+        return mapping;
     }
 }

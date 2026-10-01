@@ -18,9 +18,13 @@
           <span class="tag">external</span>
         }
       </h1>
-      <div class="idline mono">
-        {{ r.participant.bpn }}
-        @if (r.participant.did) { · {{ r.participant.did }} }
+      <div class="scope">{{ dataspaceName }} · {{ useCaseName }}</div>
+      <div class="idline">
+        <span class="idlabel">{{ memberIdLabel }}</span>
+        <span class="mono">{{ r.participant.memberId }}</span>
+        @if (r.participant.did) {
+          · <span class="mono">{{ r.participant.did }}</span>
+        }
       </div>
       @if (r.participant.externallyHosted) {
         <p class="muted small">
@@ -48,8 +52,7 @@
 
   @if (r.state === 'SUCCEEDED') {
     <div class="banner ok-banner">
-      Onboarding and certificate transfer completed — all {{ r.checklist.length }} expected
-      event subjects are in the ledger.
+      {{ completion }} — all {{ r.checklist.length }} expected event subjects are in the ledger.
     </div>
   } @else if (r.state === 'FAILED') {
     <div class="banner fail-banner">

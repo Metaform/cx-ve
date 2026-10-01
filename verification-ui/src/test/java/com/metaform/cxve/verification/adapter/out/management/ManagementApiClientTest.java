@@ -64,7 +64,7 @@ class ManagementApiClientTest {
                         .body(counterPartyResponded(404)));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, "ccm-api", Duration.ofSeconds(30)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE, "ccm-api", Duration.ofSeconds(30)))
                 .isInstanceOf(VerificationException.class)
                 // names the address dialled and where it came from — the finding, not "timed out"
                 .hasMessageContaining(DSP)
@@ -85,7 +85,7 @@ class ManagementApiClientTest {
                         .body(counterPartyResponded(405)));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, "ccm-api", Duration.ofSeconds(30)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE, "ccm-api", Duration.ofSeconds(30)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("405");
         fixture.server().verify();
@@ -102,7 +102,7 @@ class ManagementApiClientTest {
                 .andRespond(withServerError().body("controlplane is restarting"));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, "ccm-api", Duration.ofMillis(300)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE, "ccm-api", Duration.ofMillis(300)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("timed out")
                 .hasMessageContaining("catalog request failed with HTTP 500");
@@ -135,7 +135,8 @@ class ManagementApiClientTest {
                         dataset("vendor-inbox", "CompanyCertificateManagementConsumerApi", "3.0"),
                         dataset("acme-ccm-provider-api", "CompanyCertificateManagementProviderApi", "3.0"))));
 
-        var offer = fixture.client().awaitCatalogOffer("pctx-vp", DSP, DID, CcmApi.provider("3.0"), Duration.ofSeconds(30));
+        var offer = fixture.client().awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE,
+                CcmApi.provider(TestFixtureAccess.CCM_API), Duration.ofSeconds(30));
 
         assertThat(offer.datasetId()).isEqualTo("acme-ccm-provider-api");
         assertThat(offer.offer().path("@id").asText()).isEqualTo("offer-acme-ccm-provider-api");
@@ -144,7 +145,7 @@ class ManagementApiClientTest {
 
     @Test
     void theSameApiOfferedTwiceFailsImmediately() {
-        // CX-0135 allows one asset per API and version per business partner. Picking one of two
+        // CCM standard allows one asset per API and version per business partner. Picking one of two
         // would verify an arbitrary offer — the catalog's answer is final, so no second request.
         var fixture = fixture();
         fixture.server().expect(MockRestRequestMatchers.requestTo("http://cp/participants/pctx-vp/catalog/request"))
@@ -153,7 +154,8 @@ class ManagementApiClientTest {
                         dataset("ccm-b", "CompanyCertificateManagementProviderApi", "3.0"))));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, CcmApi.provider("3.0"), Duration.ofSeconds(30)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE,
+                CcmApi.provider(TestFixtureAccess.CCM_API), Duration.ofSeconds(30)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("ambiguous")
                 .hasMessageContaining("ccm-a")
@@ -173,10 +175,11 @@ class ManagementApiClientTest {
                         dataset("old-ccm", "CompanyCertificateManagementProviderApi", "2.0"))));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, CcmApi.provider("3.0"), Duration.ofMillis(300)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE,
+                CcmApi.provider(TestFixtureAccess.CCM_API), Duration.ofMillis(300)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("timed out")
-                .hasMessageContaining("foobar-ccm-api (no CX-0135 API subject)")
+                .hasMessageContaining("foobar-ccm-api (no CCM API subject)")
                 .hasMessageContaining("old-ccm (CompanyCertificateManagementProviderApi 2.0)");
     }
 
@@ -192,7 +195,7 @@ class ManagementApiClientTest {
                         .body(counterPartyResponded(401)));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, "ccm-api", Duration.ofMillis(300)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE, "ccm-api", Duration.ofMillis(300)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("timed out");
     }

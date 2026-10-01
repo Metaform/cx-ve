@@ -7,9 +7,9 @@ import java.util.Optional;
 
 /**
  * Persistence boundary for membership state, keyed by the {@code externalId} this app mints —
- * the id the Onboarding API's status callbacks are correlated on. The original request payload is
- * stored alongside the record because the background worker replays it: the agreements drive the
- * deployment, and the payload itself is what the registration is submitted from.
+ * the id the onboarding APIs' status callbacks are correlated on. The original request payload is
+ * stored alongside the record because the background worker replays it: the deployment and the
+ * registration that follows are both built from it.
  */
 public interface MembershipRepository {
 
@@ -22,13 +22,13 @@ public interface MembershipRepository {
     Optional<Membership> findByExternalId(String externalId);
 
     /**
-     * All memberships carrying the given BPN. More than one can exist — a REJECTED or FAILED
-     * attempt does not retire its BPN — so callers filter by state.
+     * All memberships of the dataspace carrying the given member id. More than one can exist — a
+     * REJECTED or FAILED attempt does not retire its member id — so callers filter by state.
      */
-    List<Membership> findByBpn(String bpn);
+    List<Membership> findByMemberId(String dataspace, String memberId);
 
     /**
-     * All memberships carrying the given DID, same multiplicity rule as {@link #findByBpn}. This
+     * All memberships carrying the given DID, same multiplicity rule as {@link #findByMemberId}, across dataspaces. This
      * is how a caller holding only an externally hosted member's identity finds the membership it
      * already has: the Onboarding API refuses to register a DID that is already registered, so
      * onboarding such a member a second time would be declined rather than repeated.
