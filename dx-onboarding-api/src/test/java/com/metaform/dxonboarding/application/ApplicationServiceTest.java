@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The stub's decision rule — approve, unless a live application already holds the member number or
+ * The stub's decision rule — approve, unless a live application already holds the Decade-X-ID or
  * DID — and its delivery to the submitter's webhook. Decisions run inline here.
  */
 class ApplicationServiceTest {
@@ -30,8 +30,8 @@ class ApplicationServiceTest {
     };
     private final ApplicationService service = new ApplicationService(sender, Runnable::run, Duration.ZERO);
 
-    private static MembershipApplication application(String ref, String memberNumber, String did) {
-        return new MembershipApplication(ref, "Acme Corp", memberNumber, did, "DE", "ops@acme.example");
+    private static MembershipApplication application(String ref, String decadeXId, String did) {
+        return new MembershipApplication(ref, "Acme Corp", decadeXId, did, "DE", "ops@acme.example");
     }
 
     @Test

@@ -49,12 +49,12 @@ class DecadeXOnboardingTest {
     }
 
     @Test
-    void issuerProperties_carryTheMemberNumber() {
+    void issuerProperties_carryTheDecadeXId() {
         assertThat(onboarding.issuerProperties("did:web:acme",
                 member(Map.of("country", "DE", "contactEmail", "ops@acme.example"))))
                 .containsEntry("id", "did:web:acme")
                 .containsEntry("memberOf", "Decade-X")
-                .containsEntry("memberNumber", "DX-00000001")
+                .containsEntry("decadeXId", "DX-00000001")
                 .containsEntry("bpn", "DX-00000001");
     }
 
@@ -64,7 +64,7 @@ class DecadeXOnboardingTest {
                 "decision", "APPROVED")))
                 .isEqualTo(new RegistrationOutcome("ext-1", RegistrationOutcome.Status.CONFIRMED, null));
         assertThat(onboarding.readCallback(Map.of("applicationRef", "ext-1", "decision", "REJECTED",
-                "reason", "member number taken")))
-                .isEqualTo(new RegistrationOutcome("ext-1", RegistrationOutcome.Status.DECLINED, "member number taken"));
+                "reason", "Decade-X-ID taken")))
+                .isEqualTo(new RegistrationOutcome("ext-1", RegistrationOutcome.Status.DECLINED, "Decade-X-ID taken"));
     }
 }

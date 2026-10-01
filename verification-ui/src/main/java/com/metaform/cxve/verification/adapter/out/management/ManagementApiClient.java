@@ -97,34 +97,37 @@ public class ManagementApiClient {
      * ({@code policyContext}; in Catena-X each is backed by a CEL expression the catenax-profile
      * seeds). The rightOperand is a placeholder there — the CEL expressions check fixed credential
      * claims and ignore it.
+     *
+     * <p>Without constraints the permission is unconditional, and the dataspace's policy context is
+     * left out along with them: nothing in the policy uses its terms, and a dataspace that has not
+     * settled its policy vocabulary yet may not have a context the management API can resolve.
      */
     public void createPolicyIdempotent(String pcid, String policyId, String action, String policyContext,
                                        List<PolicyConstraint> constraints) {
-        var policyConstraints = mapper.createArrayNode();
-        constraints.forEach(op -> {
-            var c = mapper.createObjectNode();
-            c.put("leftOperand", op.leftOperand());
-            c.put("operator", op.operator());
-            c.put("rightOperand", op.rightOperand());
-            policyConstraints.add(c);
-        });
-        var and = mapper.createObjectNode().set("and", policyConstraints);
-        var body = """
-                {
-                  "@context": ["%s", "%s"],
-                  "@type": "PolicyDefinition",
-                  "@id": "%s",
-                  "policy": {
-                    "@type": "Set",
-                    "permission": [{
-                      "action": "%s",
-                      "constraint": [%s]
-                    }]
-                  }
-                }""".formatted(MANAGEMENT_CONTEXT, policyContext, policyId, action, and.toString());
+        var context = mapper.createArrayNode().add(MANAGEMENT_CONTEXT);
+        var permission = mapper.createObjectNode().put("action", action);
+        if (!constraints.isEmpty()) {
+            if (policyContext == null || policyContext.isBlank()) {
+                throw new VerificationException("policy %s has constraints but the dataspace defines no policy context"
+                        .formatted(policyId));
+            }
+            context.add(policyContext);
+            var and = permission.putArray("constraint").addObject().putArray("and");
+            constraints.forEach(op -> and.addObject()
+                    .put("leftOperand", op.leftOperand())
+                    .put("operator", op.operator())
+                    .put("rightOperand", op.rightOperand()));
+        }
+        var body = mapper.createObjectNode();
+        body.set("@context", context);
+        body.put("@type", "PolicyDefinition");
+        body.put("@id", policyId);
+        var policy = body.putObject("policy");
+        policy.put("@type", "Set");
+        policy.putArray("permission").add(permission);
         createIdempotent("policy " + policyId,
                 "/participants/%s/policydefinitions/%s".formatted(pcid, policyId),
-                "/participants/%s/policydefinitions".formatted(pcid), body);
+                "/participants/%s/policydefinitions".formatted(pcid), body.toString());
     }
 
     public void createContractDefinitionIdempotent(String pcid, String id, String accessPolicyId, String contractPolicyId) {

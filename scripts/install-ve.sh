@@ -106,6 +106,9 @@ HOST_OVERRIDES=(
   # The OSP IdP's issuer is http://<host>/auth/osp (derived from global.host in the umbrella);
   # the cx-onboarding-api validates tokens against exactly that iss value, so it must follow too.
   --set-string "cx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
+  --set "dx-onboarding-api.httpRoute.hostnames={${HOST}}"
+  # Like the cx-onboarding-api, the dx-onboarding-api validates tokens against the OSP IdP's iss.
+  --set-string "dx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "certo.gateway.hostnames={${HOST}}"
   # NOTE certo.sigletBaseUrl is deliberately NOT host-derived: certo calls siglet without a
   # bearer token, so it must use the in-cluster siglet service (the checked-in default) — the
@@ -169,7 +172,7 @@ kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-s
 "$(dirname "$0")/setup-did-dns.sh" --pre -c "$CLUSTER_NAME" -H "$HOST"
 
 # Resolve the umbrella's dependencies (platform, catenax-profile, certo from OCI; the local
-# cx-onboarding-api chart is vendored from ../cx-onboarding-api)
+# app charts are vendored from ../cx-onboarding-api, ../dx-onboarding-api etc.)
 helm dependency update "$UMBRELLA_CHART"
 
 # Build and load the latest version of the Onboarding API. The build context is cx-onboarding-api/
@@ -178,6 +181,10 @@ helm dependency update "$UMBRELLA_CHART"
 # .github/workflows/publish.yml uses to build the published image.
 docker buildx build -t ghcr.io/metaform/cx-ve/cx-onboarding-api:latest cx-onboarding-api
 kind load docker-image ghcr.io/metaform/cx-ve/cx-onboarding-api:latest -n $CLUSTER_NAME
+
+# Build and load the latest version of the Decade-X onboarding API (stub); same context layout.
+docker buildx build -t ghcr.io/metaform/cx-ve/dx-onboarding-api:latest dx-onboarding-api
+kind load docker-image ghcr.io/metaform/cx-ve/dx-onboarding-api:latest -n $CLUSTER_NAME
 
 # Build and load the latest version of the Compliance Tracker.
 docker buildx build -t ghcr.io/metaform/cx-ve/compliance-tracker:latest compliance-tracker

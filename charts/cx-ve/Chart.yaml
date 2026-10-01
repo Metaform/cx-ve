@@ -2,7 +2,7 @@ apiVersion: v2
 name: cx-ve
 description: >-
   Umbrella chart for the Verification Environment: Core Platform Distribution, Catena-X
-  profile seeding, the dataspaces' onboarding APIs (Catena-X; Decade-X stub, off by default),
+  profile seeding, the dataspaces' onboarding APIs (Catena-X; Decade-X as a stub),
   Membership Hub, Verification UI, Certo and the Certo CFM agent, installed as a single release.
 type: application
 version: 0.1.0
@@ -27,8 +27,8 @@ dependencies:
   - name: cx-onboarding-api
     repository: file://../cx-onboarding-api
     version: ">=0.0.0-0"
-  # The Decade-X onboarding API (stub) from this repository — off until the VE hosts Decade-X
-  # (its issuer, dataspace profile and the hub's dataspaces.decade-x switch come with it)
+    condition: cx-onboarding-api.enabled
+  # The Decade-X onboarding API (stub) from this repository
   - name: dx-onboarding-api
     repository: file://../dx-onboarding-api
     version: ">=0.0.0-0"

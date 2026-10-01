@@ -7,16 +7,15 @@ supports `--help`.
 
 Stands up the complete Verification Environment on a single kind cluster (default `cxve`, gateway hostname
 `cxve.localhost`) as ONE umbrella helm release (`charts/cx-ve`, release name `cx-ve`): Core Platform Distribution,
-Catena-X profile, Onboarding API, Membership Hub, Certo and the Certo agent. The three apps of this repo
-(Onboarding API, Membership Hub, Compliance Tracker) are built from source and kind-loaded, so the VE runs the
-local code. Runs `setup-did-dns.sh --pre` before the release (its seed hooks need in-cluster DNS mid-install) and
+Catena-X profile, the Catena-X and Decade-X onboarding APIs, Membership Hub, Verification UI, Certo and the
+Certo agent. The apps of this repo (both onboarding APIs, Membership Hub, Verification UI, Compliance Tracker)
+are built from source and kind-loaded, so the VE runs the local code. Runs `setup-did-dns.sh --pre` before the release (its seed hooks need in-cluster DNS mid-install) and
 again in discovery mode after it.
 
 ## `redeploy-ve.sh`
 
-The edit-build-verify loop on an EXISTING cluster: rebuilds the three app images from this checkout, kind-loads
-them, re-vendors the umbrella's chart dependencies (the local `cx-onboarding-api` and `membership-hub` charts
-propagate via `file://`) and runs `helm upgrade` with the same host overrides `install-ve.sh` applies — then
+The edit-build-verify loop on an EXISTING cluster: rebuilds the app images from this checkout, kind-loads
+them, re-vendors the umbrella's chart dependencies (the local app charts propagate via `file://`) and runs `helm upgrade` with the same host overrides `install-ve.sh` applies — then
 explicitly restarts the deployments running the locally built `:latest` images (a rebuilt image under an unchanged
 tag is invisible to helm).
 
@@ -25,7 +24,7 @@ tag is invisible to helm).
 VPS variant of `install-ve.sh`: installs the same umbrella release on an **existing** cluster reached through a
 kubeconfig, with **no DNS magic** — the hostname must be a real, publicly resolvable DNS name pointing at the VPS
 (wildcard record recommended: `<host>`, `issuer.<host>` and `identity.<host>` must all resolve), so the CoreDNS
-rewrites of `setup-did-dns.sh` are not needed. Nothing is built from source; all images — including the three apps
+rewrites of `setup-did-dns.sh` are not needed. Nothing is built from source; all images — including the apps
 of this repo — are pulled from their registries (the published images from `.github/workflows/publish.yml`). Both
 parameters are required:
 

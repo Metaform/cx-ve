@@ -14,9 +14,9 @@
 # gateway hostnames derived from it (did:web:identity.<host>:<participant>,
 # did:web:issuer.<host>:issuer).
 #
-# Unlike install-ve.sh, nothing is built from source: every image — including the Onboarding
-# API, the Compliance Tracker and the Membership Hub — is pulled from its registry (the
-# published images from .github/workflows/publish.yml).
+# Unlike install-ve.sh, nothing is built from source: every image — including the Catena-X and
+# Decade-X onboarding APIs, the Compliance Tracker, the Membership Hub and the Verification UI —
+# is pulled from its registry (the published images from .github/workflows/publish.yml).
 #
 # Traefik is installed from traefik-values.yaml, which already carries the VPS-relevant
 # settings: hostPort 80/443 binding with the unprivileged-port sysctl, and the metallb
@@ -100,6 +100,9 @@ HOST_OVERRIDES=(
   --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
   --set "cx-onboarding-api.httpRoute.hostnames={${HOST}}"
   --set-string "cx-onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
+  --set "dx-onboarding-api.httpRoute.hostnames={${HOST}}"
+  # Like the cx-onboarding-api, the dx-onboarding-api validates tokens against the OSP IdP's iss.
+  --set-string "dx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   # The hub resolves member DIDs by the same rule the cx-onboarding-api does; both must follow the host.
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   --set "membership-hub.httpRoute.hostnames={${HOST}}"

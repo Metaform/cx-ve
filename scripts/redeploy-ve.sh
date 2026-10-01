@@ -77,6 +77,9 @@ HOST_OVERRIDES=(
   --set "cx-onboarding-api.httpRoute.hostnames={${HOST}}"
   --set-string "cx-onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
   --set-string "cx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
+  --set "dx-onboarding-api.httpRoute.hostnames={${HOST}}"
+  # Like the cx-onboarding-api, the dx-onboarding-api validates tokens against the OSP IdP's iss.
+  --set-string "dx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   --set "membership-hub.httpRoute.hostnames={${HOST}}"
   # The hub validates the Onboarding API's callback bearers against the OSP IdP's external issuer URL.
@@ -95,6 +98,7 @@ HOST_OVERRIDES=(
 # contexts .github/workflows/publish.yml builds from).
 IMAGES=(
   "ghcr.io/metaform/cx-ve/cx-onboarding-api:latest cx-onboarding-api"
+  "ghcr.io/metaform/cx-ve/dx-onboarding-api:latest dx-onboarding-api"
   "ghcr.io/metaform/cx-ve/compliance-tracker:latest compliance-tracker"
   "ghcr.io/metaform/cx-ve/membership-hub:latest membership-hub"
   "ghcr.io/metaform/cx-ve/verification-ui:latest verification-ui"
@@ -102,7 +106,8 @@ IMAGES=(
 
 # Deployments running the images built above; restarted after the upgrade because a rebuilt
 # image under an unchanged tag does not change the pod spec, so helm will not roll them.
-DEPLOYMENTS=(cx-ve-cx-onboarding-api cx-ve-compliance-tracker cx-ve-membership-hub cx-ve-verification-ui)
+DEPLOYMENTS=(cx-ve-cx-onboarding-api cx-ve-dx-onboarding-api cx-ve-compliance-tracker cx-ve-membership-hub
+  cx-ve-verification-ui)
 
 set -x
 

@@ -3,9 +3,12 @@ package com.metaform.cxve.verification.adapter.out.management;
 import com.metaform.cxve.verification.adapter.out.auth.TokenProvider;
 import com.metaform.cxve.verification.application.TestFixtureAccess;
 import com.metaform.cxve.verification.application.VerificationException;
+import com.metaform.cxve.verification.config.VerificationProperties.PolicyConstraint;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -16,8 +19,12 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.manyTimes;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /**
  * How the catalog wait tells a counterparty that is not ready apart from one that will never be.
@@ -198,5 +205,44 @@ class ManagementApiClientTest {
                 .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE, "ccm-api", Duration.ofMillis(300)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("timed out");
+    }
+
+    @Test
+    void aConstrainedPolicyCarriesTheDataspacesPolicyContext() {
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-1"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$['@context'][1]").value("https://example.com/policy/context.jsonld"))
+                .andExpect(jsonPath("$.policy.permission[0].action").value("access"))
+                .andExpect(jsonPath("$.policy.permission[0].constraint[0].and[0].leftOperand").value("Membership"))
+                .andExpect(jsonPath("$.policy.permission[0].constraint[0].and[0].rightOperand").value("active"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        fixture.client().createPolicyIdempotent("pctx-vp", "p-1", "access", "https://example.com/policy/context.jsonld",
+                List.of(new PolicyConstraint("Membership", "eq", "active")));
+
+        fixture.server().verify();
+    }
+
+    @Test
+    void anUnconstrainedPolicyCarriesNoConstraintAndNoDataspaceContext() {
+        // a dataspace without a settled policy vocabulary: an empty AND would be an invalid
+        // constraint, and its (placeholder) context may not even resolve
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-2"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$['@context'].length()").value(1))
+                .andExpect(jsonPath("$.policy.permission[0].action").value("use"))
+                .andExpect(jsonPath("$.policy.permission[0].constraint").doesNotExist())
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        fixture.client().createPolicyIdempotent("pctx-vp", "p-2", "use", "https://unresolvable.example/context.jsonld",
+                List.of());
+
+        fixture.server().verify();
     }
 }

@@ -202,17 +202,20 @@ verification:
         parts-tracking:
           display-name: Parts Tracking
           enabled: false
-    # Decade-X: listed so the UI offers it; available once the hub serves it (dataspaces.decade-x
-    # in the hub, backed by the dx-onboarding-api). The profile below is a PLACEHOLDER to fill in
-    # when the VE hosts the dataspace: its DSP profile, policy vocabulary and CCM vocabulary are
-    # not settled yet — the CCM vocabulary assumes Certo's Catena-X API identity carries over.
+    # Decade-X, onboarded through the dx-onboarding-api stub (the hub's dataspaces.decade-x).
+    # Largely a PLACEHOLDER: the stub issues no credentials yet, so a run stops where it waits for
+    # the participant's credentials (AWAIT_CREDENTIALS); the policy vocabulary is unsettled (the
+    # offers this environment seeds carry no constraints), and the CCM vocabulary assumes Certo's
+    # Catena-X API identity carries over.
     decade-x:
       display-name: Decade-X
       member-id:
-        label: Member number
+        label: Decade-X-ID
         pattern: "DX-[0-9]{8}"
         example: DX-00000001
-      dsp-profile: dx-dsp
+      # Catena-X's, for now — the platform advertises one DSP profile for every participant
+      # (see the hub's dataspaces.decade-x.dataspace-profiles).
+      dsp-profile: cx-neptune
       policy-context: https://w3id.org/decadex/policy/context.jsonld
       registration-template: |
         { "country": "DE", "contactEmail": "vui-{{uniqueId}}@example.com" }

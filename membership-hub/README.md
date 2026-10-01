@@ -1,7 +1,7 @@
 # Membership Hub
 
-Drives a partner's full path into one of the dataspaces this VE hosts (Catena-X; Decade-X as a
-stub, off by default) by combining the two halves the VE deliberately keeps apart:
+Drives a partner's full path into one of the dataspaces this VE hosts (Catena-X; Decade-X through
+a stub onboarding API) by combining the two halves the VE deliberately keeps apart:
 
 1. **Provisioning** — for a member this VE hosts, creates a tenant and deploys the participant
    profile via the CFM Tenant Manager, which runs the VPA orchestration (connector, IdentityHub,

@@ -161,6 +161,34 @@ config:
         credential-type: BpnCredential
         claim: bpn
         flow-claim: bpn
+    # Decade-X, through the dx-onboarding-api stub: same IdP clients, its own API and callback path.
+    decade-x:
+      enabled: true
+      display-name: Decade-X
+      onboarding:
+        url: http://cx-ve-dx-onboarding-api.edc-v.svc.cluster.local:8080
+        callback:
+          url: http://cx-ve-membership-hub.edc-v.svc.cluster.local:8080/api/callbacks/decade-x/registration-status
+          token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+          client-id: membership-hub-callback
+          client-secret: membership-hub-callback-secret
+        auth:
+          token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+          client-id: membership-hub
+          client-secret: membership-hub-secret
+          # the stub requires an authenticated caller, no particular scope
+          scope: ""
+      # Catena-X's DSP profile, for now: the platform advertises ONE profile in every participant's
+      # DID document (core-platform-distribution.edc.controlplane.dataspaceProfiles.advertisedProfile)
+      # and cx-neptune is the only one registered, so a Decade-X profile of its own would be an
+      # endpoint nothing serves.
+      dataspace-profiles:
+        - cx-neptune
+      # Takes effect once Decade-X members hold credentials — the stub issues none yet.
+      member-id-claim:
+        credential-type: DecadeXMembershipCredential
+        claim: decadeXId
+        flow-claim: bpn
   # The CFM Tenant Manager. token-resource must agree with a jwtlet.seed.mappings entry above.
   tenant-manager:
     url: http://tenant-manager.edc-v.svc.cluster.local:8080/api/v1alpha1

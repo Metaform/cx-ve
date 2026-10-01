@@ -1,8 +1,8 @@
 # cx-ve
 
 A dataspace-agnostic Verification Environment (VE): a system under test is verified for a
-**use case** (e.g. CCM — company certificate management) in a **dataspace** (Catena-X; Decade-X
-as a stub, off by default). Each dataspace brings its own onboarding API, registration payloads,
+**use case** (e.g. CCM — company certificate management) in a **dataspace** (Catena-X, and
+Decade-X through a stub onboarding API). Each dataspace brings its own onboarding API, registration payloads,
 member-id format (the BPN in Catena-X), policies and DSP profile; the Membership Hub talks to all
 of them, and the Verification UI lets the user pick the dataspace and then the use case before a
 run.
@@ -17,7 +17,7 @@ Monorepo containing:
 | `verification-ui/` | Spring Boot BFF + Angular dashboard — dataspace and use-case selection, verification runs ([README](verification-ui/README.md)) |
 | `compliance-tracker/` | CFM lifecycle agent (Go) consuming lifecycle CloudEvents off NATS — self-contained module |
 | `charts/cx-onboarding-api/` | Helm chart for the Catena-X onboarding API application |
-| `charts/dx-onboarding-api/` | Helm chart for the Decade-X onboarding API stub (umbrella: `dx-onboarding-api.enabled`, default off) |
+| `charts/dx-onboarding-api/` | Helm chart for the Decade-X onboarding API stub (umbrella switch `dx-onboarding-api.enabled`, like `cx-onboarding-api.enabled`) |
 | `charts/membership-hub/` | Helm chart for the Membership Hub application |
 | `charts/cx-ve/` | Umbrella chart: the whole VE (platform, Catena-X profile, onboarding APIs, Membership Hub, Verification UI, Certo + agent) as one release |
 | `scripts/` | Utility and automation scripts |
@@ -107,8 +107,10 @@ helm install cx-ve charts/cx-ve -n edc-v --create-namespace
 ```
 
 The umbrella pulls the Core Platform Distribution, the Catena-X profile and Certo as OCI
-dependencies and vendors the local `charts/cx-onboarding-api`, `charts/dx-onboarding-api`
-(disabled by default), `charts/membership-hub` and `charts/verification-ui`. All
+dependencies and vendors the local `charts/cx-onboarding-api`, `charts/dx-onboarding-api`,
+`charts/membership-hub` and `charts/verification-ui`. Each dataspace's onboarding API has an
+umbrella switch (`cx-onboarding-api.enabled`, `dx-onboarding-api.enabled`, both on), which goes
+together with the hub serving that dataspace (`membership-hub.config.dataspaces.<id>.enabled`). All
 seeding runs as post-install hooks of the single release, in one ordered hook space: platform
 seeds (weights 10/20) → Catena-X profile (110-130) → cx-onboarding-api jwtlet mapping (200) →
 certo jwtlet mappings (210) → certo activity/orchestration (220) → membership-hub jwtlet
@@ -136,8 +138,8 @@ The script performs the following steps:
 2. Installs Traefik (`traefik-values.yaml`) and the Gateway API CRDs.
 3. Pre-patches CoreDNS (`setup-did-dns.sh --pre`) so the gateway hostnames resolve in-cluster —
    the release's own seed hooks already dereference them during the install.
-4. Builds the Catena-X onboarding API, Membership Hub, Verification UI and Compliance Tracker
-   images from this checkout
+4. Builds the Catena-X and Decade-X onboarding API, Membership Hub, Verification UI and
+   Compliance Tracker images from this checkout
    and loads them into the cluster, so the VE always runs the local code; every other image is
    pulled from its registry.
 5. Installs the **umbrella release** `cx-ve` into namespace `edc-v` (dependencies resolved via
@@ -146,7 +148,7 @@ The script performs the following steps:
    HTTPRoutes and verified end to end (in-cluster DNS + the issuer DID document).
 
 For the edit-build-verify loop on an existing cluster, `scripts/redeploy-ve.sh` rebuilds the
-three images, re-vendors the charts and upgrades the release in place.
+app images, re-vendors the charts and upgrades the release in place.
 
 Once complete, the APIs are reachable through the gateway: the Membership Hub at
 `http://cxve.localhost/hub` and the Catena-X onboarding API at `http://cxve.localhost/cx-onboarding`

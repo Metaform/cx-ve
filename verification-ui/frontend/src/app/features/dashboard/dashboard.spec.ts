@@ -9,7 +9,7 @@ import { Dashboard } from './dashboard';
 const SELECTION_KEY = 'verification-ui.selection';
 
 const BPN: MemberIdFormat = { label: 'BPN', pattern: 'BPNL[0-9A-Z]{12}', example: 'BPNL000000000001' };
-const MEMBER_NUMBER: MemberIdFormat = { label: 'Member number', pattern: 'DX-[0-9]{8}', example: 'DX-00000001' };
+const DECADE_X_ID: MemberIdFormat = { label: 'Decade-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001' };
 
 /** Catena-X and Decade-X as configured: CCM verifiable where the dataspace is, Parts Tracking nowhere. */
 function catalog({ catenaX = true, decadeX = false } = {}): CatalogDataspace[] {
@@ -22,7 +22,7 @@ function catalog({ catenaX = true, decadeX = false } = {}): CatalogDataspace[] {
       ]
     },
     {
-      id: 'decade-x', displayName: 'Decade-X', available: decadeX, memberId: MEMBER_NUMBER,
+      id: 'decade-x', displayName: 'Decade-X', available: decadeX, memberId: DECADE_X_ID,
       useCases: [
         { id: 'ccm', displayName: 'Company Certificate Management', available: decadeX },
         { id: 'parts-tracking', displayName: 'Parts Tracking', available: false }
@@ -271,7 +271,7 @@ describe('Dashboard', () => {
       dashboard.selectDataspace('decade-x');
       settle();
       expect(api.vpStatus).toHaveBeenCalledWith('decade-x');
-      expect(kv()['Member number']).toBe('DX-99999999');
+      expect(kv()['Decade-X-ID']).toBe('DX-99999999');
       finish();
     }));
 
@@ -367,7 +367,7 @@ describe('Dashboard', () => {
       expect(dashboard.derivingBpn).toBeFalse();
       expect(dashboard.effectiveMemberId).toBe('');
       expect(element('.derive')).toBeNull();
-      expect(text('label.field:has(input[name="memberId"]) .label')).toBe('Member numberrequired');
+      expect(text('label.field:has(input[name="memberId"]) .label')).toBe('Decade-X-IDrequired');
       expect(element<HTMLInputElement>('input[name="memberId"]')!.placeholder).toBe('DX-00000001');
 
       dashboard.memberId = 'DX-00000001';

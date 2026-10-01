@@ -228,7 +228,7 @@ input[type="text"]::placeholder {
 /* --- key/value identity rows --- */
 .kv {
   display: grid;
-  /* labels come from the dataspace ("BPN", "Member number"): the column grows to fit them */
+  /* labels come from the dataspace ("BPN", "Decade-X-ID"): the column grows to fit them */
   grid-template-columns: minmax(96px, max-content) 1fr;
   gap: 4px 12px;
   font-size: 13px;

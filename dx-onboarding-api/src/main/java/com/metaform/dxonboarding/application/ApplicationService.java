@@ -23,7 +23,7 @@ import org.springframework.stereotype.Service;
  * Receives applications and decides them — the stub's whole business. An application is accepted
  * on receipt (the caller gets its id) and decided ASYNCHRONOUSLY, after
  * {@code dx-onboarding.decision-delay}: approved, unless a live (not rejected) application already
- * holds its member number or DID. The decision goes to the submitter's webhook; a submitter without
+ * holds its Decade-X-ID or DID. The decision goes to the submitter's webhook; a submitter without
  * one can still read it back.
  *
  * <p>In memory only: a restart forgets everything, which is fine for a stub that exists to give
@@ -63,7 +63,7 @@ public class ApplicationService {
         var record = new ApplicationRecord(UUID.randomUUID().toString(), submitter, application, Instant.now(), null);
         applications.put(record.applicationId(), record);
         log.info("application '{}' received from '{}': {} ({}, {})", record.applicationId(), submitter,
-                application.legalName(), application.memberNumber(), application.did());
+                application.legalName(), application.decadeXId(), application.did());
         decisionExecutor.execute(() -> decide(record.applicationId()));
         return record;
     }
@@ -92,12 +92,12 @@ public class ApplicationService {
                 .filter(other -> !other.applicationId().equals(applicationId))
                 .filter(other -> other.decision() == null || other.decision().decision() == Decision.Outcome.APPROVED)
                 .filter(other -> other.receivedAt().isBefore(record.receivedAt()))
-                .filter(other -> Objects.equals(other.application().memberNumber(), application.memberNumber())
+                .filter(other -> Objects.equals(other.application().decadeXId(), application.decadeXId())
                         || Objects.equals(other.application().did(), application.did()))
                 .findFirst();
         var decision = conflict
                 .map(other -> Decision.rejected(application.applicationRef(), applicationId,
-                        "member number or DID already held by application " + other.applicationId()))
+                        "Decade-X-ID or DID already held by application " + other.applicationId()))
                 .orElseGet(() -> Decision.approved(application.applicationRef(), applicationId));
         applications.put(applicationId, record.decided(decision));
         log.info("application '{}' {}{}", applicationId, decision.decision(),

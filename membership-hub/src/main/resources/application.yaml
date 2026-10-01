@@ -79,10 +79,10 @@ dataspaces:
       credential-type: BpnCredential
       claim: bpn
       flow-claim: bpn
-  # Decade-X, through the VE's dx-onboarding-api stub. Disabled until the VE hosts the dataspace
-  # (its onboarding API, issuer and connector profile); enable it together with those.
+  # Decade-X, through the VE's dx-onboarding-api stub — which approves applications but issues no
+  # credentials (there is no Decade-X issuer on the platform yet).
   decade-x:
-    enabled: false                                              # DATASPACES_DECADEX_ENABLED
+    enabled: true                                               # DATASPACES_DECADEX_ENABLED
     display-name: Decade-X
     onboarding:
       url: http://cxve.localhost/dx-onboarding                  # DATASPACES_DECADEX_ONBOARDING_URL
@@ -96,11 +96,13 @@ dataspaces:
         client-id: membership-hub
         client-secret: ""                                       # DATASPACES_DECADEX_ONBOARDING_AUTH_CLIENTSECRET
         scope: ""
+    # Catena-X's DSP profile, for now: the platform advertises ONE profile in every participant's
+    # DID document, and cx-neptune is the only one registered.
     dataspace-profiles:
-      - dx-dsp
+      - cx-neptune
     member-id-claim:
       credential-type: DecadeXMembershipCredential
-      claim: memberNumber
+      claim: decadeXId
       flow-claim: bpn
 
 # The CFM Tenant Manager, where the member's EDC resources are provisioned. token-resource is the

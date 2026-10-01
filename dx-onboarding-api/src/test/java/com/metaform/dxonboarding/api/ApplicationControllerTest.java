@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ApplicationControllerTest {
 
     private static final String APPLICATION = """
-            {"applicationRef": "ref-1", "legalName": "Acme Corp", "memberNumber": "DX-00000001",
+            {"applicationRef": "ref-1", "legalName": "Acme Corp", "decadeXId": "DX-00000001",
              "did": "did:web:acme", "country": "DE", "contactEmail": "ops@acme.example"}""";
 
     @Autowired
@@ -50,7 +50,7 @@ class ApplicationControllerTest {
     }
 
     @Test
-    void submit_refusesAMalformedMemberNumber() throws Exception {
+    void submit_refusesAMalformedDecadeXId() throws Exception {
         mvc.perform(post("/api/v1/applications").with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(APPLICATION.replace("DX-00000001", "BPNL0000000000XY")))

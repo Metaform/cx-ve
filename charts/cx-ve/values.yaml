@@ -186,6 +186,9 @@ catenax-profile:
 # The app chart's own defaults already target this umbrella (cx-ve-* infra names, cxve.localhost
 # hostnames); only deltas belong here.
 cx-onboarding-api:
+  # Goes together with the hub's membership-hub.config.dataspaces.catena-x.enabled: a hub serving
+  # Catena-X without this API fails every registration, and this API without the hub is idle.
+  enabled: true
   image:
     pullPolicy: IfNotPresent
   # NATS auth switches 3 and 4 of 4 — see the NATS authentication block at the top of this file.
@@ -200,12 +203,11 @@ cx-onboarding-api:
   #     nkey-seed-path: ""
 
 # ---- Decade-X onboarding API (stub) ----------------------------------------------------------
-# OFF: the VE does not host Decade-X yet. Enabling it takes, together: this switch, the hub's
-# membership-hub.config.dataspaces.decade-x (enabled, plus the in-cluster url
-# http://cx-ve-dx-onboarding-api.edc-v.svc.cluster.local:8080 and the callback/auth clients), and
-# a Decade-X issuer and dataspace profile on the platform — the stub itself issues nothing.
+# The stub approves applications but issues nothing — there is no Decade-X issuer on the platform
+# yet, so Decade-X members hold no credentials. Goes together with the hub's
+# membership-hub.config.dataspaces.decade-x.enabled, like the Catena-X switch above.
 dx-onboarding-api:
-  enabled: false
+  enabled: true
   image:
     pullPolicy: IfNotPresent
 

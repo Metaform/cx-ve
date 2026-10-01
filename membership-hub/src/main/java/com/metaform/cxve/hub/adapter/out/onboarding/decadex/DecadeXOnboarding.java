@@ -49,7 +49,7 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
     }
 
     /**
-     * Decade-X membership is the dataspace itself; the member number is carried under {@code bpn}
+     * Decade-X membership is the dataspace itself; the Decade-X-ID is carried under {@code bpn}
      * too, because that is the key the certo provisioning activity reads a member's id from.
      */
     @Override
@@ -57,7 +57,7 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
         return Map.of(
                 "id", did,
                 "memberOf", "Decade-X",
-                "memberNumber", data.memberId(),
+                "decadeXId", data.memberId(),
                 "bpn", data.memberId());
     }
 
@@ -86,7 +86,7 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
                 .body(Map.of(
                         "applicationRef", externalId,
                         "legalName", data.name(),
-                        "memberNumber", data.memberId(),
+                        "decadeXId", data.memberId(),
                         "did", did,
                         "country", registration.country(),
                         "contactEmail", registration.contactEmail()))

@@ -72,11 +72,11 @@ class CatenaXOnboardingTest {
     void validate_refusesFieldsCatenaXDoesNotKnow() {
         // A payload meant for another dataspace must not slip through half-read.
         var foreign = new HashMap<>(registration());
-        foreign.put("memberNumber", "DX-1");
+        foreign.put("decadeXId", "DX-1");
 
         assertThatThrownBy(() -> onboarding.validate(member(foreign)))
                 .isInstanceOf(InvalidRegistrationException.class)
-                .hasMessageContaining("memberNumber");
+                .hasMessageContaining("decadeXId");
     }
 
     @Test
