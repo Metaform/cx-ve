@@ -1,6 +1,6 @@
 ## Registers the certo-related identities in JWTlet: the certo service's own SA, the CFM agents'
 ## SA (which the certo agent runs under), and the certo-mgmt-api scope mappings. Split off from
-## the onboarding-api chart's jwtlet seed because these are VE-composition concerns, not app
+## the cx-onboarding-api chart's jwtlet seed because these are VE-composition concerns, not app
 ## concerns. Creating mappings is idempotent (409 = already exists).
 {{- if and .Values.jwtlet.seed.enabled (or .Values.certo.enabled .Values.certoAgent.enabled) }}
 apiVersion: batch/v1
@@ -12,7 +12,7 @@ metadata:
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     # Weight 210: after the platform's seeds (10/20), the catenax-profile ones (110-130) and the
-    # onboarding-api mapping (200). Only jwtlet must be up (the init container waits), but a
+    # cx-onboarding-api mapping (200). Only jwtlet must be up (the init container waits), but a
     # deterministic late slot keeps the shared hook space obvious.
     "helm.sh/hook-weight": "210"
     "helm.sh/hook-delete-policy": {{ .Values.jwtlet.seed.hookDeletePolicy | quote }}

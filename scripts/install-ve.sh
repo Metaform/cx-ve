@@ -96,16 +96,16 @@ KUBECONFIG_FILE="$HOME/.kube/$CLUSTER_NAME.config"
 HOST_OVERRIDES=(
   --set "global.host=${HOST}"
   --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
-  --set "onboarding-api.httpRoute.hostnames={${HOST}}"
-  --set-string "onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
-  # The hub resolves member DIDs by the same rule the onboarding-api does; both must follow the host.
+  --set "cx-onboarding-api.httpRoute.hostnames={${HOST}}"
+  --set-string "cx-onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
+  # The hub resolves member DIDs by the same rule the cx-onboarding-api does; both must follow the host.
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   --set "membership-hub.httpRoute.hostnames={${HOST}}"
   # The hub validates the Onboarding API's callback bearers against the OSP IdP's external issuer URL.
   --set-string "membership-hub.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   # The OSP IdP's issuer is http://<host>/auth/osp (derived from global.host in the umbrella);
-  # the onboarding-api validates tokens against exactly that iss value, so it must follow too.
-  --set-string "onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
+  # the cx-onboarding-api validates tokens against exactly that iss value, so it must follow too.
+  --set-string "cx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "certo.gateway.hostnames={${HOST}}"
   # NOTE certo.sigletBaseUrl is deliberately NOT host-derived: certo calls siglet without a
   # bearer token, so it must use the in-cluster siglet service (the checked-in default) — the
@@ -169,15 +169,15 @@ kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-s
 "$(dirname "$0")/setup-did-dns.sh" --pre -c "$CLUSTER_NAME" -H "$HOST"
 
 # Resolve the umbrella's dependencies (platform, catenax-profile, certo from OCI; the local
-# onboarding-api chart is vendored from ../onboarding-api)
+# cx-onboarding-api chart is vendored from ../cx-onboarding-api)
 helm dependency update "$UMBRELLA_CHART"
 
-# Build and load the latest version of the Onboarding API. The build context is onboarding-api/
+# Build and load the latest version of the Onboarding API. The build context is cx-onboarding-api/
 # (where the Gradle build now lives), not the repository root: the Dockerfile COPYs gradlew,
 # settings.gradle.kts, build.gradle.kts, gradle/ and src/ from the context root. Same context as
 # .github/workflows/publish.yml uses to build the published image.
-docker buildx build -t ghcr.io/metaform/cx-ve/onboardingapi:latest onboarding-api
-kind load docker-image ghcr.io/metaform/cx-ve/onboardingapi:latest -n $CLUSTER_NAME
+docker buildx build -t ghcr.io/metaform/cx-ve/cx-onboarding-api:latest cx-onboarding-api
+kind load docker-image ghcr.io/metaform/cx-ve/cx-onboarding-api:latest -n $CLUSTER_NAME
 
 # Build and load the latest version of the Compliance Tracker.
 docker buildx build -t ghcr.io/metaform/cx-ve/compliance-tracker:latest compliance-tracker
@@ -192,7 +192,7 @@ docker buildx build -t ghcr.io/metaform/cx-ve/verification-ui:latest verificatio
 kind load docker-image ghcr.io/metaform/cx-ve/verification-ui:latest -n $CLUSTER_NAME
 
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
-# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> onboarding-api jwtlet
+# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> cx-onboarding-api jwtlet
 # mapping (200) -> certo jwtlet mappings (210) -> certo activity/orchestration (220) ->
 # membership-hub jwtlet mapping (230) -> verification-ui jwtlet mappings (240).
 helm upgrade --install "$RELEASE" "$UMBRELLA_CHART" \

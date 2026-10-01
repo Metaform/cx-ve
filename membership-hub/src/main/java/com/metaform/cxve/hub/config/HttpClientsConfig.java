@@ -9,7 +9,7 @@ import org.springframework.web.client.RestClient;
 @Configuration
 public class HttpClientsConfig {
 
-    @Value("${onboarding-api.url:http://cxve.localhost/onboarding}")
+    @Value("${onboarding-api.url:http://cxve.localhost/cx-onboarding}")
     private String onboardingApiUrl;
 
     @Value("${onboarding-api.auth.token-url:http://cxve.localhost/auth/osp/oauth2/token}")

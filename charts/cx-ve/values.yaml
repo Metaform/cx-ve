@@ -26,8 +26,8 @@ global:
 #
 #   1. core-platform-distribution.nats.auth.enabled  -> false   (below)
 #   2. certoAgent.natsAuth.enabled                   -> false   (see certoAgent, further down)
-#   3. onboarding-api.natsAuth.enabled               -> false   (see onboarding-api, below)
-#   4. onboarding-api.config.nats.nkey-seed-path     -> ""      (see onboarding-api, below)
+#   3. cx-onboarding-api.natsAuth.enabled               -> false   (see cx-onboarding-api, below)
+#   4. cx-onboarding-api.config.nats.nkey-seed-path     -> ""      (see cx-onboarding-api, below)
 #   5. complianceTracker.natsAuth.enabled            -> false   (see complianceTracker, at the end)
 #   6. certo.natsAuth.enabled                        -> false   (see certo, below)
 #
@@ -36,7 +36,7 @@ global:
 # policies and roles) while #2/#3/#5/#6 still CONSUME it. Their init containers and seed jobs retry
 # forever by design, so the pods sit in Init:0/1 indefinitely instead of failing — certo-agent and
 # compliance-tracker loop on `invalid role name "nats-cfm-agents"` (hidden by a 2>/dev/null in the
-# templates) and the onboarding-api nats-auth-seed loops waiting for the users.conf Secret.
+# templates) and the cx-onboarding-api nats-auth-seed loops waiting for the users.conf Secret.
 #
 # #4 is easy to miss: it is NOT gated by #3. It is a plain value rendered through
 # `toYaml .Values.config` into the app's application.yaml, so leaving it set makes the app attempt
@@ -87,7 +87,7 @@ core-platform-distribution:
             - identityhub
             - issuerservice
             - certo
-            - onboarding-api
+            - cx-onboarding-api
   edc:
     controlplane:
       # ADDITIONAL issuers for the ROOT (config-based) trusted-issuer registry, rendered as
@@ -145,8 +145,8 @@ core-platform-distribution:
     # Helm replaces lists wholesale, so this list must repeat the platform defaults in full —
     # the `certo`, `event_tracker` and `hydra` entries are the CX-VE-specific additions (certo's
     # database, the compliance tracker's event ledger and the OSP IdP's store live in the
-    # platform's Postgres). The onboarding API's `onboarding` database is deliberately NOT here:
-    # the onboarding-api chart provisions it itself (its postgres-seed job), so it works against
+    # platform's Postgres). The Catena-X onboarding API's `cx_onboarding` database is deliberately NOT here:
+    # the cx-onboarding-api chart provisions it itself (its postgres-seed job), so it works against
     # a platform release this list never touched — an option the components deployed from THIS
     # chart don't need.
     databases:
@@ -185,7 +185,7 @@ catenax-profile:
 # ---- Onboarding API --------------------------------------------------------------------------
 # The app chart's own defaults already target this umbrella (cx-ve-* infra names, cxve.localhost
 # hostnames); only deltas belong here.
-onboarding-api:
+cx-onboarding-api:
   image:
     pullPolicy: IfNotPresent
   # NATS auth switches 3 and 4 of 4 — see the NATS authentication block at the top of this file.
@@ -306,7 +306,7 @@ certo:
 # OAuth2 issuer for EXTERNAL callers of the Onboarding API (the onboarding service provider
 # role): client_credentials tokens, validated by the API against this IdP's JWKS. See
 # templates/osp-idp.yaml — the issuer/token URL is http://<global.host>/auth/osp, so it follows
-# the host automatically; the onboarding-api subchart's issuer-uri must be overridden alongside
+# the host automatically; the cx-onboarding-api subchart's issuer-uri must be overridden alongside
 # a non-default host (install-ve.sh does).
 ospIdp:
   enabled: true

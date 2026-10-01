@@ -51,7 +51,7 @@ logging:
 # callback calls (a second seeded Hydra client) — this app's callback endpoint validates the
 # resulting bearer (see spring.security below).
 onboarding-api:
-  url: http://cxve.localhost/onboarding                          # ONBOARDING_API_URL
+  url: http://cxve.localhost/cx-onboarding                          # ONBOARDING_API_URL
   callback:
     url: http://localhost:8080/api/callbacks/registration-status # ONBOARDING_API_CALLBACK_URL
     token-url: http://cxve.localhost/auth/osp/oauth2/token       # ONBOARDING_API_CALLBACK_TOKEN_URL

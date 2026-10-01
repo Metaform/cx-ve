@@ -24,8 +24,8 @@ dependencies:
     repository: oci://ghcr.io/metaform/charts
     version: 0.0.11
   # The Onboarding API application chart from this repository
-  - name: onboarding-api
-    repository: file://../onboarding-api
+  - name: cx-onboarding-api
+    repository: file://../cx-onboarding-api
     version: ">=0.0.0-0"
   # The Catena-X Membership Hub application chart from this repository
   - name: membership-hub

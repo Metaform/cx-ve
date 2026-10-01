@@ -1,23 +1,19 @@
 ## Registers this app's ServiceAccount in JWTlet so the pod's projected SA token can be exchanged
-## (RFC 8693) for the tokens it needs: one mapping per participant context it exchanges under
-## (`issuer` for the Tenant Manager — the app's only downstream exchange; credential offers belong
-## to the cx-onboarding-api, and so does the issuer-admin mapping). The scope mappings
-## themselves are seeded by the platform; this job only registers the SA. Mirrors the
-## verification-ui chart's seed; creating a mapping is idempotent (409 = already exists).
+## (RFC 8693) for participant-scoped tokens. Mirrors the platform's jwtlet-seed job; creating the
+## mapping is idempotent (409 = already exists).
 {{- if .Values.jwtlet.seed.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "membership-hub.fullname" . }}-jwtlet-seed
+  name: {{ include "cx-onboarding-api.fullname" . }}-jwtlet-seed
   labels:
-    {{- include "membership-hub.labels" . | nindent 4 }}
+    {{- include "cx-onboarding-api.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
-    # Weight 230: in the umbrella release all subcharts share one hook space — the platform's
-    # seeds run at 10/20, the catenax-profile ones at 110-130, the cx-onboarding-api mapping at 200
-    # and the certo seeds at 210/220. This job only needs jwtlet up, but a deterministic late
-    # slot keeps the ordering obvious.
-    "helm.sh/hook-weight": "230"
+    # Weight 200: in the umbrella release all subcharts share one hook space — the platform's
+    # seeds run at 10/20 and the catenax-profile ones at 110-130; this job only needs jwtlet up
+    # but a deterministic late slot keeps the ordering obvious.
+    "helm.sh/hook-weight": "200"
     "helm.sh/hook-delete-policy": {{ .Values.jwtlet.seed.hookDeletePolicy | quote }}
 spec:
   backoffLimit: 5
@@ -25,7 +21,7 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ include "membership-hub.fullname" . }}-jwtlet-seed
+        app: {{ include "cx-onboarding-api.fullname" . }}-jwtlet-seed
     spec:
       # must act under the "seed-jobs" SA, so that JWTlet's management API can be accessed
       serviceAccountName: seed-jobs
@@ -86,17 +82,33 @@ spec:
                 fi
               }
 
-              {{- range .Values.jwtlet.seed.mappings }}
-
-              create "mapping ({{ .participantContext }}) for the '{{ $.Values.serviceAccount.name }}' SA" \
+              # The certo/cfm-agents mappings and the certo-mgmt-api scopes are seeded by the
+              # cx-ve umbrella chart — this job only registers the app's own ServiceAccount.
+              create "mapping entry for the '{{ .Values.serviceAccount.name }}' SA" \
                 "${JWTLET_MGMT_URL}/mappings" \
                 '{
-                    "clientIdentifier": "system:serviceaccount:{{ $.Release.Namespace }}:{{ $.Values.serviceAccount.name }}",
-                    "participantContext": {{ .participantContext | quote }},
-                    "scopes": {{ .scopes | toJson }},
-                    "audiences": {{ $.Values.jwtlet.seed.audiences | toJson }}
+                    "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.serviceAccount.name }}",
+                    "participantContext": {{ .Values.jwtlet.seed.participantContext | quote }},
+                    "scopes": {{ .Values.jwtlet.seed.scopes | toJson }},
+                    "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
                 }'
-              {{- end }}
+
+              # Second mapping for the SAME SA, selected per-exchange by the RFC 8693 `resource`
+              # parameter: it makes the app's vault partition. Exchanging with
+              # resource={{ .Values.vault.partition }} yields a token whose sub is that partition,
+              # which Vault's pre-existing `participant` JWT role confines to
+              # participants/data/{{ .Values.vault.partition }}/* — where the app stores the OSP
+              # callback registrations (they carry client secrets). No root token, no Vault-side
+              # seeding, no platform-chart changes. Must agree with the app's
+              # config vault.auth.resource / vault.secret-path.
+              create "vault-partition mapping for the '{{ .Values.serviceAccount.name }}' SA" \
+                "${JWTLET_MGMT_URL}/mappings" \
+                '{
+                    "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.serviceAccount.name }}",
+                    "participantContext": {{ .Values.vault.partition | quote }},
+                    "scopes": ["read"],
+                    "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
+                }'
 
       volumes:
         # RFC 8693 subject_token used to authenticate against the jwtlet management API.

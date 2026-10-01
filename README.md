@@ -4,10 +4,10 @@ Monorepo containing:
 
 | Path | Contents |
 |---|---|
-| `onboarding-api/` | Spring Boot application (Java 17, Gradle) — CX-0006 partner registration incl. credential-holder registration at the IssuerService; self-contained build |
+| `cx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — CX-0006 partner registration incl. credential-holder registration at the IssuerService; self-contained build |
 | `membership-hub/` | Spring Boot application (Java 17, Gradle) — the Catena-X Membership Hub: drives the full member journey (registration via the Onboarding API, then EDC resource provisioning via the CFM Tenant Manager); self-contained build |
 | `compliance-tracker/` | CFM lifecycle agent (Go) consuming lifecycle CloudEvents off NATS — self-contained module |
-| `charts/onboarding-api/` | Helm chart for the Onboarding API application |
+| `charts/cx-onboarding-api/` | Helm chart for the Onboarding API application |
 | `charts/membership-hub/` | Helm chart for the Membership Hub application |
 | `charts/cx-ve/` | Umbrella chart: the whole VE (platform, Catena-X profile, Onboarding API, Membership Hub, Certo + agent) as one release |
 | `scripts/` | Utility and automation scripts |
@@ -62,7 +62,7 @@ The Gradle builds live in the application directories (each its own build root �
 repository root is not a Gradle project):
 
 ```shell
-cd onboarding-api            # same commands apply in membership-hub/
+cd cx-onboarding-api            # same commands apply in membership-hub/
 ./gradlew build              # compile and run tests
 ./gradlew bootRun            # run the application locally (port 8080)
 ./gradlew bootBuildImage     # build an OCI container image via buildpacks
@@ -88,14 +88,14 @@ and the checked-in values reference those names:
 
 ```shell
 helm dependency update charts/cx-ve
-helm lint charts/onboarding-api charts/membership-hub charts/cx-ve
+helm lint charts/cx-onboarding-api charts/membership-hub charts/cx-ve
 helm install cx-ve charts/cx-ve -n edc-v --create-namespace
 ```
 
 The umbrella pulls the Core Platform Distribution, the Catena-X profile and Certo as OCI
-dependencies and vendors the local `charts/onboarding-api` and `charts/membership-hub`. All
+dependencies and vendors the local `charts/cx-onboarding-api` and `charts/membership-hub`. All
 seeding runs as post-install hooks of the single release, in one ordered hook space: platform
-seeds (weights 10/20) → Catena-X profile (110-130) → onboarding-api jwtlet mapping (200) →
+seeds (weights 10/20) → Catena-X profile (110-130) → cx-onboarding-api jwtlet mapping (200) →
 certo jwtlet mappings (210) → certo activity/orchestration (220) → membership-hub jwtlet
 mapping (230).
 
@@ -133,7 +133,7 @@ For the edit-build-verify loop on an existing cluster, `scripts/redeploy-ve.sh` 
 three images, re-vendors the charts and upgrades the release in place.
 
 Once complete, the APIs are reachable through the gateway: the Membership Hub at
-`http://cxve.localhost/hub` and the Onboarding API at `http://cxve.localhost/onboarding`
+`http://cxve.localhost/hub` and the Onboarding API at `http://cxve.localhost/cx-onboarding`
 (Swagger UIs at `<prefix>/swagger`). Onboard a member through the hub with
 
 ```shell

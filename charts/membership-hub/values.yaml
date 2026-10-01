@@ -48,7 +48,7 @@ jwtlet:
     mappings:
       # Tenant Manager tokens (deploying a hosted member's EDC resources) — the app's ONLY
       # exchange. Must agree with the app's config tenant-manager.token-resource; the scopes cover
-      # exactly what TenantManagerClient requests. Credential offers are the onboarding-api's, and
+      # exactly what TenantManagerClient requests. Credential offers are the cx-onboarding-api's, and
       # so is the issuer-admin-api mapping they need.
       - participantContext: issuer
         scopes:
@@ -136,7 +136,7 @@ config:
   # API for authenticating the status callbacks back to this app — the resourceserver block
   # above validates them. The callback url is this app's own in-cluster address.
   onboarding-api:
-    url: http://cx-ve-onboarding-api.edc-v.svc.cluster.local:8080
+    url: http://cx-ve-cx-onboarding-api.edc-v.svc.cluster.local:8080
     callback:
       url: http://cx-ve-membership-hub.edc-v.svc.cluster.local:8080/api/callbacks/registration-status
       token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token

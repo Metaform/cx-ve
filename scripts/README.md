@@ -15,7 +15,7 @@ again in discovery mode after it.
 ## `redeploy-ve.sh`
 
 The edit-build-verify loop on an EXISTING cluster: rebuilds the three app images from this checkout, kind-loads
-them, re-vendors the umbrella's chart dependencies (the local `onboarding-api` and `membership-hub` charts
+them, re-vendors the umbrella's chart dependencies (the local `cx-onboarding-api` and `membership-hub` charts
 propagate via `file://`) and runs `helm upgrade` with the same host overrides `install-ve.sh` applies — then
 explicitly restarts the deployments running the locally built `:latest` images (a rebuilt image under an unchanged
 tag is invisible to helm).
