@@ -47,20 +47,22 @@ public class RunService {
      * half of the exchange is driven from here; without one, the participant is onboarded into
      * this environment and driven end to end.
      *
-     * <p>Absent inputs are derived: the short name from the run id, the BPN/VAT deterministically
-     * from the short name (the e2e suite's formula) — so repeated runs never collide on identity,
-     * while a caller-pinned identity is honored as-is. An external participant may well have a
-     * BPN of its own already; passing it keeps the credentials this environment issues consistent
-     * with what it calls itself elsewhere.
+     * <p>The BPN is REQUIRED and arrives validated from the boundary. This environment issues the
+     * participant's BpnCredential for exactly that value, and an external system's is agreed with
+     * its operator — Certo checks its certificates against it — so nothing here may substitute a
+     * derived placeholder for a missing one.
+     *
+     * <p>The remaining absent inputs are still derived: the short name from the run id, the VAT id
+     * deterministically from the short name (the e2e suite's formula), so repeated runs never
+     * collide on identity.
      */
     public VerificationRun.Snapshot start(String name, String shortName, String bpn, String did) {
         var runId = UUID.randomUUID().toString().substring(0, 8);
         var resolvedShortName = hasText(shortName) ? shortName.trim() : "put-" + runId;
         var resolvedName = hasText(name) ? name.trim() : "Participant " + runId;
-        var resolvedBpn = hasText(bpn) ? bpn.trim() : BpnDeriver.bpnFor(resolvedShortName);
         var declaredDid = hasText(did) ? did.trim() : null;
-        var run = new VerificationRun(runId, resolvedName, resolvedShortName, resolvedBpn,
-                BpnDeriver.vatIdFor(resolvedShortName), declaredDid,
+        var run = new VerificationRun(runId, resolvedName, resolvedShortName, bpn.trim(),
+                VatIdDeriver.vatIdFor(resolvedShortName), declaredDid,
                 declaredDid == null ? RunStep.MANAGED : RunStep.EXTERNAL);
         runs.put(runId, run);
         runExecutor.submit(() -> {

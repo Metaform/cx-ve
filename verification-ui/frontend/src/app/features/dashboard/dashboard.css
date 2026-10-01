@@ -49,6 +49,28 @@
 }
 
 /* --- run form --- */
+.field .req {
+  margin-left: 6px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--verify-deep);
+}
+
+/* Holds the button's spacing when the derive row is absent (an external participant has no
+   short name to derive from, so the row is not rendered). */
+.btn.submit {
+  margin-top: 4px;
+}
+
+/* Why the submit is dead — Enter in a text field submits too, and silently doing nothing is
+   worse than a greyed button. */
+.blocked {
+  margin: 8px 0 0;
+  text-align: center;
+}
+
 .derive {
   display: flex;
   align-items: center;

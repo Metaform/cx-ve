@@ -57,45 +57,61 @@
           Verifies a system that already runs elsewhere: its DID is onboarded without provisioning
           anything here, the issuer offers it credentials, and this environment then consumes its
           certificate offer. Seeding the offer and pushing the certificate are the system's own
-          obligations — the run waits for them.
+          obligations — the run waits for them. It is named by its own system, so only its BPN is
+          asked for here.
         </p>
       } @else {
         <p class="muted small">
           Onboards a participant under test as data provider, establishes both CCM flows and
-          runs the certificate exchange. Leave fields empty to auto-generate an identity.
+          runs the certificate exchange. Leave the name fields empty to auto-generate them; the
+          BPN is required, and can be derived from the short name.
         </p>
       }
       <form (ngSubmit)="startRun()">
         <label class="field">
           <span class="label">Participant DID</span>
-          <input type="text" name="did" [(ngModel)]="did" spellcheck="false" autocomplete="off"
+          <input type="text" name="did" [(ngModel)]="did" (ngModelChange)="onDidChange()"
+                 spellcheck="false" autocomplete="off"
                  placeholder="empty — onboard a participant into this environment">
           <span class="hint">Set it to verify an external system under test, hosted elsewhere.</span>
         </label>
         <label class="field">
           <span class="label">Participant name</span>
-          <input type="text" name="name" [(ngModel)]="name" placeholder="auto-generated" autocomplete="off">
+          <input type="text" name="name" [(ngModel)]="name" [disabled]="external"
+                 [placeholder]="external ? 'named by the system that runs it' : 'required'"
+                 autocomplete="off">
         </label>
         <label class="field">
           <span class="label">Short name</span>
-          <input type="text" name="shortName" [(ngModel)]="shortName" placeholder="auto-generated"
+          <input type="text" name="shortName" [(ngModel)]="shortName" [disabled]="external"
+                 [placeholder]="external ? 'named by the system that runs it' : 'required'"
                  autocomplete="off" spellcheck="false">
         </label>
         <label class="field">
-          <span class="label">BPN</span>
-          <input type="text" name="bpn" [(ngModel)]="bpn" [disabled]="deriveBpn"
-                 [placeholder]="derivedBpn || 'derived from short name'" autocomplete="off" spellcheck="false">
+          <span class="label">BPN<span class="req">required</span></span>
+          <input type="text" name="bpn" [(ngModel)]="bpn" [disabled]="derivingBpn"
+                 [placeholder]="derivingBpn ? (derivedBpn || 'enter a short name to derive from') : 'BPNL…'"
+                 autocomplete="off" spellcheck="false">
+          <span class="hint">{{ bpnHint }}</span>
         </label>
-        <label class="derive">
-          <input type="checkbox" name="deriveBpn" [(ngModel)]="deriveBpn">
-          <span>Derive BPN from short name</span>
-          @if (deriveBpn && derivedBpn) {
-            <span class="mono preview">→ {{ derivedBpn }}</span>
-          }
-        </label>
-        <button class="btn primary submit" type="submit" [disabled]="starting">
+        @if (!external) {
+          <label class="derive">
+            <input type="checkbox" name="deriveBpn" [(ngModel)]="deriveBpn">
+            <span>Derive BPN from short name</span>
+            @if (derivingBpn && derivedBpn) {
+              <span class="mono preview">→ {{ derivedBpn }}</span>
+            }
+          </label>
+        }
+        <button class="btn primary submit" type="submit" [disabled]="!canStart">
           {{ starting ? 'Starting…' : 'Start verification run' }}
         </button>
+        @if (!canStart && !starting) {
+          <p class="muted small blocked">
+            {{ derivingBpn ? 'Enter a short name to derive the BPN from, or untick to type one.'
+                           : 'Enter the BPN to start the run.' }}
+          </p>
+        }
       </form>
       @if (error) {
         <p class="error">{{ error }}</p>

@@ -70,6 +70,48 @@ export class Dashboard implements OnInit, OnDestroy {
     return this.did.trim().length > 0;
   }
 
+  /**
+   * Whether the BPN field is standing in for a derived value. Offered only for a participant this
+   * environment onboards: an external system's BPN is agreed with its operator and has to be
+   * typed, and there is no short name to derive it from anyway.
+   */
+  get derivingBpn(): boolean {
+    return !this.external && this.deriveBpn;
+  }
+
+  /**
+   * The BPN the run is submitted with. Mandatory in both modes, so the backend is never left to
+   * invent one — empty here means the form is incomplete, not that a default applies.
+   */
+  get effectiveBpn(): string {
+    return this.derivingBpn ? this.derivedBpn : this.bpn.trim();
+  }
+
+  get bpnHint(): string {
+    if (this.external) {
+      return 'Required — and it must be the BPN the system under test already runs with: '
+        + 'its certificates are checked against the BPN in the credential issued here.';
+    }
+    return this.derivingBpn
+      ? 'Required. Derived from the short name — enter one, or untick to type the BPN.'
+      : 'Required.';
+  }
+
+  get canStart(): boolean {
+    return !this.starting && this.effectiveBpn.length > 0;
+  }
+
+  /**
+   * Leaving external mode must not silently discard a BPN typed while in it: derivation would
+   * otherwise switch back on, disable the field and substitute the derived value with no cue
+   * beyond the input greying out. A field with something in it keeps derivation off.
+   */
+  onDidChange(): void {
+    if (!this.external && this.bpn.trim()) {
+      this.deriveBpn = false;
+    }
+  }
+
   ensure(): void {
     this.ensuring = true;
     this.error = '';
@@ -86,20 +128,28 @@ export class Dashboard implements OnInit, OnDestroy {
   }
 
   startRun(): void {
+    if (!this.canStart) {
+      return;
+    }
     this.starting = true;
     this.error = '';
-    const request: { name?: string; shortName?: string; bpn?: string; did?: string } = {};
-    if (this.did.trim()) {
+    // The BPN always travels — it is mandatory on the form either way, so nothing here relies on
+    // the backend deriving one. Name and short name stay the backend's to default, and for an
+    // external participant they are not this environment's to state at all: it is already named
+    // by the system that runs it, so the deactivated fields are not sent even if they hold text
+    // typed before the DID was entered.
+    const request: { name?: string; shortName?: string; bpn?: string; did?: string } = {
+      bpn: this.effectiveBpn
+    };
+    if (this.external) {
       request.did = this.did.trim();
-    }
-    if (this.name.trim()) {
-      request.name = this.name.trim();
-    }
-    if (this.shortName.trim()) {
-      request.shortName = this.shortName.trim();
-    }
-    if (!this.deriveBpn && this.bpn.trim()) {
-      request.bpn = this.bpn.trim();
+    } else {
+      if (this.name.trim()) {
+        request.name = this.name.trim();
+      }
+      if (this.shortName.trim()) {
+        request.shortName = this.shortName.trim();
+      }
     }
     this.api.startRun(request).subscribe({
       next: run => {
