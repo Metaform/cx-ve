@@ -2,10 +2,12 @@ package com.metaform.cxve.verification.config;
 
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.function.Function;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -31,6 +33,28 @@ public record VerificationProperties(
     public VerificationProperties {
         // insertion-ordered: the configured order is the order the UI offers them in
         dataspaces = dataspaces == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(dataspaces));
+        // Each dataspace's verification participant is a participant of its own, and two things of
+        // theirs must not coincide: the short name forms the hosted DID (the hub deploys a DID only
+        // once), and the inbox asset id lives in the control plane, whose ids are unique across ALL
+        // participant contexts. A clash would only surface at the second participant's ensure.
+        requireDistinct(dataspaces, "verification-participant.short-name", profile ->
+                profile.verificationParticipant() == null ? List.of() : List.of(profile.verificationParticipant().shortName()));
+        requireDistinct(dataspaces, "use-cases.*.ccm.inbox-asset-id", profile -> profile.useCases().values().stream()
+                .filter(useCase -> useCase.ccm() != null && useCase.ccm().inboxAssetId() != null)
+                .map(useCase -> useCase.ccm().inboxAssetId())
+                .toList());
+    }
+
+    private static void requireDistinct(Map<String, DataspaceProfile> dataspaces, String key,
+                                        Function<DataspaceProfile, List<String>> values) {
+        var owners = new HashMap<String, String>();
+        dataspaces.forEach((id, profile) -> values.apply(profile).forEach(value -> {
+            var owner = owners.putIfAbsent(value, id);
+            if (owner != null && !owner.equals(id)) {
+                throw new IllegalStateException("verification.dataspaces: %s '%s' is used by both %s and %s — it must differ"
+                        .formatted(key, value, owner, id));
+            }
+        }));
     }
 
     /**

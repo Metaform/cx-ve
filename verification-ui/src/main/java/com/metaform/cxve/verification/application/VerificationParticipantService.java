@@ -114,12 +114,17 @@ public class VerificationParticipantService {
      * participant-under-test consumes to obtain the push flow, under the dataspace's policies.
      * Fixed (non-run-scoped) ids; the offer is counterparty-agnostic, which is what makes one
      * permanent asset serve every run.
+     *
+     * <p>Fixed per DATASPACE, though: the control plane's ids are unique across all participant
+     * contexts, not just within one, so two dataspaces' participants cannot both own a
+     * {@code vui-ccm-cd}. The inbox asset id is the dataspace profile's own (and must differ
+     * between profiles, which {@link VerificationProperties} checks at startup).
      */
     private void seedInboxOffer(String dataspace, String pcid) {
         var profile = properties.dataspace(dataspace);
         var ccm = profile.useCase("ccm").ccm();
-        var accessPolicyId = "vui-ccm-access-policy";
-        var contractPolicyId = "vui-ccm-contract-policy";
+        var accessPolicyId = "vui-ccm-access-policy-" + dataspace;
+        var contractPolicyId = "vui-ccm-contract-policy-" + dataspace;
         // Declared as the CCM consumer API: a participant pushing to this inbox finds the offer by
         // that, not by the id, which is this environment's own choice.
         management.upsertAsset(pcid, ccm.inboxAssetId(), CcmApi.consumer(ccm.api()));
@@ -127,7 +132,7 @@ public class VerificationParticipantService {
                 profile.accessConstraints());
         management.createPolicyIdempotent(pcid, contractPolicyId, "use", profile.policyContext(),
                 profile.contractConstraints());
-        management.createContractDefinitionIdempotent(pcid, "vui-ccm-cd", accessPolicyId, contractPolicyId);
+        management.createContractDefinitionIdempotent(pcid, "vui-ccm-cd-" + dataspace, accessPolicyId, contractPolicyId);
         offerSeeded.add(dataspace);
         log.info("{} verification participant inbox offer ready (asset '{}')", dataspace, ccm.inboxAssetId());
     }

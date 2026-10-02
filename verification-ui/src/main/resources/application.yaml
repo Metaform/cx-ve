@@ -155,7 +155,9 @@ verification:
           display-name: Company Certificate Management
           enabled: true
           ccm:
-            # The verification participant's permanent CCM inbox asset (the push-flow target).
+            # The verification participant's permanent CCM inbox asset (the push-flow target). The
+            # control plane's ids are unique across ALL participant contexts, so every dataspace's
+            # participant needs its own (checked at startup).
             inbox-asset-id: ccm-inbox-verification
             # CX-0135: how a CCM API offer is identified in a catalog — dct:type cx-taxo:CCMAPI, a
             # dct:subject naming the provider or consumer API, and cx-common:version. This
@@ -229,7 +231,7 @@ verification:
           display-name: Company Certificate Management
           enabled: true
           ccm:
-            inbox-asset-id: ccm-inbox-verification
+            inbox-asset-id: ccm-inbox-verification-dx
             api:
               taxonomy: "https://w3id.org/catenax/taxonomy#"
               taxonomy-prefix: cx-taxo

@@ -227,21 +227,76 @@ class ManagementApiClientTest {
     }
 
     @Test
-    void anUnconstrainedPolicyCarriesNoConstraintAndNoDataspaceContext() {
-        // a dataspace without a settled policy vocabulary: an empty AND would be an invalid
-        // constraint, and its (placeholder) context may not even resolve
+    void anUnconstrainedPolicyIsAnEmptySetWithoutTheDataspaceContext() {
+        // a dataspace without a settled policy vocabulary: a rule without constraints is refused by
+        // the control plane's policy validation ("action 'access' is not bound to any scopes"), and
+        // the (placeholder) context may not even resolve — no rules at all is what "permit" is
         var fixture = fixture();
         fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-2"))
                 .andRespond(withStatus(HttpStatus.NOT_FOUND));
         fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(jsonPath("$['@context'].length()").value(1))
-                .andExpect(jsonPath("$.policy.permission[0].action").value("use"))
-                .andExpect(jsonPath("$.policy.permission[0].constraint").doesNotExist())
+                .andExpect(jsonPath("$.policy['@type']").value("Set"))
+                .andExpect(jsonPath("$.policy.permission").doesNotExist())
                 .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
 
         fixture.client().createPolicyIdempotent("pctx-vp", "p-2", "use", "https://unresolvable.example/context.jsonld",
                 List.of());
+
+        fixture.server().verify();
+    }
+
+    @Test
+    void anAssetIdOwnedByAnotherContextIsReportedAsSuch() {
+        // the control plane's ids are unique across participant contexts while its reads are per
+        // context: the create collides, and the update cannot find the asset
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-dx/assets"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CONFLICT));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-dx/assets"))
+                .andExpect(method(HttpMethod.PUT))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> fixture.client().upsertAsset("pctx-dx", "ccm-inbox-verification",
+                CcmApi.consumer(TestFixtureAccess.CCM_API)))
+                .isInstanceOf(VerificationException.class)
+                .hasMessageContaining("ccm-inbox-verification")
+                .hasMessageContaining("taken by another participant context");
+    }
+
+    @Test
+    void aPolicyIdOwnedByAnotherContextIsNotTakenForCreated() {
+        // formerly read as "created concurrently — reusing it", leaving the context without it
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-dx/policydefinitions/vui-ccm-access-policy"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-dx/policydefinitions"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CONFLICT));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-dx/policydefinitions/vui-ccm-access-policy"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> fixture.client().createPolicyIdempotent("pctx-dx", "vui-ccm-access-policy", "access",
+                null, List.of()))
+                .isInstanceOf(VerificationException.class)
+                .hasMessageContaining("policy id 'vui-ccm-access-policy'")
+                .hasMessageContaining("pctx-dx");
+    }
+
+    @Test
+    void aPolicyCreatedConcurrentlyInTheSameContextIsReused() {
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-3"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CONFLICT));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-3"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        fixture.client().createPolicyIdempotent("pctx-vp", "p-3", "use", null, List.of());
 
         fixture.server().verify();
     }

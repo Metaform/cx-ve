@@ -36,7 +36,9 @@ import tools.jackson.databind.node.ObjectNode;
  *
  * <p>The create methods are idempotent by design — the verification participant's permanent
  * offer is re-seeded on every ensure: GET first, create on absence, and a concurrent 409 counts
- * as created. Assets are the exception: they are written through, so one created by an earlier
+ * as created once the object shows up in the context. The control plane's ids are unique across
+ * ALL participant contexts while its reads are per context, so a 409 for an id this context
+ * cannot see means another context owns it — reported as such instead of taken for success. Assets are the exception: they are written through, so one created by an earlier
  * version gains the CCM API properties that make it discoverable.
  *
  * <p>Nothing here is dataspace-specific: the DSP profile ({@code protocol}), the policy context and
@@ -88,6 +90,9 @@ public class ManagementApiClient {
             return;
         }
         var updated = put("/participants/%s/assets".formatted(pcid), body.toString());
+        if (updated.status() == 404) {
+            throw takenByAnotherContext("asset", assetId, pcid);
+        }
         expect2xx(updated, what);
         log.info("{} updated", what);
     }
@@ -98,34 +103,38 @@ public class ManagementApiClient {
      * seeds). The rightOperand is a placeholder there — the CEL expressions check fixed credential
      * claims and ignore it.
      *
-     * <p>Without constraints the permission is unconditional, and the dataspace's policy context is
-     * left out along with them: nothing in the policy uses its terms, and a dataspace that has not
-     * settled its policy vocabulary yet may not have a context the management API can resolve.
+     * <p>Without constraints the policy is an empty {@code Set} — no rules, which the policy engine
+     * evaluates as permitted. Not a permission without constraints: the control plane validates
+     * policies, and a rule without constraints has its ACTION checked for a scope binding, which
+     * {@code access} does not have ("action 'access' is not bound to any scopes"). The dataspace's
+     * policy context is left out along with the rules: nothing uses its terms, and a dataspace that
+     * has not settled its policy vocabulary yet may not have a context the management API can
+     * resolve.
      */
     public void createPolicyIdempotent(String pcid, String policyId, String action, String policyContext,
                                        List<PolicyConstraint> constraints) {
         var context = mapper.createArrayNode().add(MANAGEMENT_CONTEXT);
-        var permission = mapper.createObjectNode().put("action", action);
-        if (!constraints.isEmpty()) {
-            if (policyContext == null || policyContext.isBlank()) {
-                throw new VerificationException("policy %s has constraints but the dataspace defines no policy context"
-                        .formatted(policyId));
-            }
-            context.add(policyContext);
-            var and = permission.putArray("constraint").addObject().putArray("and");
-            constraints.forEach(op -> and.addObject()
-                    .put("leftOperand", op.leftOperand())
-                    .put("operator", op.operator())
-                    .put("rightOperand", op.rightOperand()));
-        }
         var body = mapper.createObjectNode();
         body.set("@context", context);
         body.put("@type", "PolicyDefinition");
         body.put("@id", policyId);
         var policy = body.putObject("policy");
         policy.put("@type", "Set");
-        policy.putArray("permission").add(permission);
-        createIdempotent("policy " + policyId,
+        if (!constraints.isEmpty()) {
+            if (policyContext == null || policyContext.isBlank()) {
+                throw new VerificationException("policy %s has constraints but the dataspace defines no policy context"
+                        .formatted(policyId));
+            }
+            context.add(policyContext);
+            var and = policy.putArray("permission").addObject()
+                    .put("action", action)
+                    .putArray("constraint").addObject().putArray("and");
+            constraints.forEach(op -> and.addObject()
+                    .put("leftOperand", op.leftOperand())
+                    .put("operator", op.operator())
+                    .put("rightOperand", op.rightOperand()));
+        }
+        createIdempotent("policy", policyId, pcid,
                 "/participants/%s/policydefinitions/%s".formatted(pcid, policyId),
                 "/participants/%s/policydefinitions".formatted(pcid), body.toString());
     }
@@ -140,7 +149,7 @@ public class ManagementApiClient {
                   "contractPolicyId": "%s",
                   "assetsSelector": []
                 }""".formatted(MANAGEMENT_CONTEXT, id, accessPolicyId, contractPolicyId);
-        createIdempotent("contract definition " + id,
+        createIdempotent("contract definition", id, pcid,
                 "/participants/%s/contractdefinitions/%s".formatted(pcid, id),
                 "/participants/%s/contractdefinitions".formatted(pcid), body);
     }
@@ -349,18 +358,28 @@ public class ManagementApiClient {
         return result;
     }
 
-    private void createIdempotent(String what, String getPath, String createPath, String body) {
+    private void createIdempotent(String kind, String id, String pcid, String getPath, String createPath, String body) {
+        var what = kind + " " + id;
         if (get(getPath).status() == 200) {
             log.info("{} already exists — reusing it", what);
             return;
         }
         var response = post(createPath, body);
         if (response.status() == 409) {
+            if (get(getPath).status() != 200) {
+                throw takenByAnotherContext(kind, id, pcid);
+            }
             log.info("{} was created concurrently — reusing it", what);
             return;
         }
         expect2xx(response, what);
         log.info("{} created", what);
+    }
+
+    private static VerificationException takenByAnotherContext(String what, String id, String pcid) {
+        return new VerificationException(("%s id '%s' is taken by another participant context: the control plane's "
+                + "ids are unique across all contexts, so participant context %s needs an id of its own")
+                .formatted(what, id, pcid));
     }
 
     private HttpResult post(String path, String body) {

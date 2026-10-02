@@ -1,7 +1,10 @@
 package com.metaform.cxve.verification.adapter.in.web;
 
+import com.metaform.cxve.verification.application.VerificationException;
 import com.metaform.cxve.verification.application.VerificationParticipantService;
 import java.util.NoSuchElementException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,6 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/verification-participant")
 public class VerificationParticipantController {
+
+    private static final Logger log = LoggerFactory.getLogger(VerificationParticipantController.class);
 
     private final VerificationParticipantService participantService;
 
@@ -37,6 +42,17 @@ public class VerificationParticipantController {
     public VerificationParticipantService.Status ensure(@RequestParam String dataspace) {
         participantService.ensure(dataspace);
         return participantService.status(dataspace);
+    }
+
+    /**
+     * The ensure failed on the way (onboarding, provisioning, seeding) — the reason, for the card,
+     * and logged: a resolved exception is not logged by Spring itself.
+     */
+    @ExceptionHandler(VerificationException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public String failed(VerificationException e) {
+        log.error("Ensuring the verification participant failed: {}", e.getMessage(), e);
+        return e.getMessage();
     }
 
     /** A dataspace this environment has no profile of. */

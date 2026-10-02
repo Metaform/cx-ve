@@ -60,12 +60,14 @@ class VerificationParticipantServiceTest {
         // the inbox declares the CX-0135 consumer API — what a pushing participant finds it by
         verify(management).upsertAsset("pctx-vp", "ccm-inbox-verification", CcmApi.consumer(TestFixtures.CCM_API));
         // the dataspace's own policies, under its policy context
-        verify(management).createPolicyIdempotent("pctx-vp", "vui-ccm-access-policy", "access",
+        verify(management).createPolicyIdempotent("pctx-vp", "vui-ccm-access-policy-catena-x", "access",
                 TestFixtures.POLICY_CONTEXT, TestFixtures.ACCESS);
-        verify(management).createPolicyIdempotent("pctx-vp", "vui-ccm-contract-policy", "use",
+        verify(management).createPolicyIdempotent("pctx-vp", "vui-ccm-contract-policy-catena-x", "use",
                 TestFixtures.POLICY_CONTEXT, TestFixtures.CONTRACT);
-        verify(management).createContractDefinitionIdempotent("pctx-vp", "vui-ccm-cd",
-                "vui-ccm-access-policy", "vui-ccm-contract-policy");
+        // ids scoped to the dataspace: the control plane's ids are unique across participant
+        // contexts, and every dataspace has a verification participant of its own
+        verify(management).createContractDefinitionIdempotent("pctx-vp", "vui-ccm-cd-catena-x",
+                "vui-ccm-access-policy-catena-x", "vui-ccm-contract-policy-catena-x");
     }
 
     @Test
