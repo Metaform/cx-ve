@@ -6,11 +6,14 @@
 # run that waits on the vendor.
 #
 # Usage:
-#   ./vendor-stack/scripts/status.sh [--exchange <id>] [-s|--short-name <name>] [-h|--help]
+#   ./vendor-stack/scripts/status.sh [-d|--dataspace <dataspace>] [--exchange <id>]
+#                                    [-s|--short-name <name>] [-h|--help]
+#
+#   -d, --dataspace   catena-x (default) or decade-x — the dataspace of the stack
 #
 #   --exchange <id>   also show this certificate exchange (Certo keeps no provider-side listing)
 #
-# Environment: VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh)
+# Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh)
 
 source "$(dirname "$0")/lib.sh"
 
@@ -20,9 +23,10 @@ usage() { awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p' "$0" | sed 's/^# \{0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -s|--short-name|--exchange)
+    -d|--dataspace|-s|--short-name|--exchange)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
+        -d|--dataspace) use_dataspace "$2" ;;
         -s|--short-name) PARTICIPANT_SHORT_NAME="$2" ;;
         --exchange) EXCHANGE_ID="$2" ;;
       esac

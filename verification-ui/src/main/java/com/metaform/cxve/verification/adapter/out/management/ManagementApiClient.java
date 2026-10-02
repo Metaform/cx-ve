@@ -103,13 +103,18 @@ public class ManagementApiClient {
      * seeds). The rightOperand is a placeholder there — the CEL expressions check fixed credential
      * claims and ignore it.
      *
-     * <p>Without constraints the policy is an empty {@code Set} — no rules, which the policy engine
-     * evaluates as permitted. Not a permission without constraints: the control plane validates
-     * policies, and a rule without constraints has its ACTION checked for a scope binding, which
-     * {@code access} does not have ("action 'access' is not bound to any scopes"). The dataspace's
-     * policy context is left out along with the rules: nothing uses its terms, and a dataspace that
-     * has not settled its policy vocabulary yet may not have a context the management API can
-     * resolve.
+     * <p>Without constraints (a dataspace without a settled policy vocabulary, e.g. Decade-X) the
+     * policy permits unconditionally, in the one shape the control plane takes for the action:
+     * <ul>
+     *   <li>{@code access} — an empty {@code Set}, no rules. A rule without constraints has its
+     *       action checked for a scope binding, which {@code access} does not have ("action 'access'
+     *       is not bound to any scopes"). An access policy is never negotiated, so no rule is needed.</li>
+     *   <li>{@code use} — one permission without constraints. The contract policy IS negotiated, and a
+     *       contract request's policy must carry at least one rule — an empty Set cannot be
+     *       requested; {@code use} is bound.</li>
+     * </ul>
+     * The dataspace's policy context is left out: nothing uses its terms, and a dataspace that has
+     * not settled its policy vocabulary yet may not have a context the management API can resolve.
      */
     public void createPolicyIdempotent(String pcid, String policyId, String action, String policyContext,
                                        List<PolicyConstraint> constraints) {
@@ -133,6 +138,8 @@ public class ManagementApiClient {
                     .put("leftOperand", op.leftOperand())
                     .put("operator", op.operator())
                     .put("rightOperand", op.rightOperand()));
+        } else if (!"access".equals(action)) {
+            policy.putArray("permission").addObject().put("action", action);
         }
         createIdempotent("policy", policyId, pcid,
                 "/participants/%s/policydefinitions/%s".formatted(pcid, policyId),

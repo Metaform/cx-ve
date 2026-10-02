@@ -19,13 +19,55 @@
 
 set -euo pipefail
 
-VENDOR_CLUSTER="${VENDOR_CLUSTER:-vendor}"
-VENDOR_HOST="${VENDOR_HOST:-vendor.localhost}"
-VENDOR_PORT="${VENDOR_PORT:-8080}"
-VENDOR_URL="${VENDOR_URL:-http://${VENDOR_HOST}:${VENDOR_PORT}}"
 NAMESPACE=edc-v
 AUDIENCE=edcv
-KUBECONFIG_FILE="$HOME/.kube/${VENDOR_CLUSTER}.config"
+
+# Explicit environment overrides win over a dataspace's defaults (see use_dataspace).
+ENV_VENDOR_CLUSTER="${VENDOR_CLUSTER:-}"
+ENV_VENDOR_HOST="${VENDOR_HOST:-}"
+ENV_VENDOR_PORT="${VENDOR_PORT:-}"
+ENV_VENDOR_URL="${VENDOR_URL:-}"
+ENV_VE_HOST="${VE_HOST:-}"
+
+# The dataspace the stack's participant is a member of, and everything that follows from it: the
+# stack's default cluster, gateway and port (one stack per dataspace, side by side), the DSP
+# profile, what a member id is, the member credential the VE issues, and the VE's verification
+# participant of that dataspace. Called below with VENDOR_DATASPACE (default catena-x), and again by
+# a script's -d/--dataspace — before init.
+use_dataspace() { # <catena-x|decade-x>
+  local cluster host port
+  case "$1" in
+    catena-x)
+      cluster=vendor; host=vendor.localhost; port=8080
+      DSP_PROFILE=cx-neptune
+      MEMBER_ID_LABEL=BPN
+      DEFAULT_MEMBER_ID=BPNLVENDOR000001
+      MEMBER_CREDENTIAL=MembershipCredential
+      VP_SHORT_NAME=verification-participant
+      VP_MEMBER_ID=BPNLVERIFY000001
+      ;;
+    decade-x)
+      cluster=dx-vendor; host=dx-vendor.localhost; port=8081
+      # Decade-X's own profile: cx-neptune's DCP scopes ask for the Catena-X credentials
+      DSP_PROFILE=decade-x
+      MEMBER_ID_LABEL=Decade-X-ID
+      DEFAULT_MEMBER_ID=DX-00009001
+      MEMBER_CREDENTIAL=DecadeXMembershipCredential
+      VP_SHORT_NAME=verification-participant-dx
+      VP_MEMBER_ID=DX-99999999
+      ;;
+    *) die "unknown dataspace '$1' — catena-x or decade-x" ;;
+  esac
+  VENDOR_DATASPACE="$1"
+  VENDOR_CLUSTER="${ENV_VENDOR_CLUSTER:-$cluster}"
+  VENDOR_HOST="${ENV_VENDOR_HOST:-$host}"
+  VENDOR_PORT="${ENV_VENDOR_PORT:-$port}"
+  VENDOR_URL="${ENV_VENDOR_URL:-http://${VENDOR_HOST}:${VENDOR_PORT}}"
+  KUBECONFIG_FILE="$HOME/.kube/${VENDOR_CLUSTER}.config"
+  VE_HOST="${ENV_VE_HOST:-cxve.localhost}"
+  # The VE's verification participant of the dataspace — the counterparty of the certificate push
+  VP_DID="did:web:identity.${VE_HOST}:${VP_SHORT_NAME}"
+}
 
 # Transfer type of the certificate exchange flows: the Data Plane Signaling HTTP transfer profile,
 # pull direction (https://eclipse-dataplane-signaling.github.io/profiles/HEAD/#transfer-profiles).
@@ -53,6 +95,24 @@ participant_did() { echo "did:web:$(did_authority):${PARTICIPANT_SHORT_NAME}"; }
 
 log() { echo ">> $*" >&2; }
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+use_dataspace "${VENDOR_DATASPACE:-catena-x}"
+
+# The member credential the wallet holds, as JSON (type list and claims), or empty — what the VE
+# issued it in the stack's dataspace (MembershipCredential / DecadeXMembershipCredential).
+member_credential_of() { # <participant context id>
+  identity GET "/participants/$1/credentials"
+  [[ "$HTTP_STATUS" == 200 ]] || return 0
+  printf '%s' "$HTTP_BODY" | jq -c --arg type "$MEMBER_CREDENTIAL" \
+    '[.[] | .verifiableCredential.credential // . | select((.type // []) | index($type))] | .[0] // empty'
+}
+
+# The counterparty's DSP endpoint for the stack's DSP profile. A DID document advertises ONE
+# profile per platform (the VE's: cx-neptune, whatever the participant's dataspace), so the profile
+# segment of its ProtocolEndpoint is replaced with this stack's.
+dsp_endpoint_for_profile() { # <ProtocolEndpoint>
+  echo "${1%/*}/${DSP_PROFILE}"
+}
 
 # Checks the tools and the cluster, and mints the subject token every API helper exchanges. Call
 # once at the top of a script, in the main shell.

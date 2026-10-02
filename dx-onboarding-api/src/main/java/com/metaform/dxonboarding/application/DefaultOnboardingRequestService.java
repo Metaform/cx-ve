@@ -3,9 +3,11 @@ package com.metaform.dxonboarding.application;
 import com.metaform.dxonboarding.domain.InvalidOnboardingRequestException;
 import com.metaform.dxonboarding.domain.model.onboarding.DocumentRef;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
+import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStarted;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStatus;
 import com.metaform.dxonboarding.domain.model.onboarding.Submission;
 import com.metaform.dxonboarding.domain.port.DocumentStore;
+import com.metaform.dxonboarding.domain.port.OnboardingEventPublisher;
 import com.metaform.dxonboarding.domain.port.OnboardingRequestRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -19,8 +21,9 @@ import org.springframework.stereotype.Service;
 
 /**
  * Validates a submission as a whole, recognizes a retry by its content, and files a new request
- * with its documents as {@code SUBMITTED}, taking it into review ({@link AutomaticReview}). The
- * review is not part of this API: the applicant reads its outcome from the request's status.
+ * with its documents as {@code SUBMITTED}, announcing its start and taking it into review
+ * ({@link AutomaticReview}). The review is not part of this API: the applicant reads its outcome
+ * from the request's status.
  */
 @Service
 public class DefaultOnboardingRequestService implements OnboardingRequestService {
@@ -30,19 +33,21 @@ public class DefaultOnboardingRequestService implements OnboardingRequestService
     private final OnboardingRequestRepository repository;
     private final DocumentStore documents;
     private final AutomaticReview review;
+    private final OnboardingEventPublisher events;
     private final Clock clock;
 
     @Autowired
     public DefaultOnboardingRequestService(OnboardingRequestRepository repository, DocumentStore documents,
-                                           AutomaticReview review) {
-        this(repository, documents, review, Clock.systemUTC());
+                                           AutomaticReview review, OnboardingEventPublisher events) {
+        this(repository, documents, review, events, Clock.systemUTC());
     }
 
     DefaultOnboardingRequestService(OnboardingRequestRepository repository, DocumentStore documents,
-                                    AutomaticReview review, Clock clock) {
+                                    AutomaticReview review, OnboardingEventPublisher events, Clock clock) {
         this.repository = repository;
         this.documents = documents;
         this.review = review;
+        this.events = events;
         this.clock = clock;
     }
 
@@ -82,6 +87,8 @@ public class DefaultOnboardingRequestService implements OnboardingRequestService
         repository.save(request);
         log.info("onboarding request '{}' ({}) submitted by '{}' for {}", request.id(), request.businessId(),
                 connectorId, request.data().legalEntity().legalName());
+        // announced before the review takes it on, so an observer sees the start before the outcome
+        events.onboardingStarted(new OnboardingStarted(request.id(), request.data().applicantReference(), connectorId));
         review.submitted(request);
         return request;
     }

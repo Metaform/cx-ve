@@ -110,6 +110,7 @@ HOST_OVERRIDES=(
   # Like the cx-onboarding-api, the dx-onboarding-api validates tokens against the OSP IdP's iss.
   --set-string "dx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set-string "dx-onboarding-api.config.dx-onboarding.review.hosted-did-prefix=did:web:identity.${HOST}:"
+  --set-string "decadex-profile.issuer.did=did:web:issuer.${HOST}:issuer"
   --set "certo.gateway.hostnames={${HOST}}"
   # NOTE certo.sigletBaseUrl is deliberately NOT host-derived: certo calls siglet without a
   # bearer token, so it must use the in-cluster siglet service (the checked-in default) — the
@@ -200,10 +201,11 @@ docker buildx build -t ghcr.io/metaform/cx-ve/verification-ui:latest verificatio
 kind load docker-image ghcr.io/metaform/cx-ve/verification-ui:latest -n $CLUSTER_NAME
 
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
-# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> Decade-X issuer credential
-# definition (140) -> cx-onboarding-api jwtlet mapping (200) -> dx-onboarding-api jwtlet mapping
-# (205) -> certo jwtlet mappings (210) -> certo activity/orchestration (220) -> membership-hub
-# jwtlet mapping (230) -> verification-ui jwtlet mappings (240).
+# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> decadex-profile (140 issuer
+# credential definition, 150 EDC dataspace profile) -> cx-onboarding-api jwtlet mapping (200) ->
+# dx-onboarding-api jwtlet mapping (205) -> certo jwtlet mappings (210) -> certo
+# activity/orchestration (220) -> membership-hub jwtlet mapping (230) -> verification-ui jwtlet
+# mappings (240).
 helm upgrade --install "$RELEASE" "$UMBRELLA_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
   "${HOST_OVERRIDES[@]}" \

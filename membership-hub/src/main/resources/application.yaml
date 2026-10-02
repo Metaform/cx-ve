@@ -82,7 +82,8 @@ dataspaces:
   # Decade-X, through the VE's dx-onboarding-api — the TSP onboarding intake. It has no status
   # callbacks, so the hub polls each request's status (participant.registration.poll-interval). An
   # approval registers the member as credential holder and has the platform's issuer offer it the
-  # DecadeXMembershipCredential; it also hands an external member the Decade-X-ID the TSP assigned.
+  # DecadeXMembershipCredential; it also hands an external member that declared no Decade-X-ID the
+  # one the TSP assigned.
   decade-x:
     enabled: true                                               # DATASPACES_DECADEX_ENABLED
     display-name: Decade-X
@@ -93,10 +94,10 @@ dataspaces:
         client-id: membership-hub
         client-secret: ""                                       # DATASPACES_DECADEX_ONBOARDING_AUTH_CLIENTSECRET
         scope: ""
-    # Catena-X's DSP profile, for now: the platform advertises ONE profile in every participant's
-    # DID document, and cx-neptune is the only one registered.
+    # Decade-X's own DSP profile (seeded by the umbrella's decadex-profile): cx-neptune's DCP scopes
+    # ask for the Catena-X credentials, which a Decade-X participant does not hold.
     dataspace-profiles:
-      - cx-neptune
+      - decade-x
     member-id-claim:
       credential-type: DecadeXMembershipCredential
       claim: decadeXId

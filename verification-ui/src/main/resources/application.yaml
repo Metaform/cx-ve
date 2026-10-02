@@ -206,7 +206,8 @@ verification:
           enabled: false
     # Decade-X, onboarded through the dx-onboarding-api, the TSP onboarding intake (the hub's
     # dataspaces.decade-x): an approval has the platform's issuer offer the participant the
-    # DecadeXMembershipCredential, which its wallet then requests. Still partly a PLACEHOLDER: the
+    # DecadeXMembershipCredential, which its wallet then requests; the onboarding events it
+    # publishes are what the compliance tracker follows the participant by. Still partly a PLACEHOLDER: the
     # policy vocabulary is unsettled (the offers this environment seeds carry no constraints, so
     # nothing asks for the credential yet), and the CCM vocabulary assumes Certo's Catena-X API
     # identity carries over.
@@ -216,12 +217,13 @@ verification:
         label: Decade-X-ID
         pattern: "DX-[0-9]{8}"
         example: DX-00000001
-        # The Decade-X TSP assigns an external participant's Decade-X-ID on approval: an external
-        # run takes none up front and adopts it. A participant hosted here brings its own.
-        assigned-to-external: true
-      # Catena-X's, for now — the platform advertises one DSP profile for every participant
-      # (see the hub's dataspaces.decade-x.dataspace-profiles).
-      dsp-profile: cx-neptune
+        # Declared up front by every participant, external ones included — like a Catena-X BPN: the
+        # Decade-X TSP honors the id it is given (it would assign one to a participant declaring none).
+        assigned-to-external: false
+      # Decade-X's own (seeded by the umbrella's decadex-profile): cx-neptune's DCP scopes ask for the
+      # Catena-X credentials, which a Decade-X participant does not hold. A DID document still
+      # advertises cx-neptune (one platform-wide profile), so this is dialled explicitly.
+      dsp-profile: decade-x
       policy-context: https://w3id.org/decadex/policy/context.jsonld
       # The TSP's onboarding request, minus what the hub fills in itself (legal name, DID,
       # applicantReference); the hub also adds the placeholder GTC and UCA documents.
@@ -262,19 +264,27 @@ verification:
               issuer-name: Verification Environment CA
               issuer-id: DX-00000000
               site-id: DX-00000000-MAIN
-            # No credential delivery here, unlike Catena-X, though the participant IS offered the
-            # DecadeXMembershipCredential: the compliance tracker follows a participant from its
-            # events.onboarding.started, which only the cx-onboarding-api publishes — so no Decade-X
-            # participant has a ledger the delivery could be attributed to. Same reason the external
-            # checklist stays unset.
+            # The same subjects as Catena-X's, but every one a Decade-X participant actually produces:
+            # the onboarding events are the dx-onboarding-api's own (type org.decade-x.onboarding.*),
+            # which is what the compliance tracker follows the participant by; the credential
+            # delivery is its DecadeXMembershipCredential's.
             expected-events:
+              "[events.onboarding.started]": 1
+              "[events.onboarding.completed]": 1
               "[events.participantcontext.created]": 1
               "[events.diddocument.published]": 1
               "[events.keypair.added]": 1
+              "[events.issuance.credential.delivered]": 1
               "[events.contract.negotiation.finalized]": 2
               "[events.transfer.process.started]": 2
               "[events.certificate.exchange.fulfilled]": 1
               "[events.certificate.exchange.accepted]": 1
+            # An external participant's, as for Catena-X: its onboarding and the delivery of the
+            # credential it was offered — all the ledger can attribute to a participant hosted elsewhere.
+            external-expected-events:
+              "[events.onboarding.started]": 1
+              "[events.onboarding.completed]": 1
+              "[events.issuance.credential.delivered]": 1
         substance-tracing:
           display-name: Substance tracing
           enabled: false

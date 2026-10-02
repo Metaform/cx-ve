@@ -1,12 +1,13 @@
 package com.metaform.dxonboarding.application;
 
-import com.metaform.dxonboarding.config.ReviewProperties;
 import com.metaform.dxonboarding.domain.model.onboarding.DecadeXId;
+import com.metaform.dxonboarding.domain.model.onboarding.OnboardingCompleted;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStatus;
 import com.metaform.dxonboarding.domain.model.onboarding.ReviewDecision;
 import com.metaform.dxonboarding.domain.port.CredentialOfferService;
 import com.metaform.dxonboarding.domain.port.HolderRegistrationService;
+import com.metaform.dxonboarding.domain.port.OnboardingEventPublisher;
 import com.metaform.dxonboarding.domain.port.OnboardingRequestRepository;
 import java.time.Clock;
 import java.util.Optional;
@@ -20,8 +21,9 @@ import org.springframework.stereotype.Service;
  * onboarding API does it for Catena-X:
  *
  * <ol>
- *   <li>the participant gets its Decade-X-ID: the one it supplied, if it is hosted by the VE (whose
- *       deployment needed it before the TSP would assign one), or else a newly assigned one;</li>
+ *   <li>the participant gets its Decade-X-ID: the one it declared with its request (a participant
+ *       hosted by the VE always does — its deployment needs it — and an external one may, as a
+ *       Catena-X participant declares its BPN), or else a newly assigned one;</li>
  *   <li>it is registered as a credential holder with the IssuerService, under its DID (its
  *       connector identity) and with its Decade-X-ID as claim;</li>
  *   <li>the IssuerService offers it the Decade-X credentials, pushed to its wallet.</li>
@@ -30,6 +32,7 @@ import org.springframework.stereotype.Service;
  * <p>The request is APPROVAL_IN_PROGRESS — its Decade-X-ID already visible — while that runs, and
  * APPROVED once the offer went out; a failing step leaves it APPROVAL_FAILED, which is final (there
  * is no operator to retry it). A Decade-X-ID another participant already holds rejects the request.
+ * Every outcome is announced ({@link OnboardingEventPublisher#onboardingCompleted}).
  */
 @Service
 public class ApprovalService {
@@ -39,21 +42,21 @@ public class ApprovalService {
     private final OnboardingRequestRepository repository;
     private final HolderRegistrationService holders;
     private final CredentialOfferService credentialOffers;
-    private final ReviewProperties properties;
+    private final OnboardingEventPublisher events;
     private final Clock clock;
 
     @Autowired
     public ApprovalService(OnboardingRequestRepository repository, HolderRegistrationService holders,
-                           CredentialOfferService credentialOffers, ReviewProperties properties) {
-        this(repository, holders, credentialOffers, properties, Clock.systemUTC());
+                           CredentialOfferService credentialOffers, OnboardingEventPublisher events) {
+        this(repository, holders, credentialOffers, events, Clock.systemUTC());
     }
 
     ApprovalService(OnboardingRequestRepository repository, HolderRegistrationService holders,
-                    CredentialOfferService credentialOffers, ReviewProperties properties, Clock clock) {
+                    CredentialOfferService credentialOffers, OnboardingEventPublisher events, Clock clock) {
         this.repository = repository;
         this.holders = holders;
         this.credentialOffers = credentialOffers;
-        this.properties = properties;
+        this.events = events;
         this.clock = clock;
     }
 
@@ -73,10 +76,10 @@ public class ApprovalService {
         } catch (RuntimeException e) {
             log.error("onboarding request '{}' ({}): provisioning the approved participant failed", request.id(),
                     request.businessId(), e);
-            repository.save(request.approvalFailed(clock.instant(), "Credential issuance failed: " + e.getMessage()));
+            end(request.approvalFailed(clock.instant(), "Credential issuance failed: " + e.getMessage()));
             return;
         }
-        repository.save(request.approved(clock.instant()));
+        end(request.approved(clock.instant()));
         log.info("onboarding request '{}' ({}) APPROVED: {} holds Decade-X-ID {} and was offered its credentials",
                 request.id(), request.businessId(), request.connectorId(), request.legalEntityId());
     }
@@ -94,24 +97,19 @@ public class ApprovalService {
         }
         var supplied = request.data().legalEntity().legalEntityId();
         String decadeXId;
-        if (supplied != null && properties.hostedHere(request.connectorId())) {
+        if (supplied != null) {
             var holder = repository.findHolderOfLegalEntityId(supplied)
                     .filter(other -> !other.connectorId().equals(request.connectorId()));
             if (holder.isPresent()) {
                 var reason = "Decade-X-ID %s is already held by another participant".formatted(supplied);
                 log.warn("onboarding request '{}' ({}) REJECTED: {} (request '{}')", request.id(), request.businessId(),
                         reason, holder.get().id());
-                repository.save(request.rejected(clock.instant(), ReviewDecision.RejectReasonCode.INVALID_LEGAL_ENTITY,
+                end(request.rejected(clock.instant(), ReviewDecision.RejectReasonCode.INVALID_LEGAL_ENTITY,
                         reason, true));
                 return Optional.empty();
             }
             decadeXId = supplied;
         } else {
-            if (supplied != null) {
-                log.warn("onboarding request '{}' of '{}' supplied Decade-X-ID {} — ignored: only a participant hosted "
-                        + "here keeps its own, every other one is assigned one", request.id(), request.connectorId(),
-                        supplied);
-            }
             decadeXId = unassignedDecadeXId();
         }
         var inProgress = request.approvalInProgress(decadeXId);
@@ -119,6 +117,12 @@ public class ApprovalService {
         log.info("onboarding request '{}' ({}) approved — provisioning {} as Decade-X-ID {}", request.id(),
                 request.businessId(), request.connectorId(), decadeXId);
         return Optional.of(inProgress);
+    }
+
+    /** Records the request's outcome and announces it. */
+    private void end(OnboardingRequest decided) {
+        repository.save(decided);
+        events.onboardingCompleted(OnboardingCompleted.of(decided));
     }
 
     private String unassignedDecadeXId() {

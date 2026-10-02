@@ -104,6 +104,7 @@ HOST_OVERRIDES=(
   # Like the cx-onboarding-api, the dx-onboarding-api validates tokens against the OSP IdP's iss.
   --set-string "dx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set-string "dx-onboarding-api.config.dx-onboarding.review.hosted-did-prefix=did:web:identity.${HOST}:"
+  --set-string "decadex-profile.issuer.did=did:web:issuer.${HOST}:issuer"
   # The hub resolves member DIDs by the same rule the cx-onboarding-api does; both must follow the host.
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   --set "membership-hub.httpRoute.hostnames={${HOST}}"
@@ -130,12 +131,12 @@ kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-s
 helm dependency update "$UMBRELLA_CHART"
 
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
-# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> Decade-X issuer credential
-# definition (140) -> cx-onboarding-api jwtlet mapping (200) -> dx-onboarding-api jwtlet mapping
-# (205) -> certo jwtlet mappings (210) -> certo activity/orchestration (220) -> membership-hub
-# jwtlet mapping (230). The seed hooks dereference gateway-hostname URLs while
-# the install is still running — on a VPS that works without CoreDNS patching because <host>
-# resolves through public DNS to the VPS itself.
+# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> decadex-profile (140 issuer
+# credential definition, 150 EDC dataspace profile) -> cx-onboarding-api jwtlet mapping (200) ->
+# dx-onboarding-api jwtlet mapping (205) -> certo jwtlet mappings (210) -> certo
+# activity/orchestration (220) -> membership-hub jwtlet mapping (230). The seed hooks dereference
+# gateway-hostname URLs while the install is still running — on a VPS that works without CoreDNS
+# patching because <host> resolves through public DNS to the VPS itself.
 helm upgrade --install "$RELEASE" "$UMBRELLA_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
   "${HOST_OVERRIDES[@]}" \

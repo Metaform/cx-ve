@@ -10,23 +10,30 @@
 # the offer by. Its id is free; CX-0135 allows only one such offer per business partner, and a VE run
 # fails when the catalog offers the same API twice.
 #
-# The policies mirror the offers the VE itself makes (verification-ui's
-# VerificationParticipantService): catalog visibility requires a Catena-X membership, a contract
-# requires the data exchange governance framework agreement plus the usage purpose and usage end
-# definitions. The Catena-X profile's CEL expressions evaluate them against the consumer's
-# credentials — which, for the VE's verification participant, the VE's issuer signed and this
-# stack trusts.
+# The policies mirror the offers the VE itself makes in the stack's dataspace (verification-ui's
+# verification.dataspaces.<id>): in Catena-X, catalog visibility requires a Catena-X membership, a
+# contract requires the data exchange governance framework agreement plus the usage purpose and usage
+# end definitions — the Catena-X profile's CEL expressions evaluate them against the consumer's
+# credentials, which, for the VE's verification participant, the VE's issuer signed and this stack
+# trusts. Decade-X has no policy vocabulary yet: its offers are unconstrained, as the VE's are — the
+# access policy an empty Set (a rule without constraints is refused for `access`, which is bound to
+# no scope), the contract policy one `use` permission without constraints (a contract request needs
+# a rule; `use` is bound). Its DSP profile's DCP scope still requires the consumer to present its
+# DecadeXMembershipCredential.
 #
 # Idempotent: policies and contract definition are kept when they exist; the asset is written
 # through, so its API properties are always current.
 #
 # Usage:
-#   ./vendor-stack/scripts/seed-ccm-offer.sh [-s|--short-name <name>] [--asset <id>] [-h|--help]
+#   ./vendor-stack/scripts/seed-ccm-offer.sh [-d|--dataspace <dataspace>] [-s|--short-name <name>]
+#                                            [--asset <id>] [-h|--help]
 #
+#   -d, --dataspace    catena-x (default) or decade-x — the dataspace of the stack
 #   -s, --short-name   the vendor participant (default: vendor-participant)
 #   --asset            asset id (default: <short name>-ccm-provider-api)
 #
-# Environment: VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), CCM_API_VERSION (default 3.0)
+# Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh),
+# CCM_API_VERSION (default 3.0)
 
 source "$(dirname "$0")/lib.sh"
 
@@ -38,9 +45,10 @@ usage() { awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p' "$0" | sed 's/^# \{0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -s|--short-name|--asset)
+    -d|--dataspace|-s|--short-name|--asset)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
+        -d|--dataspace) use_dataspace "$2" ;;
         -s|--short-name) PARTICIPANT_SHORT_NAME="$2" ;;
         --asset) ASSET_ID="$2" ;;
       esac
@@ -80,6 +88,17 @@ create_once() {
 # constraint <leftOperand> <operator> <rightOperand> -> ODRL constraint (compacted, CX policy context)
 constraint() {
   jq -n --arg l "$1" --arg o "$2" --arg r "$3" '{leftOperand: $l, operator: $o, rightOperand: $r}'
+}
+
+# An unconstrained policy, without the Catena-X policy context: for `access` an empty Set, for `use`
+# one permission without constraints (see the header).
+open_policy() { # <id> <action>
+  jq -n --arg mctx "$MANAGEMENT_CONTEXT" --arg id "$1" --arg action "$2" '{
+    "@context": [$mctx],
+    "@type": "PolicyDefinition",
+    "@id": $id,
+    "policy": ({"@type": "Set"} + (if $action == "access" then {} else {permission: [{action: $action}]} end))
+  }'
 }
 
 policy() { # <id> <action> <constraint-json...>
@@ -123,13 +142,20 @@ else
   log "asset '$ASSET_ID' created (CX-0135 provider API $CCM_API_VERSION)"
 fi
 
-create_once "access policy" policydefinitions "$ACCESS_POLICY_ID" "$(policy "$ACCESS_POLICY_ID" access \
-  "$(constraint Membership eq active)")"
-
-create_once "contract policy" policydefinitions "$CONTRACT_POLICY_ID" "$(policy "$CONTRACT_POLICY_ID" use \
-  "$(constraint FrameworkAgreement eq DataExchangeGovernance:1.0)" \
-  "$(constraint UsagePurpose isAnyOf cx.pcf.base:1)" \
-  "$(constraint DataUsageEndDefinition eq cx.dataUsageEnd.unlimited:1)")"
+case "$VENDOR_DATASPACE" in
+  catena-x)
+    create_once "access policy" policydefinitions "$ACCESS_POLICY_ID" "$(policy "$ACCESS_POLICY_ID" access \
+      "$(constraint Membership eq active)")"
+    create_once "contract policy" policydefinitions "$CONTRACT_POLICY_ID" "$(policy "$CONTRACT_POLICY_ID" use \
+      "$(constraint FrameworkAgreement eq DataExchangeGovernance:1.0)" \
+      "$(constraint UsagePurpose isAnyOf cx.pcf.base:1)" \
+      "$(constraint DataUsageEndDefinition eq cx.dataUsageEnd.unlimited:1)")"
+    ;;
+  decade-x)
+    create_once "access policy" policydefinitions "$ACCESS_POLICY_ID" "$(open_policy "$ACCESS_POLICY_ID" access)"
+    create_once "contract policy" policydefinitions "$CONTRACT_POLICY_ID" "$(open_policy "$CONTRACT_POLICY_ID" use)"
+    ;;
+esac
 
 create_once "contract definition" contractdefinitions "$CONTRACT_DEFINITION_ID" "$(jq -n \
     --arg ctx "$MANAGEMENT_CONTEXT" --arg id "$CONTRACT_DEFINITION_ID" \

@@ -16,19 +16,24 @@
 # and the port in the URL does the rest. The entries are written by scripts/setup-did-dns.sh
 # --sut, the same tool that manages each cluster's own rewrites.
 #
-# Idempotent — the managed block is replaced wholesale. Re-run after re-installing either cluster
-# or restarting docker (node IPs are reassigned).
+# Idempotent — the entries are replaced wholesale, tagged with the other side's cluster name, so a
+# second vendor stack (another dataspace's) keeps its own entries in the VE's CoreDNS. Re-run after
+# re-installing either cluster or restarting docker (node IPs are reassigned).
 #
 # Usage:
-#   ./vendor-stack/connect.sh [--ve-cluster <name>] [--ve-host <host>] [--ve-port <port>]
-#                             [-c|--cluster <name>] [-H|--host <host>] [-p|--port <port>] [-h|--help]
+#   ./vendor-stack/connect.sh [-d|--dataspace <dataspace>] [--ve-cluster <name>] [--ve-host <host>]
+#                             [--ve-port <port>] [-c|--cluster <name>] [-H|--host <host>]
+#                             [-p|--port <port>] [-h|--help]
 #
+#   -d, --dataspace <ds>  catena-x (default) or decade-x — which vendor stack: its cluster, host and
+#                         port default to the ones install.sh gives that dataspace's stack
 #   --ve-cluster <name>   the VE's kind cluster (default: cxve)
 #   --ve-host <host>      the VE's gateway hostname (default: cxve.localhost)
 #   --ve-port <port>      the VE's gateway port (default: 80)
-#   -c, --cluster <name>  the vendor stack's kind cluster (default: vendor)
-#   -H, --host <host>     the vendor stack's gateway hostname (default: vendor.localhost)
-#   -p, --port <port>     the vendor stack's gateway port (default: 8080)
+#   -c, --cluster <name>  the vendor stack's kind cluster (default: vendor; dx-vendor for decade-x)
+#   -H, --host <host>     the vendor stack's gateway hostname (default: vendor.localhost;
+#                         dx-vendor.localhost for decade-x)
+#   -p, --port <port>     the vendor stack's gateway port (default: 8080; 8081 for decade-x)
 #
 # Requires: docker, kubectl (kubeconfigs at ~/.kube/<cluster>.config)
 
@@ -40,33 +45,38 @@ DNS_TOOL="$SCRIPT_DIR/../scripts/setup-did-dns.sh"
 VE_CLUSTER=cxve
 VE_HOST=cxve.localhost
 VE_PORT=80
-VENDOR_CLUSTER=vendor
-VENDOR_HOST=vendor.localhost
-VENDOR_PORT=8080
+DATASPACE=catena-x
+VENDOR_CLUSTER=""
+VENDOR_HOST=""
+VENDOR_PORT=""
 # glibc and no curl — see the PROBE_IMAGE note in scripts/setup-did-dns.sh
 PROBE_IMAGE=debian:stable-slim
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--ve-cluster <name>] [--ve-host <host>] [--ve-port <port>]
-                  [-c|--cluster <name>] [-H|--host <host>] [-p|--port <port>] [-h|--help]
+Usage: $(basename "$0") [-d|--dataspace <dataspace>] [--ve-cluster <name>] [--ve-host <host>]
+                  [--ve-port <port>] [-c|--cluster <name>] [-H|--host <host>] [-p|--port <port>]
+                  [-h|--help]
 
 Options:
+  -d, --dataspace <ds>  catena-x (default) or decade-x — which vendor stack (sets the defaults below)
   --ve-cluster <name>   the VE's kind cluster (default: cxve)
   --ve-host <host>      the VE's gateway hostname (default: cxve.localhost)
   --ve-port <port>      the VE's gateway port (default: 80)
-  -c, --cluster <name>  the vendor stack's kind cluster (default: vendor)
-  -H, --host <host>     the vendor stack's gateway hostname (default: vendor.localhost)
-  -p, --port <port>     the vendor stack's gateway port (default: 8080)
+  -c, --cluster <name>  the vendor stack's kind cluster (default: vendor / dx-vendor)
+  -H, --host <host>     the vendor stack's gateway hostname (default: vendor.localhost /
+                        dx-vendor.localhost)
+  -p, --port <port>     the vendor stack's gateway port (default: 8080 / 8081)
   -h, --help            show this help
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --ve-cluster|--ve-host|--ve-port|-c|--cluster|-H|--host|-p|--port)
+    -d|--dataspace|--ve-cluster|--ve-host|--ve-port|-c|--cluster|-H|--host|-p|--port)
       [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
       case "$1" in
+        -d|--dataspace) DATASPACE="$2" ;;
         --ve-cluster) VE_CLUSTER="$2" ;;
         --ve-host) VE_HOST="$2" ;;
         --ve-port) VE_PORT="$2" ;;
@@ -80,6 +90,12 @@ while [[ $# -gt 0 ]]; do
     *) echo "Error: unknown argument '$1'" >&2; usage >&2; exit 1 ;;
   esac
 done
+
+case "$DATASPACE" in
+  catena-x) VENDOR_CLUSTER="${VENDOR_CLUSTER:-vendor}"; VENDOR_HOST="${VENDOR_HOST:-vendor.localhost}"; VENDOR_PORT="${VENDOR_PORT:-8080}" ;;
+  decade-x) VENDOR_CLUSTER="${VENDOR_CLUSTER:-dx-vendor}"; VENDOR_HOST="${VENDOR_HOST:-dx-vendor.localhost}"; VENDOR_PORT="${VENDOR_PORT:-8081}" ;;
+  *) echo "Error: unknown dataspace '$DATASPACE' — catena-x or decade-x" >&2; exit 1 ;;
+esac
 
 node_ip() { # <cluster> -> the control-plane node's address on the docker kind network
   local ip
@@ -130,14 +146,14 @@ echo "Vendor:  $VENDOR_CLUSTER ($VENDOR_HOST:$VENDOR_PORT) at $VENDOR_IP"
 echo
 
 echo "==== VE cluster: resolve the vendor stack ===================================================="
-"$DNS_TOOL" -c "$VE_CLUSTER" -p "$VE_PORT" \
+"$DNS_TOOL" -c "$VE_CLUSTER" -p "$VE_PORT" --sut-name "$VENDOR_CLUSTER" \
   --sut "$VENDOR_HOST=$VENDOR_IP" \
   --sut "identity.$VENDOR_HOST=$VENDOR_IP" \
   --sut "issuer.$VENDOR_HOST=$VENDOR_IP"
 echo
 
 echo "==== vendor cluster: resolve the VE =========================================================="
-"$DNS_TOOL" -c "$VENDOR_CLUSTER" -p "$VENDOR_PORT" \
+"$DNS_TOOL" -c "$VENDOR_CLUSTER" -p "$VENDOR_PORT" --sut-name "$VE_CLUSTER" \
   --sut "$VE_HOST=$VE_IP" \
   --sut "identity.$VE_HOST=$VE_IP" \
   --sut "issuer.$VE_HOST=$VE_IP"

@@ -25,6 +25,17 @@ serviceAccount:
   create: true
   name: dx-onboarding-api
 
+# NATS authentication: the onboarding lifecycle events go onto the platform's edc-events stream
+# under its shared `edc-events` identity, like the cx-onboarding-api's — which requires this chart's
+# ServiceAccount in the platform's nats.auth.users.edc-events.serviceAccounts (the umbrella sets it).
+# The defaults match the umbrella's release name (cx-ve-vault).
+natsAuth:
+  enabled: true
+  vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200
+  vaultRole: nats-edc-events
+  vaultSecretPath: secret/nats/edc-events
+  image: hashicorp/vault:latest
+
 # JWTlet: the pod's projected SA token is exchanged there (RFC 8693) for the token its IssuerService
 # calls need. The audience of the projected token must match jwtlet's `client_audience` (the
 # Kubernetes cluster issuer).
@@ -72,6 +83,13 @@ config:
     issuer-context-id: issuer
     token-resource: sudo
     credential-definition-ids: decadex-membership-credential-def
+  # The onboarding lifecycle events, which the compliance tracker follows a participant by.
+  # nkey-seed-path is where the natsAuth init container writes the seed; "" connects
+  # unauthenticated (with natsAuth.enabled off).
+  nats:
+    enabled: true
+    url: nats://cx-ve-nats.edc-v.svc.cluster.local:4222
+    nkey-seed-path: /vault/secrets/nats.nk
   token:
     file:
       path: /var/run/secrets/jwtlet/token

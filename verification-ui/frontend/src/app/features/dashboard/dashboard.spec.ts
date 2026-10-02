@@ -9,12 +9,10 @@ import { Dashboard } from './dashboard';
 const SELECTION_KEY = 'verification-ui.selection';
 
 const BPN: MemberIdFormat = { label: 'BPN', pattern: 'BPNL[0-9A-Z]{12}', example: 'BPNL000000000001' };
-const DECADE_X_ID: MemberIdFormat = {
-  label: 'Decade-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001', assignedToExternal: true
-};
+const DECADE_X_ID: MemberIdFormat = { label: 'Decade-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001' };
 
 /** Catena-X and Decade-X as configured: CCM verifiable where the dataspace is, Traceability and Substance tracing nowhere. */
-function catalog({ catenaX = true, decadeX = false } = {}): CatalogDataspace[] {
+function catalog({ catenaX = true, decadeX = false, decadeXAssignsIds = false } = {}): CatalogDataspace[] {
   return [
     {
       id: 'catena-x', displayName: 'Catena-X', available: catenaX, memberId: BPN,
@@ -24,7 +22,8 @@ function catalog({ catenaX = true, decadeX = false } = {}): CatalogDataspace[] {
       ]
     },
     {
-      id: 'decade-x', displayName: 'Decade-X', available: decadeX, memberId: DECADE_X_ID,
+      id: 'decade-x', displayName: 'Decade-X', available: decadeX,
+      memberId: { ...DECADE_X_ID, assignedToExternal: decadeXAssignsIds },
       useCases: [
         { id: 'ccm', displayName: 'Company Certificate Management', available: decadeX },
         { id: 'substance-tracing', displayName: 'Substance tracing', available: false }
@@ -387,8 +386,8 @@ describe('Dashboard', () => {
       finish();
     }));
 
-    it('is assigned by Decade-X for an external participant, so none is asked for', fakeAsync(() => {
-      api.catalog.and.returnValue(of(catalog({ decadeX: true })));
+    it('is not asked of an external participant where the dataspace assigns it on onboarding', fakeAsync(() => {
+      api.catalog.and.returnValue(of(catalog({ decadeX: true, decadeXAssignsIds: true })));
       create();
       dashboard.selectDataspace('decade-x');
       dashboard.memberId = 'DX-00000001';
@@ -409,6 +408,18 @@ describe('Dashboard', () => {
       dashboard.did = '';
       dashboard.memberId = '';
       settle();
+      expect(dashboard.memberIdAssigned).toBeFalse();
+      expect(dashboard.startBlocker).toBe('Enter the Decade-X-ID to start the run.');
+      finish();
+    }));
+
+    it('is asked of an external participant in Decade-X, which declares it like a BPN', fakeAsync(() => {
+      api.catalog.and.returnValue(of(catalog({ decadeX: true })));
+      create();
+      dashboard.selectDataspace('decade-x');
+      dashboard.did = 'did:web:sut.example.com';
+      settle();
+
       expect(dashboard.memberIdAssigned).toBeFalse();
       expect(dashboard.startBlocker).toBe('Enter the Decade-X-ID to start the run.');
       finish();
@@ -477,7 +488,7 @@ describe('Dashboard', () => {
     it('submits no member id for an external participant of a dataspace that assigns it', fakeAsync(() => {
       spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
       api.startRun.and.returnValue(of({ id: 'r1' } as RunSnapshot));
-      api.catalog.and.returnValue(of(catalog({ decadeX: true })));
+      api.catalog.and.returnValue(of(catalog({ decadeX: true, decadeXAssignsIds: true })));
       create();
       dashboard.selectDataspace('decade-x');
       dashboard.memberId = 'DX-00000001';

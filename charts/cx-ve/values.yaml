@@ -20,7 +20,7 @@ global:
 # <release>-nats-auth Secret, vault-bootstrap creates a `nats-<component>` policy + k8s-auth role
 # per service account, and each pod gets a fetch-nats-nkey init container that pulls its own seed.
 #
-# TURNING IT OFF IS ALL-OR-NOTHING — there are SIX switches across four charts and no single
+# TURNING IT OFF IS ALL-OR-NOTHING — there are EIGHT switches across five charts and no single
 # global flag (a parent chart cannot drive a subchart value from a template, so they cannot be
 # collapsed). Flip ALL of them together, or leave them all alone:
 #
@@ -30,15 +30,17 @@ global:
 #   4. cx-onboarding-api.config.nats.nkey-seed-path     -> ""      (see cx-onboarding-api, below)
 #   5. complianceTracker.natsAuth.enabled            -> false   (see complianceTracker, at the end)
 #   6. certo.natsAuth.enabled                        -> false   (see certo, below)
+#   7. dx-onboarding-api.natsAuth.enabled            -> false   (see dx-onboarding-api, below)
+#   8. dx-onboarding-api.config.nats.nkey-seed-path  -> ""      (see dx-onboarding-api, below)
 #
 # Flipping only #1 is the dangerous half-measure: it removes the PROVISIONING (no
 # nats-auth-bootstrap job -> no <release>-nats-auth Secret; vault-bootstrap skips the nats-*
-# policies and roles) while #2/#3/#5/#6 still CONSUME it. Their init containers and seed jobs retry
+# policies and roles) while #2/#3/#5/#6/#7 still CONSUME it. Their init containers and seed jobs retry
 # forever by design, so the pods sit in Init:0/1 indefinitely instead of failing — certo-agent and
 # compliance-tracker loop on `invalid role name "nats-cfm-agents"` (hidden by a 2>/dev/null in the
 # templates) and the cx-onboarding-api nats-auth-seed loops waiting for the users.conf Secret.
 #
-# #4 is easy to miss: it is NOT gated by #3. It is a plain value rendered through
+# #4 (and #8, its Decade-X twin) is easy to miss: it is NOT gated by #3 (#7). It is a plain value rendered through
 # `toYaml .Values.config` into the app's application.yaml, so leaving it set makes the app attempt
 # NKey auth against a seed file no init container writes any more. "" is the documented
 # connect-unauthenticated value (NatsProperties.hasNkeyAuth() is false for blank).
@@ -88,6 +90,7 @@ core-platform-distribution:
             - issuerservice
             - certo
             - cx-onboarding-api
+            - dx-onboarding-api
   edc:
     controlplane:
       # ADDITIONAL issuers for the ROOT (config-based) trusted-issuer registry, rendered as
@@ -207,30 +210,26 @@ cx-onboarding-api:
 # those of participants hosted here, and for now those of external ones too
 # (dx-onboarding-api.config.dx-onboarding.review). On approval it registers the participant as a
 # credential holder and has the platform's issuer offer it the DecadeXMembershipCredential (see
-# decadexIssuer below), as the cx-onboarding-api does for Catena-X. Goes together with the hub's
+# decadex-profile below), as the cx-onboarding-api does for Catena-X. Goes together with the hub's
 # membership-hub.config.dataspaces.decade-x.enabled, like the Catena-X switch above.
 dx-onboarding-api:
   enabled: true
   image:
     pullPolicy: IfNotPresent
 
-# ---- Decade-X issuer setup --------------------------------------------------------------------
-# The DecadeXMembershipCredential at the platform's issuer — the counterpart of what the
-# catenax-profile seeds for Catena-X (templates/decadex-issuer-seed-job.yaml). Seeded with the
-# dx-onboarding-api (same switch), whose config issuer-service.credential-definition-ids must name
-# the definition's id. Claims: credentialSubject.id (the DID) and .decadeXId (the Decade-X-ID).
-decadexIssuer:
-  issuerServiceUrl: http://issuerservice.edc-v.svc.cluster.local
-  issuerContextId: issuer
-  tokenUrl: http://jwtlet.edc-v.svc.cluster.local:8080/token
-  attestationId: decadex-holder-attestation-def
-  credentialDefinition:
-    id: decadex-membership-credential-def
-    credentialType: DecadeXMembershipCredential
-    # a placeholder, like the catenax-profile's: no Decade-X credential schema exists yet
-    jsonSchemaUrl: https://example.com/schema/decadex-membership-credential.json
-    # one week, like the Catena-X credentials
-    validity: "604800"
+# ---- Decade-X profile ---------------------------------------------------------------------------
+# Decade-X's dataspace seeding (charts/decadex-profile), the catenax-profile's counterpart: the
+# DecadeXMembershipCredential's definition on the platform's issuer, and the EDC dataspace profile
+# Decade-X participants run DSP under (`decade-x`, trusting the platform's issuer, with a DCP scope
+# asking for the credential). Goes together with dx-onboarding-api.enabled; its credential
+# definition id must match the dx-onboarding-api's issuer-service.credential-definition-ids, and its
+# dspProfile the hub's and the verification UI's Decade-X DSP profile.
+decadex-profile:
+  enabled: true
+  dspProfile: decade-x
+  issuer:
+    # host-derived: the install scripts override it
+    did: "did:web:issuer.cxve.localhost:issuer"
 
 # ---- Membership Hub ---------------------------------------------------------------------------
 # Drives the full member journey in each dataspace it serves: EDC resource provisioning via the

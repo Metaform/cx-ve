@@ -33,6 +33,14 @@ issuer-service:
   # fails the whole offer.
   credential-definition-ids: decadex-membership-credential-def  # ISSUERSERVICE_CREDENTIALDEFINITIONIDS
 
+# The onboarding lifecycle events (events.onboarding.started / .completed), published onto the
+# platform's edc-events JetStream stream — what the compliance tracker follows a participant by.
+# Off here, so the app runs without a broker; the chart turns it on, with the Vault-delivered NKey.
+nats:
+  enabled: false                                                # NATS_ENABLED
+  url: nats://cx-ve-nats.edc-v.svc.cluster.local:4222           # NATS_URL
+  nkey-seed-path: ""                                            # NATS_NKEYSEEDPATH
+
 # This service's workload identity: the projected service-account token and the jwtlet it is
 # exchanged at (RFC 8693).
 token:

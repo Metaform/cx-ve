@@ -34,10 +34,10 @@ import org.springframework.web.client.RestClient;
  * {@code APPROVAL_FAILED} (the provisioning after an approval failed, which nothing retries) map to
  * DECLINED, and every other status — the steps of the review — to PENDING.
  *
- * <p>The Decade-X-ID follows from where the participant is hosted. One hosted HERE brings its own:
- * its deployment needed it before any registration (certo reads it), so the hub sends it along as
- * {@code legalEntity.legalEntityId} — a VE extension of the TSP's request, honored only for
- * participants hosted by the VE. An EXTERNAL participant brings none: the TSP assigns it on
+ * <p>The Decade-X-ID is declared with the registration, as a Catena-X member declares its BPN, and
+ * sent along as {@code legalEntity.legalEntityId} — a VE extension of the TSP's request, which the
+ * TSP honors. A member hosted HERE must declare it: its deployment needs it before any registration
+ * (certo reads it). An EXTERNAL member may: one that declares none is assigned one by the TSP on
  * approval, and the confirmation hands it to the hub.
  *
  * <p>In the dataspace, a participant reaches the TSP as an asset of the federated connector, whose
@@ -81,19 +81,19 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
     }
 
     /**
-     * Besides the registration object: a member hosted here must bring its Decade-X-ID (its
-     * deployment needs it), an external one must not (the TSP assigns it).
+     * Besides the registration object: a declared Decade-X-ID must be well-formed, and a member
+     * hosted here must declare one (its deployment needs it); an external member may leave it to
+     * the TSP to assign.
      */
     @Override
     public void validate(MemberData data) {
         var memberId = data.memberId() == null || data.memberId().isBlank() ? null : data.memberId();
-        if (data.hostedHere() && (memberId == null || !memberId.matches(DECADE_X_ID))) {
+        if (memberId == null && data.hostedHere()) {
             throw new InvalidRegistrationException(
-                    "memberId must be a Decade-X-ID (DX- and 8 digits): a member hosted here brings its own");
+                    "memberId must be a Decade-X-ID (DX- and 8 digits): a member hosted here declares its own");
         }
-        if (!data.hostedHere() && memberId != null) {
-            throw new InvalidRegistrationException(
-                    "memberId must be omitted: the Decade-X TSP assigns an external member's Decade-X-ID");
+        if (memberId != null && !memberId.matches(DECADE_X_ID)) {
+            throw new InvalidRegistrationException("memberId must be a Decade-X-ID (DX- and 8 digits)");
         }
         registration(data);
     }
@@ -209,8 +209,8 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
                 });
         legalEntity.put("legalName", data.name());
         legalEntity.put("preferredDid", did);
-        if (data.hostedHere()) {
-            // VE extension: the Decade-X-ID the member's deployment was provisioned with
+        if (data.memberId() != null && !data.memberId().isBlank()) {
+            // VE extension: the declared Decade-X-ID (a hosted member's deployment was provisioned with it)
             legalEntity.put("legalEntityId", data.memberId());
         }
         request.put("legalEntity", legalEntity);

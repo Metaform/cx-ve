@@ -11,6 +11,9 @@ dependencies:
 - name: dx-onboarding-api
   repository: file://../dx-onboarding-api
   version: 0.1.0
+- name: decadex-profile
+  repository: file://../decadex-profile
+  version: 0.1.0
 - name: membership-hub
   repository: file://../membership-hub
   version: 0.1.0
@@ -20,5 +23,5 @@ dependencies:
 - name: certo
   repository: oci://ghcr.io/metaform/charts
   version: 0.0.6
-digest: sha256:9a1c5b65c812d1bb0df3ce6d35042398c13eb4d69a7d0c3cb18891a302c90954
-generated: "2026-10-01T15:36:23.557967+02:00"
+digest: sha256:f7bab838235a9f4fc6b12e1efdc31e0781c365c626ebb0b55f2592ec2722ddd9
+generated: "2026-10-02T13:19:45.761476+02:00"

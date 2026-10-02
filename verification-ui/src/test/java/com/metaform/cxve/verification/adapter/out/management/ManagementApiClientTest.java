@@ -227,7 +227,7 @@ class ManagementApiClientTest {
     }
 
     @Test
-    void anUnconstrainedPolicyIsAnEmptySetWithoutTheDataspaceContext() {
+    void anUnconstrainedAccessPolicyIsAnEmptySetWithoutTheDataspaceContext() {
         // a dataspace without a settled policy vocabulary: a rule without constraints is refused by
         // the control plane's policy validation ("action 'access' is not bound to any scopes"), and
         // the (placeholder) context may not even resolve — no rules at all is what "permit" is
@@ -241,7 +241,28 @@ class ManagementApiClientTest {
                 .andExpect(jsonPath("$.policy.permission").doesNotExist())
                 .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
 
-        fixture.client().createPolicyIdempotent("pctx-vp", "p-2", "use", "https://unresolvable.example/context.jsonld",
+        fixture.client().createPolicyIdempotent("pctx-vp", "p-2", "access", "https://unresolvable.example/context.jsonld",
+                List.of());
+
+        fixture.server().verify();
+    }
+
+    @Test
+    void anUnconstrainedContractPolicyIsOneUsePermission() {
+        // the contract policy is negotiated, and a contract request's policy must carry a rule — an
+        // empty Set cannot be requested; `use` is bound, so a permission without constraints passes
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-3"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$['@context'].length()").value(1))
+                .andExpect(jsonPath("$.policy.permission.length()").value(1))
+                .andExpect(jsonPath("$.policy.permission[0].action").value("use"))
+                .andExpect(jsonPath("$.policy.permission[0].constraint").doesNotExist())
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        fixture.client().createPolicyIdempotent("pctx-vp", "p-3", "use", "https://unresolvable.example/context.jsonld",
                 List.of());
 
         fixture.server().verify();

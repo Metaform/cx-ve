@@ -167,7 +167,7 @@ export class Dashboard implements OnInit, OnDestroy {
 
   /**
    * Whether the member id is the dataspace's to assign: for an external participant of a dataspace
-   * whose onboarding assigns it (Decade-X). The run then takes none and adopts the assigned one.
+   * whose onboarding assigns it (none does today). The run then takes none and adopts the assigned one.
    */
   get memberIdAssigned(): boolean {
     return this.external && !!this.memberIdFormat?.assignedToExternal;

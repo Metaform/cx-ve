@@ -1,0 +1,10 @@
+apiVersion: v2
+name: decadex-profile
+description: >-
+  Dataspace-specific seeding for Decade-X, the counterpart of the catenax-profile: the issuer's
+  DecadeXMembershipCredential definition, and the EDC dataspace profile Decade-X's DSP messages run
+  under (its trusted issuers and the DCP scope that asks for the credential). Used by the VE and by
+  a Decade-X vendor stack.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -36,13 +36,14 @@ public class RunController {
     /**
      * A run of a {@code useCase} (e.g. {@code ccm}) in a {@code dataspace} (e.g. {@code catena-x}),
      * both as the catalog lists them. The {@code memberId} — the participant's id in that
-     * dataspace, the BPN in Catena-X — is mandatory unless the dataspace assigns it to an external
-     * participant (Decade-X); the catalog enforces that, so a run never reaches the flow with an
-     * identifier this environment invented for it. {@code name} and
-     * {@code shortName} stay optional and are defaulted (see {@link RunService#start}). The
-     * {@code did} is the one with a consequence beyond naming: supplying it declares that the
-     * participant is a third-party system already running under that identity, and selects the run
-     * that only drives this environment's own half of the exchange.
+     * dataspace, the BPN in Catena-X, the Decade-X-ID in Decade-X — is mandatory unless the
+     * dataspace assigns it to an external participant (none does today); the catalog enforces
+     * that, so a run never reaches the flow with an identifier this environment invented for it.
+     * {@code name} and {@code shortName} stay optional and are defaulted (see
+     * {@link RunService#start}). The {@code did} is the one with a consequence beyond naming:
+     * supplying it declares that the participant is a third-party system already running under
+     * that identity, and selects the run that only drives this environment's own half of the
+     * exchange.
      */
     public record StartRunRequest(@NotBlank String dataspace, @NotBlank String useCase, String name,
                                   String shortName, String memberId, String did) {

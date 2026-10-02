@@ -1,13 +1,13 @@
 package com.metaform.cxve.verification;
 
 import com.metaform.cxve.verification.config.VerificationProperties;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Context smoke test: the full application context (incl. the {@code verification.*} properties
@@ -37,11 +37,14 @@ class VerificationUiApplicationTest {
         assertEquals("Company Certificate Management", decadeX.useCase("ccm").displayName());
         assertEquals("Substance tracing", decadeX.useCase("substance-tracing").displayName());
         assertFalse(decadeX.useCase("substance-tracing").enabled());
-        // a dataspace may leave its policies and an external checklist unset
+        // a dataspace may leave its policies unset
         assertEquals(0, properties.dataspace("decade-x").accessConstraints().size());
-        assertEquals(0, properties.dataspace("decade-x").useCase("ccm").ccm().externalExpectedEvents().size());
-        // Decade-X assigns an external participant's id
-        assertTrue(properties.dataspace("decade-x").memberId().assignedToExternal());
+        // Decade-X's checklist: its own onboarding events and its credential's delivery
+        assertEquals(Map.of("events.onboarding.started", 1, "events.onboarding.completed", 1,
+                        "events.issuance.credential.delivered", 1),
+                properties.dataspace("decade-x").useCase("ccm").ccm().externalExpectedEvents());
+        // every participant declares its member id up front, in either dataspace
+        assertFalse(properties.dataspace("decade-x").memberId().assignedToExternal());
         assertFalse(properties.dataspace("catena-x").memberId().assignedToExternal());
         assertFalse(properties.timeouts().onboarding().isZero());
     }

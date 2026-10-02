@@ -148,13 +148,15 @@ class DecadeXOnboardingTest {
     }
 
     @Test
-    void validate_anExternalMember_getsItsDecadeXIdFromTheTsp() {
+    void validate_anExternalMember_declaresItsDecadeXId_orLeavesItToTheTsp() {
         onboarding.validate(external());
+        onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme", "DX-00000001", "did:web:sut.example.com",
+                registration()));
 
-        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme", "DX-00000001",
-                "did:web:sut.example.com", registration())))
+        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme",
+                "BPNL0000000000XY", "did:web:sut.example.com", registration())))
                 .isInstanceOf(InvalidRegistrationException.class)
-                .hasMessageContaining("assigns");
+                .hasMessageContaining("Decade-X-ID");
     }
 
     @Test
@@ -219,7 +221,21 @@ class DecadeXOnboardingTest {
     }
 
     @Test
-    void submitRegistration_anExternalMember_sendsNoDecadeXId() {
+    void submitRegistration_anExternalMember_sendsTheDecadeXIdItDeclared() {
+        server.expect(requestTo(API + "/api/v1/onboarding-requests"))
+                .andExpect(request -> assertThat(body(request)).contains("\"legalEntityId\":\"DX-00000007\""))
+                .andRespond(withSuccess("""
+                        {"id": "req-8", "businessId": "DX-OR-000008", "status": "SUBMITTED"}""",
+                        MediaType.APPLICATION_JSON));
+
+        var declared = new MemberData("decade-x", "SUT GmbH", "sut", "DX-00000007", "did:web:sut.example.com",
+                registration());
+        assertThat(onboarding.submitRegistration("ext-8", "did:web:sut.example.com", declared)).isEqualTo("req-8");
+        server.verify();
+    }
+
+    @Test
+    void submitRegistration_anExternalMember_withoutADecadeXId_sendsNone() {
         server.expect(requestTo(API + "/api/v1/onboarding-requests"))
                 .andExpect(header(DecadeXOnboarding.CONNECTOR_ID_HEADER, "did:web:sut.example.com"))
                 .andExpect(request -> assertThat(body(request)).contains("\"legalName\":\"SUT GmbH\"")

@@ -132,9 +132,10 @@ public record VerificationProperties(
      * @param pattern            a regular expression a member id must match in full; blank accepts anything
      * @param example            a sample value, shown as the input's placeholder
      * @param assignedToExternal whether the dataspace's onboarding ASSIGNS an externally hosted
-     *                           participant's member id (Decade-X: its TSP, on approval) — a run then
-     *                           takes none up front and adopts the one the hub records; a participant
-     *                           hosted here always brings its own, its deployment needs it
+     *                           participant's member id — a run then takes none up front and adopts
+     *                           the one the hub records; a participant hosted here always brings its
+     *                           own, its deployment needs it. Off for every dataspace today: Catena-X
+     *                           and Decade-X participants declare their BPN / Decade-X-ID.
      */
     public record MemberId(String label, String pattern, String example, boolean assignedToExternal) {
     }

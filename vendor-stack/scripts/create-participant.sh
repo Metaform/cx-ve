@@ -13,33 +13,39 @@
 # Idempotent: an already provisioned participant with the same DID is reported, not re-created.
 #
 # Usage:
-#   ./vendor-stack/scripts/create-participant.sh [-n|--name <name>] [-s|--short-name <name>]
-#                                                [-b|--bpn <bpn>] [-h|--help]
+#   ./vendor-stack/scripts/create-participant.sh [-d|--dataspace <dataspace>] [-n|--name <name>]
+#                                                [-s|--short-name <name>] [-m|--member-id <id>]
+#                                                [-h|--help]
 #
+#   -d, --dataspace    catena-x (default) or decade-x — the dataspace of the stack (see install.sh)
 #   -n, --name         company name (default: "Vendor Participant")
 #   -s, --short-name   last DID segment (default: vendor-participant)
-#   -b, --bpn          the participant's BPNL (default: BPNLVENDOR000001). Enter the SAME BPN on the
-#                      VE's run form: the VE issues the BpnCredential for the BPN it is given, and
-#                      Certo on both sides checks certificates against the BPN in that credential.
+#   -m, --member-id    the participant's member id in the dataspace — its BPNL in Catena-X (default
+#                      BPNLVENDOR000001; -b/--bpn is an alias), its Decade-X-ID in Decade-X (default
+#                      DX-00009001). Enter the SAME id on the VE's run form: the VE issues the member
+#                      credential for the id it is given (BpnCredential / DecadeXMembershipCredential),
+#                      and Certo on both sides checks certificates against the id in that credential.
 #
-# Environment: VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), TIMEOUT (seconds, default 600)
+# Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), TIMEOUT
+# (seconds, default 600)
 
 source "$(dirname "$0")/lib.sh"
 
 NAME="Vendor Participant"
-BPN=BPNLVENDOR000001
+MEMBER_ID=""
 TIMEOUT="${TIMEOUT:-600}"
 
 usage() { awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -n|--name|-s|--short-name|-b|--bpn)
+    -d|--dataspace|-n|--name|-s|--short-name|-m|--member-id|-b|--bpn)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
+        -d|--dataspace) use_dataspace "$2" ;;
         -n|--name) NAME="$2" ;;
         -s|--short-name) PARTICIPANT_SHORT_NAME="$2" ;;
-        -b|--bpn) BPN="$2" ;;
+        -m|--member-id|-b|--bpn) MEMBER_ID="$2" ;;
       esac
       shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -47,6 +53,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+MEMBER_ID="${MEMBER_ID:-$DEFAULT_MEMBER_ID}"
 init
 DID=$(participant_did)
 
@@ -61,26 +68,40 @@ else
   expect_2xx "tenant creation"
   TENANT_ID=$(printf '%s' "$HTTP_BODY" | jq -r .id)
 
-  # The certo activity reads the BPN from cfm.issuer; the ccm mapping makes Certo's protocol API
-  # the endpoint of the participant's pull flows, with the counterparty's BPN stamped into the flow
-  # token from its BpnCredential (certo requires it). The endpoint is counterparty-facing, hence the
-  # external address. The transfer type is the Data Plane Signaling HTTP transfer profile's pull
-  # value, which the DataAddress endpointType MUST equal.
-  PROFILE=$(jq -n --arg did "$DID" --arg bpn "$BPN" --arg ccm "$VENDOR_URL/api/certo" --arg tt "$TRANSFER_TYPE" '{
+  # The certo activity reads the member id from cfm.issuer (under `bpn`, whatever the dataspace —
+  # the VE's Membership Hub deploys its members the same way); the ccm mapping makes Certo's
+  # protocol API the endpoint of the participant's pull flows, with the counterparty's member id
+  # stamped into the flow token from its member credential (certo requires it, as `bpn`). The
+  # endpoint is counterparty-facing, hence the external address. The transfer type is the Data
+  # Plane Signaling HTTP transfer profile's pull value, which the DataAddress endpointType MUST equal.
+  case "$VENDOR_DATASPACE" in
+    catena-x)
+      ISSUER_PROPERTIES=$(jq -n --arg did "$DID" --arg id "$MEMBER_ID" \
+        '{id: $did, contractVersion: "1.0", memberOf: "Catena-X", bpn: $id}')
+      FLOW_CLAIM="flow.claims.vc.withType('BpnCredential').claim('bpn')"
+      ;;
+    decade-x)
+      ISSUER_PROPERTIES=$(jq -n --arg did "$DID" --arg id "$MEMBER_ID" \
+        '{id: $did, memberOf: "Decade-X", decadeXId: $id, bpn: $id}')
+      FLOW_CLAIM="flow.claims.vc.withType('DecadeXMembershipCredential').claim('decadeXId')"
+      ;;
+  esac
+  PROFILE=$(jq -n --arg did "$DID" --argjson issuer "$ISSUER_PROPERTIES" --arg claim "$FLOW_CLAIM" \
+      --arg ccm "$VENDOR_URL/api/certo" --arg tt "$TRANSFER_TYPE" --arg profile "$DSP_PROFILE" '{
     identifier: $did,
     properties: {},
     vpaProperties: {
-      "cfm.issuer": {id: $did, contractVersion: "1.0", memberOf: "Catena-X", bpn: $bpn},
+      "cfm.issuer": $issuer,
       "cfm.dataplane": {
         authorization: {type: "oauth2_token_exchange"},
         transferTypeMappings: {
           ($tt): {
             transferType: $tt, endpointType: $tt, endpoint: $ccm, tokenSource: "provider",
-            claimMappings: [{from: "flow.claims.vc.withType('"'"'BpnCredential'"'"').claim('"'"'bpn'"'"')", to: "bpn"}]
+            claimMappings: [{from: $claim, to: "bpn"}]
           }
         }
       },
-      "cfm.connector": {dataspaceProfiles: ["cx-neptune"]}
+      "cfm.connector": {dataspaceProfiles: [$profile]}
     }
   }')
   log "deploying participant profile for $DID"
@@ -117,12 +138,12 @@ DSP=$(printf '%s' "$DID_DOC" | jq -r '.service[]? | select(.type == "ProtocolEnd
 
 cat <<EOF
 
-Vendor participant provisioned.
+Vendor participant provisioned ($VENDOR_DATASPACE).
   DID:                  $DID
-  BPN:                  $BPN
+  $(printf '%-21s' "$MEMBER_ID_LABEL:") $MEMBER_ID
   participant context:  $PCID
   DID document:         $DID_URL
   DSP endpoint:         $DSP
 
-Enter the DID (and the BPN) on the VE's run form, then run seed-ccm-offer.sh.
+Enter the DID and the $MEMBER_ID_LABEL on the VE's run form, then run seed-ccm-offer.sh.
 EOF

@@ -13,6 +13,7 @@ import com.metaform.dxonboarding.domain.model.onboarding.LegalEntity;
 import com.metaform.dxonboarding.domain.model.onboarding.LegalPerson;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequestData;
+import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStarted;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStatus;
 import com.metaform.dxonboarding.domain.model.onboarding.RegistrationNumber;
 import com.metaform.dxonboarding.domain.model.onboarding.Submission;
@@ -50,9 +51,9 @@ class DefaultOnboardingRequestServiceTest {
     private final List<String> reviewed = new ArrayList<>();
     private final ReviewProperties reviewProperties =
             new ReviewProperties(null, new ReviewProperties.AutoApprove(false, false), null);
+    private final RecordingEvents events = new RecordingEvents();
     private final AutomaticReview review = new AutomaticReview(
-            new ApprovalService(repository, request -> { }, request -> { }, reviewProperties,
-                    Clock.fixed(NOW, ZoneOffset.UTC)),
+            new ApprovalService(repository, request -> { }, request -> { }, events, Clock.fixed(NOW, ZoneOffset.UTC)),
             reviewProperties, Runnable::run) {
         @Override
         public void submitted(OnboardingRequest request) {
@@ -61,7 +62,7 @@ class DefaultOnboardingRequestServiceTest {
         }
     };
     private final DefaultOnboardingRequestService service = new DefaultOnboardingRequestService(
-            repository, documents, review, Clock.fixed(NOW, ZoneOffset.UTC));
+            repository, documents, review, events, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private static Submission submission(String legalName) {
         var request = new OnboardingRequestData(
@@ -101,8 +102,9 @@ class DefaultOnboardingRequestServiceTest {
 
         assertThat(retry).isEqualTo(original);
         assertThat(stored).hasSize(2);
-        // a retry is the same request: it is not reviewed a second time
+        // a retry is the same request: it is not reviewed, nor announced, a second time
         assertThat(reviewed).containsExactly(original.id());
+        assertThat(events.started).containsExactly(new OnboardingStarted(original.id(), "ref-1", "connector-a"));
     }
 
     @Test
@@ -125,6 +127,7 @@ class DefaultOnboardingRequestServiceTest {
                 .isInstanceOfSatisfying(InvalidOnboardingRequestException.class, e -> assertThat(e.violations())
                         .contains("gtcDocument: required", "ucaDocument[export-control]: required for use case 'export-control'"));
         assertThat(stored).isEmpty();
+        assertThat(events.started).isEmpty();
     }
 
     @Test

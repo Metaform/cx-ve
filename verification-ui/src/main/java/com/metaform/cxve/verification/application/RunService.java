@@ -48,8 +48,8 @@ public class RunService {
      * environment issues the participant's member credential for exactly that value (Catena-X: the
      * BpnCredential), and an external system's is agreed with its operator — Certo checks its
      * certificates against it — so nothing here may substitute a derived placeholder for a missing
-     * one. The exception is an external participant of a dataspace that ASSIGNS its member id on
-     * onboarding (Decade-X): it comes without one, and the run adopts the assigned id.
+     * one. The exception would be an external participant of a dataspace that ASSIGNS its member id
+     * on onboarding (none does today): it comes without one, and the run adopts the assigned id.
      *
      * <p>The remaining absent inputs are still derived: the short name from the run id, the
      * registration's unique id deterministically from the short name (the e2e suite's VAT-id

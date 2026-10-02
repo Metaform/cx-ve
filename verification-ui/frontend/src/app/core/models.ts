@@ -12,8 +12,9 @@ export interface MemberIdFormat {
   /** A sample value, shown as the input's placeholder. */
   example: string;
   /**
-   * Whether the dataspace's onboarding assigns an external participant's member id (Decade-X): an
-   * external run then takes none, and adopts the assigned one.
+   * Whether the dataspace's onboarding assigns an external participant's member id (none does
+   * today — Catena-X and Decade-X participants declare their BPN / Decade-X-ID): an external run then
+   * takes none, and adopts the assigned one.
    */
   assignedToExternal?: boolean;
 }

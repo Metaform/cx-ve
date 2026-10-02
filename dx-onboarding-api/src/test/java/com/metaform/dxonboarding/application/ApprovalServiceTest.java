@@ -1,7 +1,6 @@
 package com.metaform.dxonboarding.application;
 
 import com.metaform.dxonboarding.adapter.out.persistence.InMemoryOnboardingRequestRepository;
-import com.metaform.dxonboarding.config.ReviewProperties;
 import com.metaform.dxonboarding.domain.model.onboarding.Address;
 import com.metaform.dxonboarding.domain.model.onboarding.CompanyType;
 import com.metaform.dxonboarding.domain.model.onboarding.ConsentDeclaration;
@@ -9,6 +8,7 @@ import com.metaform.dxonboarding.domain.model.onboarding.DecadeXId;
 import com.metaform.dxonboarding.domain.model.onboarding.Declarations;
 import com.metaform.dxonboarding.domain.model.onboarding.LegalEntity;
 import com.metaform.dxonboarding.domain.model.onboarding.LegalPerson;
+import com.metaform.dxonboarding.domain.model.onboarding.OnboardingCompleted;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequestData;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStatus;
@@ -60,8 +60,9 @@ class ApprovalServiceTest {
         }
         calls.add("offer:" + request.connectorId());
     };
-    private final ApprovalService approval = new ApprovalService(repository, holders, offers,
-            new ReviewProperties(HOSTED_PREFIX, null, null), Clock.fixed(DECIDED_AT, ZoneOffset.UTC));
+    private final RecordingEvents events = new RecordingEvents();
+    private final ApprovalService approval = new ApprovalService(repository, holders, offers, events,
+            Clock.fixed(DECIDED_AT, ZoneOffset.UTC));
 
     private OnboardingRequest filed(String connectorId, String suppliedDecadeXId) {
         var data = new OnboardingRequestData(
@@ -94,19 +95,21 @@ class ApprovalServiceTest {
         assertThat(approved.status()).isEqualTo(OnboardingStatus.APPROVED);
         assertThat(approved.legalEntityId()).isEqualTo("DX-99999999");
         assertThat(approved.decision()).isEqualTo(new ReviewDecision(DECIDED_AT, null, null, null));
+        assertThat(events.completed).containsExactly(new OnboardingCompleted(request.id(), "ref-1", HOSTED,
+                "DX-99999999", OnboardingCompleted.State.COMPLETED, null));
     }
 
     @Test
-    void anExternalParticipant_isAssignedADecadeXId_andCannotChooseItsOwn() {
-        var unsupplied = filed(EXTERNAL, null);
-        var supplied = filed("did:web:other.example.com", "DX-12345678");
+    void anExternalParticipant_keepsTheDecadeXIdItDeclared_orIsAssignedOne() {
+        var declared = filed(EXTERNAL, "DX-12345678");
+        var undeclared = filed("did:web:other.example.com", null);
 
-        approval.approve(unsupplied.id());
-        approval.approve(supplied.id());
+        approval.approve(declared.id());
+        approval.approve(undeclared.id());
 
-        assertThat(stored(unsupplied).legalEntityId()).matches(DecadeXId.PATTERN);
-        assertThat(stored(supplied).legalEntityId()).matches(DecadeXId.PATTERN).isNotEqualTo("DX-12345678");
-        assertThat(stored(supplied).status()).isEqualTo(OnboardingStatus.APPROVED);
+        assertThat(stored(declared).legalEntityId()).isEqualTo("DX-12345678");
+        assertThat(stored(declared).status()).isEqualTo(OnboardingStatus.APPROVED);
+        assertThat(stored(undeclared).legalEntityId()).matches(DecadeXId.PATTERN);
     }
 
     @Test
@@ -132,6 +135,11 @@ class ApprovalServiceTest {
         assertThat(rejected.status()).isEqualTo(OnboardingStatus.REJECTED);
         assertThat(rejected.decision().rejectReasonCode()).isEqualTo(ReviewDecision.RejectReasonCode.INVALID_LEGAL_ENTITY);
         assertThat(rejected.decision().rejectComment()).contains("DX-99999999");
+        assertThat(events.completed).last().satisfies(completed -> {
+            assertThat(completed.state()).isEqualTo(OnboardingCompleted.State.REJECTED);
+            assertThat(completed.decadeXId()).isNull();
+            assertThat(completed.failureMessage()).contains("DX-99999999");
+        });
     }
 
     @Test
@@ -157,6 +165,8 @@ class ApprovalServiceTest {
         assertThat(failed.decision().rejectComment()).isEqualTo("Credential issuance failed: IssuerService unreachable");
         // a failed approval does not hold the id: the participant may try again
         assertThat(repository.findHolderOfLegalEntityId("DX-99999999")).isEmpty();
+        assertThat(events.completed).containsExactly(new OnboardingCompleted(request.id(), "ref-1", HOSTED, null,
+                OnboardingCompleted.State.FAILED, "Credential issuance failed: IssuerService unreachable"));
     }
 
     @Test
@@ -180,5 +190,6 @@ class ApprovalServiceTest {
 
         assertThat(calls).isEmpty();
         assertThat(stored(request)).isEqualTo(rejected);
+        assertThat(events.completed).isEmpty();
     }
 }

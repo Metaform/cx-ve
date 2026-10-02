@@ -34,7 +34,7 @@ status callbacks carry) and the `participantContextId` provisioning assigns.
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/dataspaces` | The dataspaces members can be onboarded into (`id`, `displayName`) — the enabled entries of `dataspaces.*`. |
-| `POST /api/members` | Submit a member: `dataspace`, `name`, `shortName`, `memberId` (the id within the dataspace — the BPN in Catena-X, required; the Decade-X-ID in Decade-X, required for a member hosted here and omitted for an external one, whose id the TSP assigns on approval), optional `did`, and the dataspace-specific `registration` object (Catena-X: city, streetName, countryAlpha2Code, region, uniqueIds, companyRoles, agreements, userDetails; Decade-X: the TSP's onboarding request — `legalEntity` (without `legalName`/`preferredDid`, which the hub fills from `name` and the DID, and without `legalEntityId`, which carries a hosted member's `memberId`), `legalPerson`, `businessSites`, `gtc`, `ucas`, `declarations`; the hub adds `applicantReference` and placeholder GTC/UCA documents). Returns the membership record incl. its `externalId`. `400` for a dataspace the hub does not serve or a `registration` it refuses. |
+| `POST /api/members` | Submit a member: `dataspace`, `name`, `shortName`, `memberId` (the id within the dataspace — the BPN in Catena-X, required; the Decade-X-ID in Decade-X, required for a member hosted here and optional for an external one — the TSP honors a declared id and assigns one on approval otherwise), optional `did`, and the dataspace-specific `registration` object (Catena-X: city, streetName, countryAlpha2Code, region, uniqueIds, companyRoles, agreements, userDetails; Decade-X: the TSP's onboarding request — `legalEntity` (without `legalName`/`preferredDid`, which the hub fills from `name` and the DID, and without `legalEntityId`, which carries the declared `memberId`), `legalPerson`, `businessSites`, `gtc`, `ucas`, `declarations`; the hub adds `applicantReference` and placeholder GTC/UCA documents). Returns the membership record incl. its `externalId`. `400` for a dataspace the hub does not serve or a `registration` it refuses. |
 | `GET /api/members/{externalId}` | The correlated view. For a member with a deployed profile, resolves the stored profile id and reads its current state from the Tenant Manager. |
 | `GET /api/members?dataspace=&memberId=` / `?did=[&dataspace=]` | Rediscovery: the memberships under a member id (of one dataspace) or a DID. |
 | `POST /api/callbacks/{dataspace}/registration-status` | The status-callback endpoint registered with each dataspace's onboarding API, in that API's own wire format (`404` for a dataspace whose status is polled, e.g. Decade-X). OAuth2-protected: the caller presents a client-credentials bearer from the OSP IdP, obtained with the client this app registers alongside its callback URL. Not meant for humans. |
@@ -60,8 +60,8 @@ skipped); **omit it** and the hub mints one under `participant.did.template` and
 member's EDC resources before registering it. A member hosted here needs its member id on ingress
 either way, because provisioning (the certo activity) needs it before any registration could
 assign one. Catena-X requires it for every member, as its status callback does not carry an
-assigned one back. Decade-X assigns an external member's Decade-X-ID on approval, and the hub
-records it with the confirmation.
+assigned one back. An external Decade-X member may leave it out: the TSP then assigns its
+Decade-X-ID on approval, and the hub records it with the confirmation.
 
 `POST /api/members` refuses, with `409`, a member id a live membership of the same dataspace
 already holds, and a DID a live membership of the same dataspace holds — for a member hosted

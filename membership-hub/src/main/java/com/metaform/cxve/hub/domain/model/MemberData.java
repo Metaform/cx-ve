@@ -15,8 +15,8 @@ import java.util.Map;
  * Decade-X-ID in Decade-X. Whether it is given up front is the dataspace's rule, checked by its
  * {@code DataspaceOnboarding}: a member hosted HERE always brings one, because provisioning needs it
  * (the {@code cfm.issuer} VPA properties feed it to the certo activity) before any registration
- * could assign one; Catena-X requires it for every member; Decade-X assigns an EXTERNAL member's id
- * on approval, which the hub then records.
+ * could assign one; Catena-X requires the BPN for every member; an EXTERNAL Decade-X member may
+ * leave its Decade-X-ID out, the TSP then assigns one on approval, which the hub records.
  *
  * <p>{@code did} decides whether this environment provisions anything. SUPPLY IT and the member
  * is taken to run elsewhere — its connector, wallet and DID document already exist, and the hub

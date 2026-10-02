@@ -173,10 +173,11 @@ driven from here.
 
 **Declared up front** (run form): the participant DID, its member id in the dataspace (the BPN
 in Catena-X — mandatory: the VE issues the member credential for exactly that value, and it is
-agreed with the SUT's operator), and optionally the company name. In Decade-X the member id is
-not declared: the `dx-onboarding-api` (the TSP) assigns the Decade-X-ID when it approves the SUT's
-onboarding request, has the issuer offer the `DecadeXMembershipCredential` for it, and the run
-adopts it.
+agreed with the SUT's operator), and optionally the company name. In Decade-X it is the
+Decade-X-ID, declared the same way: the `dx-onboarding-api` (the TSP) honors it when it approves
+the SUT's onboarding request, and has the issuer offer the `DecadeXMembershipCredential` for it.
+Decade-X runs use Decade-X's own DSP profile, `decade-x` (cx-neptune's DCP scopes ask for the
+Catena-X credentials), which the SUT must serve.
 
 **What the VE does, in order** — each step waits for the SUT rather than acting on it:
 
