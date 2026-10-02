@@ -58,6 +58,12 @@ public record Membership(
                 participantProfileId, participantContextId, failureReason, version);
     }
 
+    /** Records the member id the dataspace's onboarding assigned (Decade-X, for an external member). */
+    public Membership withMemberId(String assignedMemberId) {
+        return new Membership(externalId, dataspace, name, did, assignedMemberId, state, onboardingProcessId, tenantId,
+                participantProfileId, participantContextId, failureReason, version);
+    }
+
     public Membership withOnboardingProcessId(String processId) {
         return new Membership(externalId, dataspace, name, did, memberId, state, processId, tenantId,
                 participantProfileId, participantContextId, failureReason, version);

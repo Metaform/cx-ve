@@ -204,17 +204,21 @@ verification:
         traceability:
           display-name: Traceability
           enabled: false
-    # Decade-X, onboarded through the dx-onboarding-api stub (the hub's dataspaces.decade-x).
-    # Largely a PLACEHOLDER: the stub issues no credentials yet, so a run stops where it waits for
-    # the participant's credentials (AWAIT_CREDENTIALS); the policy vocabulary is unsettled (the
-    # offers this environment seeds carry no constraints), and the CCM vocabulary assumes Certo's
-    # Catena-X API identity carries over.
+    # Decade-X, onboarded through the dx-onboarding-api, the TSP onboarding intake (the hub's
+    # dataspaces.decade-x): an approval has the platform's issuer offer the participant the
+    # DecadeXMembershipCredential, which its wallet then requests. Still partly a PLACEHOLDER: the
+    # policy vocabulary is unsettled (the offers this environment seeds carry no constraints, so
+    # nothing asks for the credential yet), and the CCM vocabulary assumes Certo's Catena-X API
+    # identity carries over.
     decade-x:
       display-name: Decade-X
       member-id:
         label: Decade-X-ID
         pattern: "DX-[0-9]{8}"
         example: DX-00000001
+        # The Decade-X TSP assigns an external participant's Decade-X-ID on approval: an external
+        # run takes none up front and adopts it. A participant hosted here brings its own.
+        assigned-to-external: true
       # Catena-X's, for now — the platform advertises one DSP profile for every participant
       # (see the hub's dataspaces.decade-x.dataspace-profiles).
       dsp-profile: cx-neptune
@@ -258,6 +262,11 @@ verification:
               issuer-name: Verification Environment CA
               issuer-id: DX-00000000
               site-id: DX-00000000-MAIN
+            # No credential delivery here, unlike Catena-X, though the participant IS offered the
+            # DecadeXMembershipCredential: the compliance tracker follows a participant from its
+            # events.onboarding.started, which only the cx-onboarding-api publishes — so no Decade-X
+            # participant has a ledger the delivery could be attributed to. Same reason the external
+            # checklist stays unset.
             expected-events:
               "[events.participantcontext.created]": 1
               "[events.diddocument.published]": 1

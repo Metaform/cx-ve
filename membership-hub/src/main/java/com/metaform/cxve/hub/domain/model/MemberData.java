@@ -11,10 +11,12 @@ import java.util.Map;
  * dataspace's {@link com.metaform.cxve.hub.domain.port.DataspaceOnboarding} (for Catena-X: the
  * address, unique ids, company roles, agreements and initial users of a CX-0009 registration).
  *
- * <p>{@code memberId} is the member's identifier WITHIN the dataspace — the BPN in Catena-X. It is
- * REQUIRED even where a dataspace's onboarding could assign one: provisioning needs it up front
- * (the {@code cfm.issuer} VPA properties feed it to the certo activity), and requiring it keeps the
- * hub's record authoritative.
+ * <p>{@code memberId} is the member's identifier WITHIN the dataspace — the BPN in Catena-X, the
+ * Decade-X-ID in Decade-X. Whether it is given up front is the dataspace's rule, checked by its
+ * {@code DataspaceOnboarding}: a member hosted HERE always brings one, because provisioning needs it
+ * (the {@code cfm.issuer} VPA properties feed it to the certo activity) before any registration
+ * could assign one; Catena-X requires it for every member; Decade-X assigns an EXTERNAL member's id
+ * on approval, which the hub then records.
  *
  * <p>{@code did} decides whether this environment provisions anything. SUPPLY IT and the member
  * is taken to run elsewhere — its connector, wallet and DID document already exist, and the hub
@@ -27,7 +29,7 @@ public record MemberData(
         @NotBlank String dataspace,
         @NotBlank String name,
         @NotBlank String shortName,
-        @NotBlank String memberId,
+        String memberId,
         String did,
         Map<String, Object> registration
 ) {

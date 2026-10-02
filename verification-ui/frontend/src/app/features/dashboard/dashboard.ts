@@ -165,6 +165,14 @@ export class Dashboard implements OnInit, OnDestroy {
     return this.dataspaceId === CATENA_X && !this.external;
   }
 
+  /**
+   * Whether the member id is the dataspace's to assign: for an external participant of a dataspace
+   * whose onboarding assigns it (Decade-X). The run then takes none and adopts the assigned one.
+   */
+  get memberIdAssigned(): boolean {
+    return this.external && !!this.memberIdFormat?.assignedToExternal;
+  }
+
   /** Whether the member-id field is standing in for a BPN derived from the short name. */
   get derivingBpn(): boolean {
     return this.canDeriveBpn && this.deriveBpn;
@@ -177,8 +185,12 @@ export class Dashboard implements OnInit, OnDestroy {
   /**
    * The member id the run is submitted with. Mandatory in both modes, so the backend is never
    * left to invent one — empty here means the form is incomplete, not that a default applies.
+   * The exception is one the dataspace assigns: then there is none to submit.
    */
   get effectiveMemberId(): string {
+    if (this.memberIdAssigned) {
+      return '';
+    }
     return this.derivingBpn ? this.derivedBpn : this.memberId.trim();
   }
 
@@ -189,6 +201,9 @@ export class Dashboard implements OnInit, OnDestroy {
   }
 
   get memberIdPlaceholder(): string {
+    if (this.memberIdAssigned) {
+      return 'assigned on onboarding';
+    }
     if (this.derivingBpn) {
       return this.derivedBpn || 'enter a short name to derive from';
     }
@@ -200,6 +215,9 @@ export class Dashboard implements OnInit, OnDestroy {
     if (this.memberIdInvalid) {
       const example = this.memberIdFormat?.example;
       return example ? `Not a valid ${label} — expected e.g. ${example}.` : `Not a valid ${label}.`;
+    }
+    if (this.memberIdAssigned) {
+      return `Assigned by ${this.selectedDataspace?.displayName} when the system is onboarded — nothing to enter.`;
     }
     if (this.external) {
       return `Required — and it must be the ${label} the system under test already runs with: `
@@ -226,7 +244,7 @@ export class Dashboard implements OnInit, OnDestroy {
     if (!useCase.available) {
       return `${useCase.displayName} cannot be verified in ${dataspace.displayName} yet.`;
     }
-    if (!this.effectiveMemberId) {
+    if (!this.effectiveMemberId && !this.memberIdAssigned) {
       return this.derivingBpn
         ? `Enter a short name to derive the ${this.memberIdLabel} from, or untick to type one.`
         : `Enter the ${this.memberIdLabel} to start the run.`;
@@ -284,16 +302,19 @@ export class Dashboard implements OnInit, OnDestroy {
     }
     this.starting = true;
     this.error = '';
-    // The member id always travels — it is mandatory on the form either way, so nothing here
-    // relies on the backend deriving one. Name and short name stay the backend's to default, and
+    // The member id travels whenever the form takes one — it is mandatory there, so nothing here
+    // relies on the backend deriving one; only one the dataspace assigns is left out. Name and
+    // short name stay the backend's to default, and
     // for an external participant they are not this environment's to state at all: it is already
     // named by the system that runs it, so the deactivated fields are not sent even if they hold
     // text typed before the DID was entered.
     const request: StartRunRequest = {
       dataspace: dataspace.id,
-      useCase: useCase.id,
-      memberId: this.effectiveMemberId
+      useCase: useCase.id
     };
+    if (!this.memberIdAssigned) {
+      request.memberId = this.effectiveMemberId;
+    }
     if (this.external) {
       request.did = this.did.trim();
     } else {

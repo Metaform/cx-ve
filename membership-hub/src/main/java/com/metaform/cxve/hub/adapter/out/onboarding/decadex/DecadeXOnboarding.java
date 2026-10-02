@@ -28,10 +28,17 @@ import org.springframework.web.client.RestClient;
  * placeholder GTC and UCA documents, as one multipart request.
  *
  * <p>The TSP has no status callbacks: the hub {@linkplain #pollsStatus() polls} the request's
- * status instead. {@code APPROVED} maps to the hub's CONFIRMED, {@code REJECTED} to DECLINED, and
- * every other status — the steps of the TSP operator's review — to PENDING. Unlike Catena-X's
- * confirmation, an approval does not mean credentials were offered: no Decade-X issuer is set up
- * in the VE yet.
+ * status instead. {@code APPROVED} maps to the hub's CONFIRMED — like Catena-X's confirmation, it
+ * means the TSP registered the participant as credential holder and had the issuer offer it the
+ * DecadeXMembershipCredential — and carries the participant's Decade-X-ID; {@code REJECTED} and
+ * {@code APPROVAL_FAILED} (the provisioning after an approval failed, which nothing retries) map to
+ * DECLINED, and every other status — the steps of the review — to PENDING.
+ *
+ * <p>The Decade-X-ID follows from where the participant is hosted. One hosted HERE brings its own:
+ * its deployment needed it before any registration (certo reads it), so the hub sends it along as
+ * {@code legalEntity.legalEntityId} — a VE extension of the TSP's request, honored only for
+ * participants hosted by the VE. An EXTERNAL participant brings none: the TSP assigns it on
+ * approval, and the confirmation hands it to the hub.
  *
  * <p>In the dataspace, a participant reaches the TSP as an asset of the federated connector, whose
  * data plane stamps the calling connector's identity on every call. The hub calls the TSP directly
@@ -45,6 +52,7 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
     public static final String DATASPACE = "decade-x";
 
     static final String CONNECTOR_ID_HEADER = "X-Connector-Id";
+    static final String DECADE_X_ID = "DX-[0-9]{8}";
     static final String REQUESTS_PATH = "/api/v1/onboarding-requests";
 
     private static final Logger log = LoggerFactory.getLogger(DecadeXOnboarding.class);
@@ -72,8 +80,21 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
         return DATASPACE;
     }
 
+    /**
+     * Besides the registration object: a member hosted here must bring its Decade-X-ID (its
+     * deployment needs it), an external one must not (the TSP assigns it).
+     */
     @Override
     public void validate(MemberData data) {
+        var memberId = data.memberId() == null || data.memberId().isBlank() ? null : data.memberId();
+        if (data.hostedHere() && (memberId == null || !memberId.matches(DECADE_X_ID))) {
+            throw new InvalidRegistrationException(
+                    "memberId must be a Decade-X-ID (DX- and 8 digits): a member hosted here brings its own");
+        }
+        if (!data.hostedHere() && memberId != null) {
+            throw new InvalidRegistrationException(
+                    "memberId must be omitted: the Decade-X TSP assigns an external member's Decade-X-ID");
+        }
         registration(data);
     }
 
@@ -145,17 +166,16 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
         }
         log.debug("Decade-X onboarding request '{}' of '{}': {}", membership.onboardingProcessId(),
                 membership.externalId(), request.status());
+        var reason = request.decision() == null ? null : request.decision().describe();
         return switch (request.status()) {
-            case "APPROVED" -> new RegistrationOutcome(membership.externalId(), RegistrationOutcome.Status.CONFIRMED, null);
+            case "APPROVED" -> new RegistrationOutcome(membership.externalId(), RegistrationOutcome.Status.CONFIRMED,
+                    null, request.legalEntity() == null ? null : request.legalEntity().legalEntityId());
             case "REJECTED" -> new RegistrationOutcome(membership.externalId(), RegistrationOutcome.Status.DECLINED,
-                    request.decision() == null ? null : request.decision().describe());
-            default -> {
-                if ("APPROVAL_FAILED".equals(request.status())) {
-                    log.warn("Decade-X onboarding request '{}' of '{}': the TSP's provisioning after the approval failed",
-                            membership.onboardingProcessId(), membership.externalId());
-                }
-                yield new RegistrationOutcome(membership.externalId(), RegistrationOutcome.Status.PENDING, null);
-            }
+                    reason);
+            case "APPROVAL_FAILED" -> new RegistrationOutcome(membership.externalId(),
+                    RegistrationOutcome.Status.DECLINED, "Approved, but provisioning the membership failed"
+                    + (reason == null ? "" : ": " + reason));
+            default -> new RegistrationOutcome(membership.externalId(), RegistrationOutcome.Status.PENDING, null);
         };
     }
 
@@ -189,6 +209,10 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
                 });
         legalEntity.put("legalName", data.name());
         legalEntity.put("preferredDid", did);
+        if (data.hostedHere()) {
+            // VE extension: the Decade-X-ID the member's deployment was provisioned with
+            legalEntity.put("legalEntityId", data.memberId());
+        }
         request.put("legalEntity", legalEntity);
         request.put("applicantReference", externalId);
         return request;
@@ -203,7 +227,12 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record RequestStatus(String status, Decision decision) {
+    private record RequestStatus(String status, LegalEntity legalEntity, Decision decision) {
+    }
+
+    /** @param legalEntityId the participant's Decade-X-ID, once approved */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record LegalEntity(String legalEntityId) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

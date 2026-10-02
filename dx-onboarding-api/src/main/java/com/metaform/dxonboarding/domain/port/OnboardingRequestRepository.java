@@ -15,6 +15,9 @@ public interface OnboardingRequestRepository {
     /** The request this connector already submitted with exactly this content, if any. */
     Optional<OnboardingRequest> findByFingerprint(String connectorId, Submission.Fingerprint fingerprint);
 
+    /** The request holding this Decade-X-ID, if any (see {@link OnboardingRequest#holdsLegalEntityId()}). */
+    Optional<OnboardingRequest> findHolderOfLegalEntityId(String legalEntityId);
+
     /** How many requests are kept — the sequence business ids are numbered by. */
     long count();
 }

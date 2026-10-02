@@ -31,6 +31,7 @@ public record Submission(OnboardingRequestData request, List<SubmittedDocument> 
     public static final long MAX_SUBMISSION_BYTES = 25L * 1024 * 1024;
 
     private static final Pattern UCA_DOCUMENT = Pattern.compile("ucaDocument\\[(.+)]");
+    private static final Pattern DECADE_X_ID = Pattern.compile(DecadeXId.PATTERN);
 
     public Submission {
         documents = documents == null ? List.of() : List.copyOf(documents);
@@ -99,6 +100,9 @@ public record Submission(OnboardingRequestData request, List<SubmittedDocument> 
             violations.add("legalEntity.registrationNumbers: at least one is required");
         }
         checkRegistrationNumbers("legalEntity.registrationNumbers", entity.registrationNumbers(), violations);
+        if (entity.legalEntityId() != null && !DECADE_X_ID.matcher(entity.legalEntityId()).matches()) {
+            violations.add("legalEntity.legalEntityId: not a Decade-X-ID (DX- and 8 digits)");
+        }
         var address = entity.legalAddress();
         if (address == null) {
             violations.add("legalEntity.legalAddress: required");

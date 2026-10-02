@@ -62,6 +62,14 @@ class CatenaXOnboardingTest {
     }
 
     @Test
+    void validate_requiresTheBpnUpFront() {
+        assertThatThrownBy(() -> onboarding.validate(new MemberData("catena-x", "Acme Corp", "acme", " ", null,
+                registration())))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("memberId");
+    }
+
+    @Test
     void validate_refusesAnAbsentRegistration() {
         assertThatThrownBy(() -> onboarding.validate(member(null)))
                 .isInstanceOf(InvalidRegistrationException.class)

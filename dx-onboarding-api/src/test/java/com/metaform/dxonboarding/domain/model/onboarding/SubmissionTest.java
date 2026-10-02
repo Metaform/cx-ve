@@ -16,7 +16,7 @@ class SubmissionTest {
     static OnboardingRequestData request(CompanyType companyType, List<UseCaseAgreement> ucas) {
         return new OnboardingRequestData(
                 new LegalEntity("did:web:example", "Example Aerospace GmbH", "DE", companyType, null, null, null,
-                        List.of(new RegistrationNumber(RegistrationNumber.Scheme.vatID, "DE123456789")), ADDRESS),
+                        List.of(new RegistrationNumber(RegistrationNumber.Scheme.vatID, "DE123456789")), ADDRESS, null),
                 new LegalPerson("Erika Mustermann", "erika@example.org", "CEO", null, ADDRESS, null),
                 List.of(),
                 new ConsentDeclaration(UUID.fromString("0b8e1f0e-5c0a-4a52-9a53-7a1d2c3b4e5f"), "1.0", true),
@@ -82,6 +82,21 @@ class SubmissionTest {
                 "gtc.accepted: the GTC must be accepted",
                 "ucas[0].accepted: the use case agreement must be accepted",
                 "declarations.authorisedToAct: must be affirmed");
+    }
+
+    @Test
+    void aSuppliedDecadeXIdMustBeWellFormed() {
+        var request = request();
+        var entity = request.legalEntity();
+        java.util.function.Function<String, OnboardingRequestData> withId = id -> new OnboardingRequestData(
+                new LegalEntity(entity.preferredDid(), entity.legalName(), entity.registrationCountry(),
+                        entity.companyType(), null, null, null, entity.registrationNumbers(), entity.legalAddress(), id),
+                request.legalPerson(), request.businessSites(), request.gtc(), request.ucas(), request.declarations(),
+                null);
+
+        assertThat(new Submission(withId.apply("DX-00000001"), documents()).violations()).isEmpty();
+        assertThat(new Submission(withId.apply("BPNL0000000000XY"), documents()).violations())
+                .containsExactly("legalEntity.legalEntityId: not a Decade-X-ID (DX- and 8 digits)");
     }
 
     @Test

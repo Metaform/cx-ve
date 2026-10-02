@@ -33,6 +33,14 @@ public class InMemoryOnboardingRequestRepository implements OnboardingRequestRep
     }
 
     @Override
+    public Optional<OnboardingRequest> findHolderOfLegalEntityId(String legalEntityId) {
+        return requests.values().stream()
+                .filter(OnboardingRequest::holdsLegalEntityId)
+                .filter(request -> request.legalEntityId().equals(legalEntityId))
+                .findFirst();
+    }
+
+    @Override
     public long count() {
         return requests.size();
     }

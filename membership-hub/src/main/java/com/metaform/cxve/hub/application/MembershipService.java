@@ -140,6 +140,10 @@ public class MembershipService {
                     throw new DuplicateMembershipException("A membership for DID %s already exists: '%s' (%s, %s)"
                             .formatted(did, existing.externalId(), existing.dataspace(), existing.state()));
                 });
+        if (memberId == null || memberId.isBlank()) {
+            // the dataspace assigns this member's id on registration (Decade-X, external members)
+            return;
+        }
         repository.findByMemberId(dataspace, memberId).stream().filter(Membership::isLive).findFirst().ifPresent(existing -> {
             throw new DuplicateMembershipException("A %s membership for member id %s already exists: '%s' (%s)"
                     .formatted(dataspace, memberId, existing.externalId(), existing.state()));
@@ -237,7 +241,7 @@ public class MembershipService {
             case CONFIRMED -> {
                 var membership = update(externalId, current ->
                         current.state().canAdvanceTo(MembershipState.CREDENTIALS_OFFERED)
-                                ? current.credentialsOffered()
+                                ? adoptAssignedMemberId(current.credentialsOffered(), outcome.assignedMemberId())
                                 : current);
                 if (membership.state() == MembershipState.CREDENTIALS_OFFERED) {
                     log.info("Membership '{}' confirmed — its credentials have been offered (did={})",
@@ -266,6 +270,24 @@ public class MembershipService {
                 yield current(externalId);
             }
         };
+    }
+
+    /**
+     * Records the member id the dataspace's onboarding assigned with its confirmation (Decade-X
+     * assigns an external member's). A member id the record already holds stays: it is the one the
+     * member was provisioned under, and the onboarding echoes it back.
+     */
+    private static Membership adoptAssignedMemberId(Membership membership, String assignedMemberId) {
+        if (assignedMemberId == null || assignedMemberId.equals(membership.memberId())) {
+            return membership;
+        }
+        if (membership.memberId() != null) {
+            log.warn("Membership '{}': the onboarding API confirmed it under member id {}, not {} — keeping {}",
+                    membership.externalId(), assignedMemberId, membership.memberId(), membership.memberId());
+            return membership;
+        }
+        log.info("Membership '{}' was assigned member id {}", membership.externalId(), assignedMemberId);
+        return membership.withMemberId(assignedMemberId);
     }
 
     /**

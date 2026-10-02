@@ -7,6 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Context smoke test: the full application context (incl. the {@code verification.*} properties
@@ -39,6 +40,9 @@ class VerificationUiApplicationTest {
         // a dataspace may leave its policies and an external checklist unset
         assertEquals(0, properties.dataspace("decade-x").accessConstraints().size());
         assertEquals(0, properties.dataspace("decade-x").useCase("ccm").ccm().externalExpectedEvents().size());
+        // Decade-X assigns an external participant's id
+        assertTrue(properties.dataspace("decade-x").memberId().assignedToExternal());
+        assertFalse(properties.dataspace("catena-x").memberId().assignedToExternal());
         assertFalse(properties.timeouts().onboarding().isZero());
     }
 }

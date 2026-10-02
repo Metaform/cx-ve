@@ -1,0 +1,143 @@
+## Decade-X's issuer setup, the counterpart of the catenax-profile's issuer-credentials-seed: the
+## DecadeXMembershipCredential's definition on the platform's issuer participant context. The
+## dx-onboarding-api registers approved participants as holders — with their DID (`id`) and
+## Decade-X-ID (`decadeXId`) as properties — and offers them this definition; the holder
+## attestation turns those properties into the credential's claims. Verifiers trust the platform's
+## issuer for every credential type, so nothing changes on the trust side. Seeded together with the
+## dx-onboarding-api (same switch); creating a definition is idempotent (409 = already exists).
+{{- if (index .Values "dx-onboarding-api").enabled }}
+{{- $issuer := .Values.decadexIssuer }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cx-ve.fullname" . }}-decadex-issuer-seed
+  labels:
+    {{- include "cx-ve.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # Weight 140: after the platform's seeds (10/20, which create the issuer context and the
+    # seed-jobs SA's jwtlet mapping for it) and the catenax-profile's (110-130), before the apps'
+    # jwtlet seeds (200+).
+    "helm.sh/hook-weight": "140"
+    "helm.sh/hook-delete-policy": {{ .Values.jwtlet.seed.hookDeletePolicy | quote }}
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: {{ .Values.jwtlet.seed.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "cx-ve.fullname" . }}-decadex-issuer-seed
+    spec:
+      # the seed-jobs SA has the platform's jwtlet mapping for the issuer context (scope write)
+      serviceAccountName: seed-jobs
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-issuerservice
+          image: {{ .Values.jwtlet.seed.image }}
+          command:
+            - sh
+            - -c
+            - |
+              until curl -sf {{ printf "%s:10010/api/check/readiness" $issuer.issuerServiceUrl | quote }}; do
+                echo "Waiting for issuerservice to be ready..."
+                sleep 5
+              done
+              echo ""
+              echo "IssuerService is ready!"
+      containers:
+        - name: seed-decadex-issuer
+          image: {{ .Values.jwtlet.seed.image }}
+          env:
+            - name: JWTLET_TOKEN_URL
+              value: {{ $issuer.tokenUrl | quote }}
+            - name: ADMIN_API
+              value: {{ printf "%s:10013/api/admin/v1/participants/%s" $issuer.issuerServiceUrl $issuer.issuerContextId | quote }}
+          volumeMounts:
+            - name: jwtlet-subject-token
+              mountPath: /var/run/secrets/jwtlet
+              readOnly: true
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+
+              SA_TOKEN=$(cat /var/run/secrets/jwtlet/token)
+              if [ -z "$SA_TOKEN" ]; then
+                echo "ERROR: subject token at /var/run/secrets/jwtlet/token is empty"
+                exit 1
+              fi
+
+              # exchange the SA token for a token on the issuer's participant context
+              resp=$(curl -s -w "\n%{http_code}" -X POST "${JWTLET_TOKEN_URL}" \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+                --data-urlencode "subject_token=${SA_TOKEN}" \
+                --data-urlencode "subject_token_type=urn:ietf:params:oauth:token-type:jwt" \
+                --data-urlencode "resource={{ $issuer.issuerContextId }}" \
+                --data-urlencode "scope=write" \
+                --data-urlencode "audience={{ first .Values.jwtlet.seed.audiences }}")
+              status=$(printf '%s\n' "$resp" | tail -1)
+              body=$(printf '%s\n' "$resp" | sed '$d')
+              if [ "$status" -ge 400 ]; then
+                echo "ERROR: Failed to exchange the SA token (HTTP $status): $body"
+                exit 1
+              fi
+              TOKEN=$(printf '%s\n' "$body" | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+              if [ -z "$TOKEN" ]; then
+                echo "ERROR: Failed to parse the exchanged token from: $body"
+                exit 1
+              fi
+
+              # POSTs a JSON body to the issuer's admin API: 409 = already exists (fine, seeding
+              # is idempotent), >= 400 = fail the job.
+              create() {
+                desc="$1"; url="$2"; body="$3"
+                echo "Creating ${desc}"
+                resp=$(curl -s -w "\n%{http_code}" -X POST "${url}" \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d "${body}")
+                status=$(printf '%s\n' "$resp" | tail -1)
+                if [ "$status" -eq 409 ]; then
+                  echo "${desc} already exists"
+                elif [ "$status" -ge 400 ]; then
+                  echo "ERROR: Failed to create ${desc} (HTTP $status): $(printf '%s\n' "$resp" | sed '$d')"
+                  exit 1
+                else
+                  echo "${desc} created"
+                fi
+              }
+
+              # The holder's registered properties are the claims — its own, independent of the
+              # catenax-profile's identical holder-attestation-def.
+              create "the Decade-X holder AttestationDefinition" "${ADMIN_API}/attestations" '{
+                  "attestationType": "holder",
+                  "configuration": {},
+                  "id": {{ $issuer.attestationId | quote }}
+                }'
+
+              create "the {{ $issuer.credentialDefinition.credentialType }} CredentialDefinition" "${ADMIN_API}/credentialdefinitions" '{
+                  "attestations": [{{ $issuer.attestationId | quote }}],
+                  "credentialType": {{ $issuer.credentialDefinition.credentialType | quote }},
+                  "id": {{ $issuer.credentialDefinition.id | quote }},
+                  "jsonSchema": "{}",
+                  "jsonSchemaUrl": {{ $issuer.credentialDefinition.jsonSchemaUrl | quote }},
+                  "mappings": [
+                    {"input": "decadeXId", "output": "credentialSubject.decadeXId", "required": true},
+                    {"input": "id", "output": "credentialSubject.id", "required": true}
+                  ],
+                  "rules": [],
+                  "format": "VC1_0_JWT",
+                  "validity": {{ $issuer.credentialDefinition.validity | quote }}
+                }'
+      volumes:
+        # RFC 8693 subject_token; the audience must match jwtlet's `client_audience`.
+        - name: jwtlet-subject-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ .Values.jwtlet.subjectTokenAudience | quote }}
+                  expirationSeconds: {{ .Values.jwtlet.subjectTokenExpirationSeconds }}
+{{- end }}

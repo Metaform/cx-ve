@@ -139,7 +139,12 @@
                 {{ dataspace.displayName }} without provisioning anything here, and its side of
                 {{ useCase.displayName }} is its own to drive — the run waits for it.
               }
-              It is named by its own system, so only its {{ memberIdLabel }} is asked for here.
+              @if (memberIdAssigned) {
+                It is named by its own system, and {{ dataspace.displayName }} assigns its
+                {{ memberIdLabel }} when it is onboarded — so only its DID is asked for here.
+              } @else {
+                It is named by its own system, so only its {{ memberIdLabel }} is asked for here.
+              }
             } @else {
               @if (isCcm) {
                 Onboards a participant under test into {{ dataspace.displayName }} as data
@@ -173,8 +178,8 @@
                      autocomplete="off" spellcheck="false">
             </label>
             <label class="field">
-              <span class="label">{{ memberIdLabel }}<span class="req">required</span></span>
-              <input type="text" name="memberId" [(ngModel)]="memberId" [disabled]="derivingBpn"
+              <span class="label">{{ memberIdLabel }}@if (!memberIdAssigned) {<span class="req">required</span>}</span>
+              <input type="text" name="memberId" [(ngModel)]="memberId" [disabled]="derivingBpn || memberIdAssigned"
                      [placeholder]="memberIdPlaceholder" [class.invalid]="memberIdInvalid"
                      [attr.aria-invalid]="memberIdInvalid || null"
                      autocomplete="off" spellcheck="false">
@@ -230,7 +235,7 @@
                   }
                 </span>
                 <span class="sub">
-                  <span class="mono">{{ run.memberId }}</span>
+                  <span class="mono">{{ run.memberId ?? 'id not assigned yet' }}</span>
                   · {{ dataspaceName(run.dataspace) }} · {{ useCaseName(run) }}
                 </span>
               </span>

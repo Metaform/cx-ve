@@ -205,14 +205,32 @@ cx-onboarding-api:
 # ---- Decade-X onboarding API -------------------------------------------------------------------
 # The TSP onboarding intake. There is no TSP operator yet: requests are approved automatically —
 # those of participants hosted here, and for now those of external ones too
-# (dx-onboarding-api.config.dx-onboarding.review). Nothing is issued — there is no Decade-X issuer
-# on the platform yet, so Decade-X members hold no credentials. Goes
-# together with the hub's membership-hub.config.dataspaces.decade-x.enabled, like the Catena-X
-# switch above.
+# (dx-onboarding-api.config.dx-onboarding.review). On approval it registers the participant as a
+# credential holder and has the platform's issuer offer it the DecadeXMembershipCredential (see
+# decadexIssuer below), as the cx-onboarding-api does for Catena-X. Goes together with the hub's
+# membership-hub.config.dataspaces.decade-x.enabled, like the Catena-X switch above.
 dx-onboarding-api:
   enabled: true
   image:
     pullPolicy: IfNotPresent
+
+# ---- Decade-X issuer setup --------------------------------------------------------------------
+# The DecadeXMembershipCredential at the platform's issuer — the counterpart of what the
+# catenax-profile seeds for Catena-X (templates/decadex-issuer-seed-job.yaml). Seeded with the
+# dx-onboarding-api (same switch), whose config issuer-service.credential-definition-ids must name
+# the definition's id. Claims: credentialSubject.id (the DID) and .decadeXId (the Decade-X-ID).
+decadexIssuer:
+  issuerServiceUrl: http://issuerservice.edc-v.svc.cluster.local
+  issuerContextId: issuer
+  tokenUrl: http://jwtlet.edc-v.svc.cluster.local:8080/token
+  attestationId: decadex-holder-attestation-def
+  credentialDefinition:
+    id: decadex-membership-credential-def
+    credentialType: DecadeXMembershipCredential
+    # a placeholder, like the catenax-profile's: no Decade-X credential schema exists yet
+    jsonSchemaUrl: https://example.com/schema/decadex-membership-credential.json
+    # one week, like the Catena-X credentials
+    validity: "604800"
 
 # ---- Membership Hub ---------------------------------------------------------------------------
 # Drives the full member journey in each dataspace it serves: EDC resource provisioning via the

@@ -58,6 +58,22 @@ class MembershipHubClientTest {
     }
 
     @Test
+    void onboard_withoutAMemberId_leavesItToTheDataspace() {
+        var builder = RestClient.builder().baseUrl("http://hub");
+        var server = MockRestServiceServer.bindTo(builder).build();
+        var client = new MembershipHubClient(builder.build(), mapper, TestFixtureAccess.props(Map.of()));
+
+        server.expect(requestTo("http://hub/api/members"))
+                .andExpect(jsonPath("$.memberId").doesNotExist())
+                .andExpect(jsonPath("$.registration.city").value("Munich"))
+                .andRespond(withStatus(HttpStatus.CREATED).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"externalId": "ext-1", "dataspace": "catena-x", "state": "SUBMITTED"}"""));
+
+        client.onboard("catena-x", "SUT GmbH", "sut", null, "DE0001", "did:web:sut.example.com");
+        server.verify();
+    }
+
+    @Test
     void onboard_sendsTheCommonFieldsAndTheDataspacesRegistrationFilledIn() {
         var builder = RestClient.builder().baseUrl("http://hub");
         var server = MockRestServiceServer.bindTo(builder).build();

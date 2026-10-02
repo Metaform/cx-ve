@@ -10,8 +10,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *
  * <p>In memory only, and without a TSP operator: a request is approved automatically or waits in
  * {@code SUBMITTED} — the requests of participants hosted by the VE are approved, and for now those
- * of external participants too ({@code dx-onboarding.review}). An approval does NOT register a
- * credential holder or have credentials offered — there is no Decade-X issuer setup in the VE yet.
+ * of external participants too ({@code dx-onboarding.review}). An approval makes the applicant a
+ * member the way the Catena-X onboarding API does: it gets its Decade-X-ID, is registered as a
+ * credential holder with the platform's IssuerService, and is offered the
+ * DecadeXMembershipCredential ({@link com.metaform.dxonboarding.application.ApprovalService}).
  */
 @SpringBootApplication
 public class DxOnboardingApplication {

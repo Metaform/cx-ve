@@ -128,11 +128,15 @@ public record VerificationProperties(
     }
 
     /**
-     * @param label   what the dataspace calls a member id, e.g. "BPN"
-     * @param pattern a regular expression a member id must match in full; blank accepts anything
-     * @param example a sample value, shown as the input's placeholder
+     * @param label              what the dataspace calls a member id, e.g. "BPN"
+     * @param pattern            a regular expression a member id must match in full; blank accepts anything
+     * @param example            a sample value, shown as the input's placeholder
+     * @param assignedToExternal whether the dataspace's onboarding ASSIGNS an externally hosted
+     *                           participant's member id (Decade-X: its TSP, on approval) — a run then
+     *                           takes none up front and adopts the one the hub records; a participant
+     *                           hosted here always brings its own, its deployment needs it
      */
-    public record MemberId(String label, String pattern, String example) {
+    public record MemberId(String label, String pattern, String example, boolean assignedToExternal) {
     }
 
     /** A policy constraint; the leftOperand is resolved against the dataspace's policy context. */

@@ -41,8 +41,12 @@ public class CatenaXOnboarding implements DataspaceOnboarding {
         return DATASPACE;
     }
 
+    /** A Catena-X member's BPN is required up front, for every member: the hub never adopts one. */
     @Override
     public void validate(MemberData data) {
+        if (data.memberId() == null || data.memberId().isBlank()) {
+            throw new InvalidRegistrationException("memberId must not be blank: a Catena-X member's BPN is required");
+        }
         registration(data);
     }
 

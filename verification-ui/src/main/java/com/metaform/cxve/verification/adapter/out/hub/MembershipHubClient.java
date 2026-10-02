@@ -75,12 +75,15 @@ public class MembershipHubClient {
         body.put("dataspace", dataspace);
         body.put("name", name);
         body.put("shortName", shortName);
-        body.put("memberId", memberId);
+        if (memberId != null) {
+            body.put("memberId", memberId);
+        }
         if (externalDid != null) {
             body.put("did", externalDid);
         }
         body.set("registration", registration(properties.dataspace(dataspace).registrationTemplate(), Map.of(
-                "name", name, "shortName", shortName, "memberId", memberId, "uniqueId", uniqueId)));
+                "name", name, "shortName", shortName, "memberId", memberId == null ? "" : memberId,
+                "uniqueId", uniqueId)));
         var response = RestCalls.post(hubRestClient, "/api/members", null, body.toString());
         if (response.status() != 201) {
             throw new VerificationException("membership submission for '%s' failed with HTTP %d: %s"

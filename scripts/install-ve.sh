@@ -200,9 +200,10 @@ docker buildx build -t ghcr.io/metaform/cx-ve/verification-ui:latest verificatio
 kind load docker-image ghcr.io/metaform/cx-ve/verification-ui:latest -n $CLUSTER_NAME
 
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
-# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> cx-onboarding-api jwtlet
-# mapping (200) -> certo jwtlet mappings (210) -> certo activity/orchestration (220) ->
-# membership-hub jwtlet mapping (230) -> verification-ui jwtlet mappings (240).
+# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> Decade-X issuer credential
+# definition (140) -> cx-onboarding-api jwtlet mapping (200) -> dx-onboarding-api jwtlet mapping
+# (205) -> certo jwtlet mappings (210) -> certo activity/orchestration (220) -> membership-hub
+# jwtlet mapping (230) -> verification-ui jwtlet mappings (240).
 helm upgrade --install "$RELEASE" "$UMBRELLA_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
   "${HOST_OVERRIDES[@]}" \

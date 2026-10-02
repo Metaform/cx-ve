@@ -181,7 +181,8 @@ config:
       # endpoint nothing serves.
       dataspace-profiles:
         - cx-neptune
-      # Takes effect once Decade-X members hold credentials — none are issued yet.
+      # The dx-onboarding-api has the issuer offer it on approval; its decadeXId is the member's
+      # Decade-X-ID.
       member-id-claim:
         credential-type: DecadeXMembershipCredential
         claim: decadeXId

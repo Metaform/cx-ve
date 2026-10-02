@@ -36,7 +36,7 @@ final class TestFixtures {
                 Map.of("events.issuance.credential.delivered", 1));
         var catenaX = new VerificationProperties.DataspaceProfile(
                 "Catena-X",
-                new VerificationProperties.MemberId("BPN", "BPNL[0-9A-Z]{12}", "BPNL000000000001"),
+                new VerificationProperties.MemberId("BPN", "BPNL[0-9A-Z]{12}", "BPNL000000000001", false),
                 DSP_PROFILE, POLICY_CONTEXT, ACCESS, CONTRACT,
                 """
                 {"city": "Munich", "uniqueIds": [ { "type": "VAT_ID", "value": "{{uniqueId}}" } ]}""",

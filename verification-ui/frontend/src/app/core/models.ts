@@ -11,6 +11,11 @@ export interface MemberIdFormat {
   pattern: string | null;
   /** A sample value, shown as the input's placeholder. */
   example: string;
+  /**
+   * Whether the dataspace's onboarding assigns an external participant's member id (Decade-X): an
+   * external run then takes none, and adopts the assigned one.
+   */
+  assignedToExternal?: boolean;
 }
 
 export interface CatalogUseCase {
@@ -40,7 +45,8 @@ export interface StartRunRequest {
   useCase: string;
   name?: string;
   shortName?: string;
-  memberId: string;
+  /** Absent for an external participant of a dataspace that assigns it. */
+  memberId?: string;
   did?: string;
 }
 
@@ -97,8 +103,11 @@ export interface ChecklistItem {
 export interface ParticipantInfo {
   name: string;
   shortName: string;
-  /** The participant's id within the run's dataspace — the BPN in Catena-X. */
-  memberId: string;
+  /**
+   * The participant's id within the run's dataspace — the BPN in Catena-X. Null until assigned, for
+   * an external participant of a dataspace that assigns it.
+   */
+  memberId: string | null;
   /** The registration's unique id (e.g. a VAT id), derived by the BFF from the short name. */
   uniqueId: string;
   externalId: string | null;
@@ -135,7 +144,7 @@ export interface RunSummary {
   finishedAt: string | null;
   name: string;
   shortName: string;
-  memberId: string;
+  memberId: string | null;
   externalId: string | null;
   externallyHosted: boolean;
 }

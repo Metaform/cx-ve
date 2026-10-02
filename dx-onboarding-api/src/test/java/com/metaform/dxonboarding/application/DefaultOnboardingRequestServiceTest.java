@@ -48,9 +48,12 @@ class DefaultOnboardingRequestServiceTest {
     private final InMemoryOnboardingRequestRepository repository = new InMemoryOnboardingRequestRepository();
     /** The requests taken into review; nothing is approved here — AutomaticReviewTest covers that. */
     private final List<String> reviewed = new ArrayList<>();
-    private final AutomaticReview review = new AutomaticReview(repository,
-            new ReviewProperties(null, new ReviewProperties.AutoApprove(false, false), null), Runnable::run,
-            Clock.fixed(NOW, ZoneOffset.UTC)) {
+    private final ReviewProperties reviewProperties =
+            new ReviewProperties(null, new ReviewProperties.AutoApprove(false, false), null);
+    private final AutomaticReview review = new AutomaticReview(
+            new ApprovalService(repository, request -> { }, request -> { }, reviewProperties,
+                    Clock.fixed(NOW, ZoneOffset.UTC)),
+            reviewProperties, Runnable::run) {
         @Override
         public void submitted(OnboardingRequest request) {
             reviewed.add(request.id());
@@ -63,7 +66,7 @@ class DefaultOnboardingRequestServiceTest {
     private static Submission submission(String legalName) {
         var request = new OnboardingRequestData(
                 new LegalEntity(null, legalName, "DE", CompanyType.LIMITED_LIABILITY_COMPANY, null, null, null,
-                        List.of(new RegistrationNumber(RegistrationNumber.Scheme.vatID, "DE123456789")), ADDRESS),
+                        List.of(new RegistrationNumber(RegistrationNumber.Scheme.vatID, "DE123456789")), ADDRESS, null),
                 new LegalPerson("Erika Mustermann", "erika@example.org", null, null, null, null),
                 List.of(),
                 new ConsentDeclaration(GTC_VERSION, "1.0", true),

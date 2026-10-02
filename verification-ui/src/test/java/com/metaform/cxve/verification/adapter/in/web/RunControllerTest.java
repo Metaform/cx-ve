@@ -55,21 +55,17 @@ class RunControllerTest {
     }
 
     @Test
-    void start_rejectsAMissingMemberId() throws Exception {
+    void start_answersAMemberIdTheCatalogRefusesWith400() throws Exception {
+        // whether the member id is required is the dataspace's rule (Decade-X assigns an external
+        // participant's), so the boundary hands it on and the catalog decides
+        when(runService.start(any(), any(), any(), any(), any(), any()))
+                .thenThrow(new DataspaceCatalog.InvalidRunRequestException("The participant's BPN is required"));
+
         mvc.perform(post("/api/runs").contentType(MediaType.APPLICATION_JSON).content("""
                         {"dataspace": "catena-x", "useCase": "ccm", "name": "Acme Corp", "shortName": "acme"}"""))
                 .andExpect(status().isBadRequest());
 
-        verifyNoInteractions(runService);
-    }
-
-    @Test
-    void start_rejectsABlankMemberId() throws Exception {
-        mvc.perform(post("/api/runs").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"dataspace": "catena-x", "useCase": "ccm", "shortName": "acme", "memberId": "   "}"""))
-                .andExpect(status().isBadRequest());
-
-        verifyNoInteractions(runService);
+        verify(runService).start("catena-x", "ccm", "Acme Corp", "acme", null, null);
     }
 
     @Test
@@ -79,16 +75,6 @@ class RunControllerTest {
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/api/runs").contentType(MediaType.APPLICATION_JSON).content("""
                         {"dataspace": "catena-x", "memberId": "BPNLACME00000001"}"""))
-                .andExpect(status().isBadRequest());
-
-        verifyNoInteractions(runService);
-    }
-
-    /** An external run declares a DID, and still has to declare the member id agreed with its operator. */
-    @Test
-    void start_rejectsAnExternalRunWithoutAMemberId() throws Exception {
-        mvc.perform(post("/api/runs").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"dataspace": "catena-x", "useCase": "ccm", "did": "did:web:sut.example.com:vendor"}"""))
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(runService);

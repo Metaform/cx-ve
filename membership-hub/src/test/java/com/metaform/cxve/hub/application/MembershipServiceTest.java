@@ -65,6 +65,7 @@ class MembershipServiceTest {
         // polling, for a dataspace whose API has no callbacks: the status each external id reports
         boolean polled;
         final Map<String, RegistrationOutcome.Status> polledStatus = new HashMap<>();
+        final Map<String, String> assignedMemberIds = new HashMap<>();
         final List<String> polledExternalIds = new ArrayList<>();
 
         RecordingOnboarding(String dataspace) {
@@ -122,7 +123,8 @@ class MembershipServiceTest {
             if (status == null) {
                 throw new RuntimeException("onboarding API unreachable");
             }
-            return new RegistrationOutcome(membership.externalId(), status, status + " by the API");
+            return new RegistrationOutcome(membership.externalId(), status, status + " by the API",
+                    assignedMemberIds.get(membership.externalId()));
         }
     }
 
@@ -676,5 +678,43 @@ class MembershipServiceTest {
 
         assertThat(thrown).isInstanceOf(NoSuchElementException.class).hasMessageContaining("polling");
         assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.SUBMITTED);
+    }
+
+    @Test
+    void aMemberIdTheDataspaceAssigns_isRecordedWithTheConfirmation() {
+        otherOnboarding.polled = true;
+        var membership = service.onboard(request(OTHER_DATASPACE, SUT_DID, "sut", null));
+        assertThat(membership.memberId()).isNull();
+        otherOnboarding.polledStatus.put(membership.externalId(), RegistrationOutcome.Status.CONFIRMED);
+        otherOnboarding.assignedMemberIds.put(membership.externalId(), "DX-00000042");
+
+        poller.poll();
+
+        var confirmed = stored(membership.externalId());
+        assertThat(confirmed.state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+        assertThat(confirmed.memberId()).isEqualTo("DX-00000042");
+        assertThat(service.findByMemberId(OTHER_DATASPACE, "DX-00000042")).extracting(Membership::externalId)
+                .containsExactly(membership.externalId());
+    }
+
+    @Test
+    void aMemberIdTheRecordHolds_isKeptOverAnAssignedOne() {
+        otherOnboarding.polled = true;
+        var membership = onboardExternally(OTHER_DATASPACE, SUT_DID, "DX-00000001");
+        otherOnboarding.polledStatus.put(membership.externalId(), RegistrationOutcome.Status.CONFIRMED);
+        otherOnboarding.assignedMemberIds.put(membership.externalId(), "DX-00000042");
+
+        poller.poll();
+
+        assertThat(stored(membership.externalId()).memberId()).isEqualTo("DX-00000001");
+    }
+
+    @Test
+    void membersWithoutAMemberIdYet_doNotCollide() {
+        service.onboard(request(OTHER_DATASPACE, "did:web:one.example.com", "one", null));
+
+        var second = service.onboard(request(OTHER_DATASPACE, "did:web:two.example.com", "two", null));
+
+        assertThat(second.state()).isEqualTo(MembershipState.SUBMITTED);
     }
 }

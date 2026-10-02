@@ -80,8 +80,9 @@ dataspaces:
       claim: bpn
       flow-claim: bpn
   # Decade-X, through the VE's dx-onboarding-api — the TSP onboarding intake. It has no status
-  # callbacks, so the hub polls each request's status (participant.registration.poll-interval). It
-  # issues no credentials (there is no Decade-X issuer on the platform yet).
+  # callbacks, so the hub polls each request's status (participant.registration.poll-interval). An
+  # approval registers the member as credential holder and has the platform's issuer offer it the
+  # DecadeXMembershipCredential; it also hands an external member the Decade-X-ID the TSP assigned.
   decade-x:
     enabled: true                                               # DATASPACES_DECADEX_ENABLED
     display-name: Decade-X

@@ -18,6 +18,7 @@ spec:
         # Roll the pods whenever the rendered config changes
         checksum/config: {{ include (print $.Template.BasePath "/dx-onboarding-api-config.yaml") . | sha256sum }}
     spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
         - name: app
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -41,9 +42,22 @@ spec:
             - name: config
               mountPath: /etc/dx-onboarding-api
               readOnly: true
+            # the workload token exchanged at the jwtlet for the IssuerService calls (token.file.path)
+            - name: jwtlet-subject-token
+              mountPath: /var/run/secrets/jwtlet
+              readOnly: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
         - name: config
           configMap:
             name: {{ include "dx-onboarding-api.fullname" . }}-config
+        # RFC 8693 subject_token, exchanged at the jwtlet; the audience must match jwtlet's
+        # `client_audience`.
+        - name: jwtlet-subject-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ .Values.jwtlet.subjectTokenAudience | quote }}
+                  expirationSeconds: {{ .Values.jwtlet.subjectTokenExpirationSeconds }}

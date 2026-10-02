@@ -3,6 +3,7 @@ package com.metaform.cxve.verification.application;
 import com.metaform.cxve.verification.adapter.out.hub.MembershipHubClient;
 import com.metaform.cxve.verification.domain.model.RunStep;
 import com.metaform.cxve.verification.domain.model.VerificationRun;
+import com.metaform.cxve.verification.config.VerificationProperties;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -77,7 +78,7 @@ class DataspaceCatalogTest {
     void resolve_returnsTheUseCasesFlow() {
         when(hub.servedDataspaces()).thenReturn(List.of("catena-x"));
 
-        assertThat(catalog().resolve("catena-x", "ccm", "BPNLACME00000001")).isSameAs(ccm);
+        assertThat(catalog().resolve("catena-x", "ccm", "BPNLACME00000001", false)).isSameAs(ccm);
     }
 
     @Test
@@ -85,11 +86,11 @@ class DataspaceCatalogTest {
         when(hub.servedDataspaces()).thenReturn(List.of("catena-x"));
         var catalog = catalog();
 
-        assertThatThrownBy(() -> catalog.resolve("decade-x", "ccm", "DX-1"))
+        assertThatThrownBy(() -> catalog.resolve("decade-x", "ccm", "DX-1", false))
                 .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("decade-x");
-        assertThatThrownBy(() -> catalog.resolve("catena-x", "traceability", "BPNLACME00000001"))
+        assertThatThrownBy(() -> catalog.resolve("catena-x", "traceability", "BPNLACME00000001", false))
                 .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("Traceability");
-        assertThatThrownBy(() -> catalog.resolve("catena-x", "ccm", "ACME"))
+        assertThatThrownBy(() -> catalog.resolve("catena-x", "ccm", "ACME", false))
                 .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("BPN");
     }
 
@@ -97,8 +98,44 @@ class DataspaceCatalogTest {
     void resolve_refusesADataspaceTheHubDoesNotServe() {
         when(hub.servedDataspaces()).thenReturn(List.of());
 
-        assertThatThrownBy(() -> catalog().resolve("catena-x", "ccm", "BPNLACME00000001"))
+        assertThatThrownBy(() -> catalog().resolve("catena-x", "ccm", "BPNLACME00000001", false))
                 .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class)
                 .hasMessageContaining("Membership Hub");
+    }
+
+    @Test
+    void resolve_requiresTheMemberId() {
+        when(hub.servedDataspaces()).thenReturn(List.of("catena-x"));
+        var catalog = catalog();
+
+        assertThatThrownBy(() -> catalog.resolve("catena-x", "ccm", null, false))
+                .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("BPN is required");
+        // Catena-X does not assign an external participant's BPN: it is agreed with its operator
+        assertThatThrownBy(() -> catalog.resolve("catena-x", "ccm", null, true))
+                .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("BPN is required");
+    }
+
+    @Test
+    void resolve_aDataspaceThatAssignsIt_takesNoMemberIdForAnExternalParticipant() {
+        var props = TestFixtures.props(Map.of());
+        var catenaX = props.dataspace("catena-x");
+        var assigning = new VerificationProperties.DataspaceProfile("Assigning",
+                new VerificationProperties.MemberId("Decade-X-ID", "DX-[0-9]{8}", "DX-00000001", true),
+                catenaX.dspProfile(), catenaX.policyContext(), catenaX.accessConstraints(),
+                catenaX.contractConstraints(), catenaX.registrationTemplate(),
+                new VerificationProperties.ParticipantIdentity("VP", "vp-dx", "DX-99999999", "DXVERIFY0001"),
+                catenaX.useCases());
+        var catalog = new DataspaceCatalog(new VerificationProperties(props.dspBaseUrl(), props.management(),
+                props.certoAuth(), props.transferType(), props.credentialDeliverySubject(), props.timeouts(),
+                props.pollInterval(), props.external(), Map.of("assigning", assigning)), hub, List.of(ccm));
+        when(hub.servedDataspaces()).thenReturn(List.of("assigning"));
+
+        assertThat(catalog.resolve("assigning", "ccm", null, true)).isSameAs(ccm);
+        assertThatThrownBy(() -> catalog.resolve("assigning", "ccm", "DX-00000001", true))
+                .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("leave it empty");
+        // a participant hosted here brings its own: its deployment needs it
+        assertThat(catalog.resolve("assigning", "ccm", "DX-00000001", false)).isSameAs(ccm);
+        assertThatThrownBy(() -> catalog.resolve("assigning", "ccm", null, false))
+                .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("required");
     }
 }

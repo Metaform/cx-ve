@@ -75,6 +75,11 @@ class DecadeXOnboardingTest {
         return new MemberData("decade-x", "Acme Corp", "acme", "DX-00000001", null, registration);
     }
 
+    /** A member running elsewhere: it brings its DID, and the TSP assigns its Decade-X-ID. */
+    private static MemberData external() {
+        return new MemberData("decade-x", "SUT GmbH", "sut", null, "did:web:sut.example.com", registration());
+    }
+
     private static Membership submitted(String processId) {
         return Membership.submitted("ext-1", "decade-x", "Acme Corp", DID, "DX-00000001")
                 .withOnboardingProcessId(processId);
@@ -87,7 +92,8 @@ class DecadeXOnboardingTest {
 
     @Test
     void validate_refusesACatenaXRegistration() {
-        assertThatThrownBy(() -> onboarding.validate(member(Map.of("city", "Munich", "countryAlpha2Code", "DE"))))
+        // one field only: which unknown field Jackson names first follows the map's iteration order
+        assertThatThrownBy(() -> onboarding.validate(member(Map.of("city", "Munich"))))
                 .isInstanceOf(InvalidRegistrationException.class)
                 .hasMessageContaining("city");
     }
@@ -130,6 +136,40 @@ class DecadeXOnboardingTest {
     }
 
     @Test
+    void validate_aMemberHostedHere_bringsItsDecadeXId() {
+        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme", null, null,
+                registration())))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("memberId");
+        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme",
+                "BPNL0000000000XY", null, registration())))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("Decade-X-ID");
+    }
+
+    @Test
+    void validate_anExternalMember_getsItsDecadeXIdFromTheTsp() {
+        onboarding.validate(external());
+
+        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme", "DX-00000001",
+                "did:web:sut.example.com", registration())))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("assigns");
+    }
+
+    @Test
+    void validate_refusesADecadeXIdInTheRegistrationObject() {
+        var registration = registration();
+        var legalEntity = new HashMap<String, Object>((Map<String, Object>) registration.get("legalEntity"));
+        legalEntity.put("legalEntityId", "DX-00000001");
+        registration.put("legalEntity", legalEntity);
+
+        assertThatThrownBy(() -> onboarding.validate(member(registration)))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("legalEntityId");
+    }
+
+    @Test
     void validate_requiresTheOtherCompanyTypeToBeNamed() {
         var registration = registration();
         var legalEntity = new HashMap<String, Object>((Map<String, Object>) registration.get("legalEntity"));
@@ -161,7 +201,9 @@ class DecadeXOnboardingTest {
                     var body = body(request);
                     assertThat(body).contains("name=\"request\"", "\"legalName\":\"Acme Corp\"",
                             "\"preferredDid\":\"" + DID + "\"", "\"applicantReference\":\"ext-1\"",
-                            "\"registrationCountry\":\"DE\"");
+                            "\"registrationCountry\":\"DE\"",
+                            // hosted here: the Decade-X-ID its deployment was provisioned with
+                            "\"legalEntityId\":\"DX-00000001\"");
                     assertThat(body).contains("name=\"gtcDocument\"; filename=\"gtc-placeholder.pdf\"",
                             "name=\"ucaDocument[export-control]\"", "name=\"ucaDocument[critical-supply-chain]\"",
                             "Content-Type: application/pdf", "%PDF-1.4");
@@ -177,9 +219,23 @@ class DecadeXOnboardingTest {
     }
 
     @Test
+    void submitRegistration_anExternalMember_sendsNoDecadeXId() {
+        server.expect(requestTo(API + "/api/v1/onboarding-requests"))
+                .andExpect(header(DecadeXOnboarding.CONNECTOR_ID_HEADER, "did:web:sut.example.com"))
+                .andExpect(request -> assertThat(body(request)).contains("\"legalName\":\"SUT GmbH\"")
+                        .doesNotContain("legalEntityId"))
+                .andRespond(withSuccess("""
+                        {"id": "req-9", "businessId": "DX-OR-000009", "status": "SUBMITTED"}""",
+                        MediaType.APPLICATION_JSON));
+
+        assertThat(onboarding.submitRegistration("ext-9", "did:web:sut.example.com", external())).isEqualTo("req-9");
+        server.verify();
+    }
+
+    @Test
     void pollStatus_mapsTheTspStatus() {
         expectStatus("req-1", """
-                {"id": "req-1", "status": "APPROVED"}""");
+                {"id": "req-1", "status": "APPROVED", "legalEntity": {"legalEntityId": "DX-00000042"}}""");
         expectStatus("req-2", """
                 {"id": "req-2", "status": "REJECTED",
                  "decision": {"rejectReasonCode": "INVALID_LEGAL_ENTITY", "rejectComment": "Unknown VAT ID",
@@ -187,12 +243,25 @@ class DecadeXOnboardingTest {
         expectStatus("req-3", """
                 {"id": "req-3", "status": "UNDER_REVIEW", "legalEntity": {"legalName": "Acme Corp"}}""");
 
+        // approved: holder registered and offered its credentials, under the Decade-X-ID it now holds
         assertThat(onboarding.pollStatus(submitted("req-1")))
-                .isEqualTo(new RegistrationOutcome("ext-1", RegistrationOutcome.Status.CONFIRMED, null));
+                .isEqualTo(new RegistrationOutcome("ext-1", RegistrationOutcome.Status.CONFIRMED, null, "DX-00000042"));
         assertThat(onboarding.pollStatus(submitted("req-2"))).isEqualTo(new RegistrationOutcome("ext-1",
                 RegistrationOutcome.Status.DECLINED, "INVALID_LEGAL_ENTITY: Unknown VAT ID"));
         assertThat(onboarding.pollStatus(submitted("req-3")))
                 .isEqualTo(new RegistrationOutcome("ext-1", RegistrationOutcome.Status.PENDING, null));
+        server.verify();
+    }
+
+    @Test
+    void pollStatus_aFailedProvisioningDeclinesTheMembership() {
+        expectStatus("req-4", """
+                {"id": "req-4", "status": "APPROVAL_FAILED",
+                 "decision": {"rejectComment": "Credential issuance failed: holder DID does not resolve"}}""");
+
+        assertThat(onboarding.pollStatus(submitted("req-4"))).isEqualTo(new RegistrationOutcome("ext-1",
+                RegistrationOutcome.Status.DECLINED,
+                "Approved, but provisioning the membership failed: Credential issuance failed: holder DID does not resolve"));
         server.verify();
     }
 

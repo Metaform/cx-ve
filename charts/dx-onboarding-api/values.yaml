@@ -19,6 +19,38 @@ httpRoute:
 
 resources: {}
 
+# The ServiceAccount the pod runs as — its identity towards the jwtlet. The name is fixed: the
+# jwtlet mapping's clientIdentifier is derived from it.
+serviceAccount:
+  create: true
+  name: dx-onboarding-api
+
+# JWTlet: the pod's projected SA token is exchanged there (RFC 8693) for the token its IssuerService
+# calls need. The audience of the projected token must match jwtlet's `client_audience` (the
+# Kubernetes cluster issuer).
+jwtlet:
+  healthUrl: http://jwtlet.edc-v.svc.cluster.local:8080/health
+  mgmtUrl: http://jwtlet.edc-v.svc.cluster.local:8081/api/v1
+  subjectTokenAudience: https://kubernetes.default.svc.cluster.local
+  subjectTokenExpirationSeconds: 3600
+  # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet — one mapping
+  # per participant context the app exchanges under. The scope mappings themselves are seeded by
+  # the platform.
+  seed:
+    enabled: true
+    mappings:
+      # IssuerService admin API (holder registration, credential offers) — the app's only exchange.
+      # Must agree with config issuer-service.token-resource; `sudo` is no participant context the
+      # issuer knows, which is why the admin scope is what lets the calls through.
+      - participantContext: sudo
+        scopes:
+          - issuer-admin-api:admin
+    audiences:
+      - edcv
+    image: curlimages/curl:latest
+    hookDeletePolicy: before-hook-creation,hook-succeeded
+    ttlSecondsAfterFinished: 600
+
 # Complete application configuration. Rendered 1:1 into the ConfigMap as application.yaml and
 # mounted over the image's packaged defaults (SPRING_CONFIG_ADDITIONALLOCATION).
 config:
@@ -32,6 +64,20 @@ config:
             # override it for a non-default host).
             jwk-set-uri: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
             issuer-uri: http://cxve.localhost/auth/osp
+  # The IssuerService an approved participant is registered with and offered its Decade-X
+  # credentials through (in-cluster admin port). token-resource must agree with the jwtlet seed
+  # mapping above; the credential definition is the umbrella's Decade-X issuer seed's.
+  issuer-service:
+    url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
+    issuer-context-id: issuer
+    token-resource: sudo
+    credential-definition-ids: decadex-membership-credential-def
+  token:
+    file:
+      path: /var/run/secrets/jwtlet/token
+    exchange:
+      url: http://jwtlet.edc-v.svc.cluster.local:8080
+      audience: edcv
   dx-onboarding:
     # The header the federated connector's data plane is ASSUMED to stamp the calling
     # connector's identity in (trusted unverified — see the app's OnboardingRequestController).

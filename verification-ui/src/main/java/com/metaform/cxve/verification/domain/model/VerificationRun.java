@@ -25,7 +25,8 @@ public class VerificationRun {
     private final String useCase;
     private final String name;
     private final String shortName;
-    private final String memberId;
+    /** Null until assigned, for an external participant of a dataspace that assigns it. */
+    private String memberId;
     private final String uniqueId;
     /** The declared DID of an externally hosted participant; null for one this environment hosts. */
     private final String declaredDid;
@@ -81,7 +82,7 @@ public class VerificationRun {
     }
 
     /** The participant's id within the run's dataspace — the BPN in Catena-X. */
-    public String memberId() {
+    public synchronized String memberId() {
         return memberId;
     }
 
@@ -170,9 +171,16 @@ public class VerificationRun {
      * environment provisioned nothing for it — so there is no participant context id, and its
      * absence is the normal case rather than a missing value.
      */
-    public synchronized void onExternallyOnboarded(String did, String onboardingProcessId) {
+    /**
+     * The external participant's membership has its credentials offered. A run that came without a
+     * member id adopts the one the dataspace assigned (Decade-X).
+     */
+    public synchronized void onExternallyOnboarded(String did, String onboardingProcessId, String memberId) {
         this.did = did;
         this.onboardingProcessId = onboardingProcessId;
+        if (this.memberId == null) {
+            this.memberId = memberId;
+        }
     }
 
     public synchronized void verificationParticipant(VerificationParticipant participant) {
