@@ -36,3 +36,12 @@ config:
     # The header the federated connector's data plane is ASSUMED to stamp the calling
     # connector's identity in (trusted unverified — see the app's OnboardingRequestController).
     connector-id-header: X-Connector-Id
+    # No TSP operator in the VE yet: participants hosted here (DID under hosted-did-prefix, the
+    # hub's participant.did.template — host-derived, the install scripts override it) are approved
+    # automatically; external ones too, for now. Switch external off to have them wait in SUBMITTED.
+    review:
+      hosted-did-prefix: "did:web:identity.cxve.localhost:"
+      auto-approve:
+        hosted: true
+        external: true
+      delay: 0s

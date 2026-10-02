@@ -2,6 +2,7 @@ package com.metaform.dxonboarding.application;
 
 import com.metaform.dxonboarding.adapter.out.document.InMemoryDocumentStore;
 import com.metaform.dxonboarding.adapter.out.persistence.InMemoryOnboardingRequestRepository;
+import com.metaform.dxonboarding.config.ReviewProperties;
 import com.metaform.dxonboarding.domain.InvalidOnboardingRequestException;
 import com.metaform.dxonboarding.domain.model.onboarding.Address;
 import com.metaform.dxonboarding.domain.model.onboarding.CompanyType;
@@ -10,6 +11,7 @@ import com.metaform.dxonboarding.domain.model.onboarding.Declarations;
 import com.metaform.dxonboarding.domain.model.onboarding.DocumentRef;
 import com.metaform.dxonboarding.domain.model.onboarding.LegalEntity;
 import com.metaform.dxonboarding.domain.model.onboarding.LegalPerson;
+import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequestData;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStatus;
 import com.metaform.dxonboarding.domain.model.onboarding.RegistrationNumber;
@@ -43,8 +45,20 @@ class DefaultOnboardingRequestServiceTest {
             return super.store(document);
         }
     };
+    private final InMemoryOnboardingRequestRepository repository = new InMemoryOnboardingRequestRepository();
+    /** The requests taken into review; nothing is approved here — AutomaticReviewTest covers that. */
+    private final List<String> reviewed = new ArrayList<>();
+    private final AutomaticReview review = new AutomaticReview(repository,
+            new ReviewProperties(null, new ReviewProperties.AutoApprove(false, false), null), Runnable::run,
+            Clock.fixed(NOW, ZoneOffset.UTC)) {
+        @Override
+        public void submitted(OnboardingRequest request) {
+            reviewed.add(request.id());
+            super.submitted(request);
+        }
+    };
     private final DefaultOnboardingRequestService service = new DefaultOnboardingRequestService(
-            new InMemoryOnboardingRequestRepository(), documents, Clock.fixed(NOW, ZoneOffset.UTC));
+            repository, documents, review, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private static Submission submission(String legalName) {
         var request = new OnboardingRequestData(
@@ -84,6 +98,8 @@ class DefaultOnboardingRequestServiceTest {
 
         assertThat(retry).isEqualTo(original);
         assertThat(stored).hasSize(2);
+        // a retry is the same request: it is not reviewed a second time
+        assertThat(reviewed).containsExactly(original.id());
     }
 
     @Test

@@ -203,8 +203,10 @@ cx-onboarding-api:
   #     nkey-seed-path: ""
 
 # ---- Decade-X onboarding API -------------------------------------------------------------------
-# The TSP onboarding intake. Requests stay SUBMITTED (no review yet) and nothing is issued —
-# there is no Decade-X issuer on the platform yet, so Decade-X members hold no credentials. Goes
+# The TSP onboarding intake. There is no TSP operator yet: requests are approved automatically —
+# those of participants hosted here, and for now those of external ones too
+# (dx-onboarding-api.config.dx-onboarding.review). Nothing is issued — there is no Decade-X issuer
+# on the platform yet, so Decade-X members hold no credentials. Goes
 # together with the hub's membership-hub.config.dataspaces.decade-x.enabled, like the Catena-X
 # switch above.
 dx-onboarding-api:

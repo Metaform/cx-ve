@@ -109,6 +109,7 @@ HOST_OVERRIDES=(
   --set "dx-onboarding-api.httpRoute.hostnames={${HOST}}"
   # Like the cx-onboarding-api, the dx-onboarding-api validates tokens against the OSP IdP's iss.
   --set-string "dx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
+  --set-string "dx-onboarding-api.config.dx-onboarding.review.hosted-did-prefix=did:web:identity.${HOST}:"
   --set "certo.gateway.hostnames={${HOST}}"
   # NOTE certo.sigletBaseUrl is deliberately NOT host-derived: certo calls siglet without a
   # bearer token, so it must use the in-cluster siglet service (the checked-in default) — the

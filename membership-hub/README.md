@@ -49,8 +49,9 @@ left behind heal on a redelivered callback.
 `CREDENTIALS_OFFERED` is the terminal success of EVERY member: its registration was confirmed,
 which (for Catena-X) means the onboarding API registered the credential holder AND had the
 IssuerService offer the membership credentials, which the member's own wallet then requests over
-DCP. A Decade-X approval issues nothing — there is no Decade-X issuer in the VE yet, and until the
-TSP reviews requests, Decade-X memberships stay `SUBMITTED`.
+DCP. A Decade-X approval issues nothing — there is no Decade-X issuer in the VE yet. Having no
+operator, the VE's TSP approves requests automatically: those of participants hosted here, and for
+now those of external participants too (`dx-onboarding.review` in dx-onboarding-api).
 
 Whether a member's resources are provisioned here follows from the `did`: **supply one** and the
 member is taken to run elsewhere (nothing is deployed, and `PROVISIONING`/`PROVISIONED` are

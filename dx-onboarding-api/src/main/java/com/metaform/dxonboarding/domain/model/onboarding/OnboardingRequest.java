@@ -35,4 +35,11 @@ public record OnboardingRequest(
     public OnboardingRequest {
         ucaDocuments = ucaDocuments == null ? Map.of() : Map.copyOf(ucaDocuments);
     }
+
+    /** The request approved at {@code decidedAt}, with the legal entity id the TSP assigned on approval. */
+    public OnboardingRequest approved(Instant decidedAt, String assignedLegalEntityId) {
+        return new OnboardingRequest(id, businessId, connectorId, submittedAt, OnboardingStatus.APPROVED, data,
+                fingerprint, assignedLegalEntityId, gtcDocument, registrationExtractDocument, powerOfAttorneyDocument,
+                ucaDocuments, new ReviewDecision(decidedAt, null, null, null));
+    }
 }

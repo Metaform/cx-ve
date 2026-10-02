@@ -80,6 +80,7 @@ HOST_OVERRIDES=(
   --set "dx-onboarding-api.httpRoute.hostnames={${HOST}}"
   # Like the cx-onboarding-api, the dx-onboarding-api validates tokens against the OSP IdP's iss.
   --set-string "dx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
+  --set-string "dx-onboarding-api.config.dx-onboarding.review.hosted-did-prefix=did:web:identity.${HOST}:"
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   --set "membership-hub.httpRoute.hostnames={${HOST}}"
   # The hub validates the Onboarding API's callback bearers against the OSP IdP's external issuer URL.

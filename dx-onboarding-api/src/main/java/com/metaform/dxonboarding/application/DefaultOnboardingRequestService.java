@@ -19,8 +19,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * Validates a submission as a whole, recognizes a retry by its content, and files a new request
- * with its documents as {@code SUBMITTED}. The review that moves it on is a TSP operator's and not
- * part of this API.
+ * with its documents as {@code SUBMITTED}, taking it into review ({@link AutomaticReview}). The
+ * review is not part of this API: the applicant reads its outcome from the request's status.
  */
 @Service
 public class DefaultOnboardingRequestService implements OnboardingRequestService {
@@ -29,16 +29,20 @@ public class DefaultOnboardingRequestService implements OnboardingRequestService
 
     private final OnboardingRequestRepository repository;
     private final DocumentStore documents;
+    private final AutomaticReview review;
     private final Clock clock;
 
     @Autowired
-    public DefaultOnboardingRequestService(OnboardingRequestRepository repository, DocumentStore documents) {
-        this(repository, documents, Clock.systemUTC());
+    public DefaultOnboardingRequestService(OnboardingRequestRepository repository, DocumentStore documents,
+                                           AutomaticReview review) {
+        this(repository, documents, review, Clock.systemUTC());
     }
 
-    DefaultOnboardingRequestService(OnboardingRequestRepository repository, DocumentStore documents, Clock clock) {
+    DefaultOnboardingRequestService(OnboardingRequestRepository repository, DocumentStore documents,
+                                    AutomaticReview review, Clock clock) {
         this.repository = repository;
         this.documents = documents;
+        this.review = review;
         this.clock = clock;
     }
 
@@ -78,6 +82,7 @@ public class DefaultOnboardingRequestService implements OnboardingRequestService
         repository.save(request);
         log.info("onboarding request '{}' ({}) submitted by '{}' for {}", request.id(), request.businessId(),
                 connectorId, request.data().legalEntity().legalName());
+        review.submitted(request);
         return request;
     }
 

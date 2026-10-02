@@ -30,3 +30,18 @@ dx-onboarding:
   # onboarding requests are scoped to it. ASSUMPTION: the spec does not say how the data plane
   # passes the identity on — a header is assumed, and trusted unverified (warned about at startup).
   connector-id-header: X-Connector-Id                           # DXONBOARDING_CONNECTORIDHEADER
+  # How submitted onboarding requests are reviewed — there is no TSP operator in the VE yet, so a
+  # request is approved automatically or waits in SUBMITTED. Participants HOSTED HERE (connector
+  # identity under hosted-did-prefix: the verification participant, the e2e tests' participants)
+  # are approved; EXTERNAL ones (systems under test) too, for now — switch that off to have them
+  # wait for an operator's review.
+  review:
+    # The DID prefix the Membership Hub mints its participants' DIDs under (its
+    # participant.did.template); host-derived: the install scripts override it for a non-default host.
+    hosted-did-prefix: "did:web:identity.cxve.localhost:"     # DXONBOARDING_REVIEW_HOSTEDDIDPREFIX
+    auto-approve:
+      hosted: true                                              # DXONBOARDING_REVIEW_AUTOAPPROVE_HOSTED
+      external: true                                            # DXONBOARDING_REVIEW_AUTOAPPROVE_EXTERNAL
+    # How long an automatic approval waits after the submission (0: right away — still after the
+    # submitting call returned SUBMITTED).
+    delay: 0s                                                   # DXONBOARDING_REVIEW_DELAY
