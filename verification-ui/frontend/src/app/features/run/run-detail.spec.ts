@@ -11,7 +11,7 @@ const CATALOG: CatalogDataspace[] = [
     memberId: { label: 'BPN', pattern: 'BPNL[0-9A-Z]{12}', example: 'BPNL000000000001' },
     useCases: [
       { id: 'ccm', displayName: 'Company Certificate Management', available: true },
-      { id: 'parts-tracking', displayName: 'Parts Tracking', available: false }
+      { id: 'traceability', displayName: 'Traceability', available: false }
     ]
   }
 ];
@@ -107,7 +107,7 @@ describe('RunDetail', () => {
   }));
 
   it('reports the success of any other use case generically', fakeAsync(() => {
-    api.run.and.returnValue(of(snapshot({ useCase: 'parts-tracking' })));
+    api.run.and.returnValue(of(snapshot({ useCase: 'traceability' })));
     render();
 
     expect(text('.ok-banner')).toBe('Verification completed — all 1 expected event subjects are in the ledger.');

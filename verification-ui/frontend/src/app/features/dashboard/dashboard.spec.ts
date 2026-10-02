@@ -11,21 +11,21 @@ const SELECTION_KEY = 'verification-ui.selection';
 const BPN: MemberIdFormat = { label: 'BPN', pattern: 'BPNL[0-9A-Z]{12}', example: 'BPNL000000000001' };
 const DECADE_X_ID: MemberIdFormat = { label: 'Decade-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001' };
 
-/** Catena-X and Decade-X as configured: CCM verifiable where the dataspace is, Parts Tracking nowhere. */
+/** Catena-X and Decade-X as configured: CCM verifiable where the dataspace is, Traceability and Substance tracing nowhere. */
 function catalog({ catenaX = true, decadeX = false } = {}): CatalogDataspace[] {
   return [
     {
       id: 'catena-x', displayName: 'Catena-X', available: catenaX, memberId: BPN,
       useCases: [
         { id: 'ccm', displayName: 'Company Certificate Management', available: catenaX },
-        { id: 'parts-tracking', displayName: 'Parts Tracking', available: false }
+        { id: 'traceability', displayName: 'Traceability', available: false }
       ]
     },
     {
       id: 'decade-x', displayName: 'Decade-X', available: decadeX, memberId: DECADE_X_ID,
       useCases: [
         { id: 'ccm', displayName: 'Company Certificate Management', available: decadeX },
-        { id: 'parts-tracking', displayName: 'Parts Tracking', available: false }
+        { id: 'substance-tracing', displayName: 'Substance tracing', available: false }
       ]
     }
   ];
@@ -142,9 +142,9 @@ describe('Dashboard', () => {
       const decadeX = choice('dataspace', 'Decade-X');
       expect(decadeX.querySelector('input')!.disabled).toBeTrue();
       expect(decadeX.textContent).toContain('not available in this environment');
-      const partsTracking = choice('useCase', 'Parts Tracking');
-      expect(partsTracking.querySelector('input')!.disabled).toBeTrue();
-      expect(partsTracking.textContent).toContain('not verifiable yet');
+      const traceability = choice('useCase', 'Traceability');
+      expect(traceability.querySelector('input')!.disabled).toBeTrue();
+      expect(traceability.textContent).toContain('not verifiable yet');
       finish();
     }));
 

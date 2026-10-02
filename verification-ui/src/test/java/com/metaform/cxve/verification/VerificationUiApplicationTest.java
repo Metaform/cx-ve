@@ -29,7 +29,13 @@ class VerificationUiApplicationTest {
         assertEquals("ccm-inbox-verification", ccm.inboxAssetId());
         assertEquals("3.0", ccm.api().version());
         assertEquals(2, ccm.expectedEvents().get("events.contract.negotiation.finalized"));
-        assertFalse(catenaX.useCase("parts-tracking").enabled());
+        assertEquals("Company Certificate Management", catenaX.useCase("ccm").displayName());
+        assertEquals("Traceability", catenaX.useCase("traceability").displayName());
+        assertFalse(catenaX.useCase("traceability").enabled());
+        var decadeX = properties.dataspace("decade-x");
+        assertEquals("Company Certificate Management", decadeX.useCase("ccm").displayName());
+        assertEquals("Substance tracing", decadeX.useCase("substance-tracing").displayName());
+        assertFalse(decadeX.useCase("substance-tracing").enabled());
         // a dataspace may leave its policies and an external checklist unset
         assertEquals(0, properties.dataspace("decade-x").accessConstraints().size());
         assertEquals(0, properties.dataspace("decade-x").useCase("ccm").ccm().externalExpectedEvents().size());

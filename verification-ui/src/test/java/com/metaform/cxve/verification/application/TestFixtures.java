@@ -43,7 +43,7 @@ final class TestFixtures {
                 new VerificationProperties.ParticipantIdentity(
                         "Verification Participant", "verification-participant", "BPNLVERIFY000001", "DEVERIFY0001"),
                 Map.of(USE_CASE, new VerificationProperties.UseCase("Company Certificate Management", true, ccm),
-                        "parts-tracking", new VerificationProperties.UseCase("Parts Tracking", false, null)));
+                        "traceability", new VerificationProperties.UseCase("Traceability", false, null)));
         return new VerificationProperties(
                 "http://gw/api/dsp",
                 new VerificationProperties.TokenSpec("issuer", "admin"),

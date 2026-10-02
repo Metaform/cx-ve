@@ -17,7 +17,7 @@ const CATALOG: CatalogDataspace[] = [
     id: 'catena-x', displayName: 'Catena-X', available: true, memberId: BPN,
     useCases: [
       { id: 'ccm', displayName: 'Company Certificate Management', available: true },
-      { id: 'parts-tracking', displayName: 'Parts Tracking', available: false }
+      { id: 'traceability', displayName: 'Traceability', available: false }
     ]
   },
   { id: 'decade-x', displayName: 'Decade-X', available: false, memberId: null, useCases: [] }
@@ -141,7 +141,7 @@ describe('catalog', () => {
     });
 
     it('stays generic for any other use case', () => {
-      expect(completionSummary('parts-tracking')).toBe('Verification completed');
+      expect(completionSummary('traceability')).toBe('Verification completed');
     });
   });
 });

@@ -97,10 +97,10 @@ class RunControllerTest {
     @Test
     void start_mapsARequestTheCatalogRefusesTo400() throws Exception {
         when(runService.start(any(), any(), any(), any(), any(), any())).thenThrow(
-                new DataspaceCatalog.InvalidRunRequestException("Parts Tracking in Catena-X cannot be verified yet"));
+                new DataspaceCatalog.InvalidRunRequestException("Traceability in Catena-X cannot be verified yet"));
 
         mvc.perform(post("/api/runs").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"dataspace": "catena-x", "useCase": "parts-tracking", "memberId": "BPNLACME00000001"}"""))
+                        {"dataspace": "catena-x", "useCase": "traceability", "memberId": "BPNLACME00000001"}"""))
                 .andExpect(status().isBadRequest());
     }
 

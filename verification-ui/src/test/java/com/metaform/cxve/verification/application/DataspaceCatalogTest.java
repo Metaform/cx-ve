@@ -60,7 +60,7 @@ class DataspaceCatalogTest {
                 .containsExactlyInAnyOrder(
                         org.assertj.core.groups.Tuple.tuple("ccm", true),
                         // listed, but disabled in the profile
-                        org.assertj.core.groups.Tuple.tuple("parts-tracking", false));
+                        org.assertj.core.groups.Tuple.tuple("traceability", false));
     }
 
     @Test
@@ -87,8 +87,8 @@ class DataspaceCatalogTest {
 
         assertThatThrownBy(() -> catalog.resolve("decade-x", "ccm", "DX-1"))
                 .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("decade-x");
-        assertThatThrownBy(() -> catalog.resolve("catena-x", "parts-tracking", "BPNLACME00000001"))
-                .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("Parts Tracking");
+        assertThatThrownBy(() -> catalog.resolve("catena-x", "traceability", "BPNLACME00000001"))
+                .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("Traceability");
         assertThatThrownBy(() -> catalog.resolve("catena-x", "ccm", "ACME"))
                 .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("BPN");
     }

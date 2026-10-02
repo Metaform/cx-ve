@@ -2,9 +2,10 @@
 
 An Angular dashboard plus the backend-for-frontend (BFF) it talks to. It makes the VE's
 participant journey operable interactively. Before a run the user picks the **dataspace**
-(Catena-X, Decade-X, …) and then the **use case** within it (CCM, Parts Tracking, …); the
-dataspace decides the member-id format, DSP profile, policies, registration payload and the
-CCM API vocabulary, the use case decides the steps. So far CCM is the one verifiable use case:
+(Catena-X, Decade-X, …) and then the **use case** within it (Company Certificate Management,
+Traceability, Substance tracing, …); the dataspace decides the member-id format, DSP profile,
+policies, registration payload and the CCM API vocabulary, the use case decides the steps. So far
+CCM is the one verifiable use case:
 
 1. **Onboard a participant under test** into the dataspace through the Membership Hub
    (`POST /hub/api/members`).

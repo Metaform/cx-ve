@@ -201,8 +201,8 @@ verification:
               "[events.onboarding.completed]": 1
               "[events.issuance.credential.delivered]": 1
         # Listed so operators see it exists; not verifiable yet (no implementation).
-        parts-tracking:
-          display-name: Parts Tracking
+        traceability:
+          display-name: Traceability
           enabled: false
     # Decade-X, onboarded through the dx-onboarding-api stub (the hub's dataspaces.decade-x).
     # Largely a PLACEHOLDER: the stub issues no credentials yet, so a run stops where it waits for
@@ -250,6 +250,6 @@ verification:
               "[events.transfer.process.started]": 2
               "[events.certificate.exchange.fulfilled]": 1
               "[events.certificate.exchange.accepted]": 1
-        parts-tracking:
-          display-name: Parts Tracking
+        substance-tracing:
+          display-name: Substance tracing
           enabled: false
