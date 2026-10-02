@@ -101,9 +101,15 @@ onboarding process id is the row's primary key as the participant's provenance:
 
 | Event | What it teaches the registry |
 |---|---|
-| `events.onboarding.started` | registers the participant: `process_id ↔ did` (and `↔ bpn` when submitted) |
+| `events.onboarding.started` | registers the participant: `process_id ↔ did` (and `↔ bpn` when submitted); a DID document already published for the DID links its participant context right away |
 | `events.diddocument.published` | links `did ↔ participant_context_id` — the one event carrying both |
 | `events.onboarding.completed` | confirms the final identities, closes the registration with its terminal state |
+
+A member this platform hosts is deployed BEFORE it is registered (the Membership Hub provisions
+it, then submits the registration), so its participant context, keys and DID document precede
+`events.onboarding.started`. Registering it links the participant context of the DID's latest
+publication, and starts the participant's window at that context's first event: its own
+provisioning is part of its history. An earlier deployment under the same DID stays out.
 
 Events are attributed to participants at **read time** by the `participant_event` view, so the
 ledger stays immutable and identity knowledge learned late applies to history automatically.
@@ -128,7 +134,8 @@ On top of it, the `participant_eventlog` view is the rollup: ONE row per partici
 BPN, DID and participant context id alongside the whole history as a time-ordered JSONB array of
 compact event summaries (`occurred_at`, `subject`, `type`, `source`, `event_id`; the full
 envelope is one join away in the `event` table via source + event id). A participant appears from
-the moment its onboarding starts, with an empty history.
+the moment its onboarding starts — with an empty history, or, for a member this platform hosts,
+with its provisioning.
 
 ```sql
 -- one participant's whole story, by any of its identities

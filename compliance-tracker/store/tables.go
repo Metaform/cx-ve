@@ -89,12 +89,14 @@ func createParticipantTable(db *sql.DB) error {
 //   - An event carrying an onboarding process id (the onboarding family) attributes to exactly
 //     the participant that process created, and ONLY that way — a rejected duplicate's own
 //     events carry the duplicated DID and must not leak into the participant they duplicated.
-//   - Any other event attributes by identity (holder DID or participant context id). A live
-//     participant (RUNNING or COMPLETED) owns its identity permanently — the duplicate check
-//     bars re-registration — so ALL of its activity attributes to it, however long after
-//     onboarding. The time window is the exception, fencing off REJECTED/FAILED registration
-//     attempts: a dead attempt frees its identifiers for re-registration, so only events between
-//     its start and its terminal event may attribute to it.
+//   - Any other event attributes by identity (holder DID or participant context id), from the
+//     participant's start on — for a member the platform hosts, that is its provisioning (see
+//     ParticipantStore.Open). A live participant (RUNNING or COMPLETED) owns its identity
+//     permanently — the duplicate check bars re-registration — so ALL of its activity
+//     attributes to it, however long after onboarding. The time window is the exception,
+//     fencing off REJECTED/FAILED registration attempts: a dead attempt frees its identifiers
+//     for re-registration, so only events between its start and its terminal event may
+//     attribute to it.
 //
 // Event times fall back to recorded_at (occurred_at is optional on the wire); an event matching
 // no participant does not appear here — it stays queryable in the event table by its own keys.
