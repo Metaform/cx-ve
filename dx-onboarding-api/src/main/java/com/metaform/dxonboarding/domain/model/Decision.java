@@ -1,4 +1,4 @@
-package com.metaform.dxonboarding.domain;
+package com.metaform.dxonboarding.domain.model;
 
 /**
  * The outcome of an application, as the decision webhook reports it.

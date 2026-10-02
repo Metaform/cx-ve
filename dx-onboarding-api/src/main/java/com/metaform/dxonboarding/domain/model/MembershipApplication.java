@@ -1,4 +1,4 @@
-package com.metaform.dxonboarding.domain;
+package com.metaform.dxonboarding.domain.model;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

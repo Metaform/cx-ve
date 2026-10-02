@@ -1,8 +1,8 @@
-package com.metaform.dxonboarding.api;
+package com.metaform.dxonboarding.adapter.in.web;
 
 import com.metaform.dxonboarding.application.ApplicationService;
 import com.metaform.dxonboarding.config.SecurityConfig;
-import com.metaform.dxonboarding.domain.ApplicationRecord;
+import com.metaform.dxonboarding.domain.model.ApplicationRecord;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -1,9 +1,9 @@
-package com.metaform.dxonboarding.api;
+package com.metaform.dxonboarding.adapter.in.web;
 
 import com.metaform.dxonboarding.application.ApplicationService;
-import com.metaform.dxonboarding.domain.ApplicationRecord;
-import com.metaform.dxonboarding.domain.MembershipApplication;
-import com.metaform.dxonboarding.domain.Webhook;
+import com.metaform.dxonboarding.domain.model.ApplicationRecord;
+import com.metaform.dxonboarding.domain.model.MembershipApplication;
+import com.metaform.dxonboarding.domain.model.Webhook;
 import jakarta.validation.Valid;
 import java.util.NoSuchElementException;
 import org.springframework.http.HttpStatus;

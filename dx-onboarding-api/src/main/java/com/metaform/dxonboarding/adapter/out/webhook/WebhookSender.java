@@ -1,8 +1,8 @@
-package com.metaform.dxonboarding.application;
+package com.metaform.dxonboarding.adapter.out.webhook;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.metaform.dxonboarding.domain.Decision;
-import com.metaform.dxonboarding.domain.Webhook;
+import com.metaform.dxonboarding.domain.model.Decision;
+import com.metaform.dxonboarding.domain.model.Webhook;
 import java.util.Objects;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;

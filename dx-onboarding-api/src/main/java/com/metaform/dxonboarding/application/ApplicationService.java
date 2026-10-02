@@ -1,9 +1,10 @@
 package com.metaform.dxonboarding.application;
 
-import com.metaform.dxonboarding.domain.ApplicationRecord;
-import com.metaform.dxonboarding.domain.Decision;
-import com.metaform.dxonboarding.domain.MembershipApplication;
-import com.metaform.dxonboarding.domain.Webhook;
+import com.metaform.dxonboarding.adapter.out.webhook.WebhookSender;
+import com.metaform.dxonboarding.domain.model.ApplicationRecord;
+import com.metaform.dxonboarding.domain.model.Decision;
+import com.metaform.dxonboarding.domain.model.MembershipApplication;
+import com.metaform.dxonboarding.domain.model.Webhook;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
