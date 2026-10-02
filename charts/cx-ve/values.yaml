@@ -204,8 +204,9 @@ cx-onboarding-api:
 
 # ---- Decade-X onboarding API -------------------------------------------------------------------
 # The TSP onboarding intake. Requests stay SUBMITTED (no review yet) and nothing is issued —
-# there is no Decade-X issuer on the platform yet, so Decade-X members hold no credentials. Goes together with the hub's
-# membership-hub.config.dataspaces.decade-x.enabled, like the Catena-X switch above.
+# there is no Decade-X issuer on the platform yet, so Decade-X members hold no credentials. Goes
+# together with the hub's membership-hub.config.dataspaces.decade-x.enabled, like the Catena-X
+# switch above.
 dx-onboarding-api:
   enabled: true
   image:

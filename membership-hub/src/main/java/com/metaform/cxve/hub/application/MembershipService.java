@@ -205,10 +205,15 @@ public class MembershipService {
      * format — the dataspace's {@code DataspaceOnboarding} reads it. A callback naming a membership
      * of ANOTHER dataspace is treated like an unknown one: it is not this API's to decide.
      *
-     * @throws NoSuchElementException for an unknown external id, or one of another dataspace
+     * @throws NoSuchElementException for an unknown external id, or one of another dataspace; and
+     *                                for a dataspace whose status is polled, which takes no callbacks
      */
     public Membership onRegistrationStatus(String dataspace, Map<String, Object> callback) {
-        var outcome = dataspaces.onboarding(dataspace).readCallback(callback);
+        var onboarding = dataspaces.onboarding(dataspace);
+        if (onboarding.pollsStatus()) {
+            throw new NoSuchElementException("%s reports registration status by polling, not callbacks".formatted(dataspace));
+        }
+        var outcome = onboarding.readCallback(callback);
         var membership = current(outcome.externalId());
         if (!Objects.equals(membership.dataspace(), dataspace)) {
             throw new NoSuchElementException("No %s membership with external id %s".formatted(dataspace, outcome.externalId()));
@@ -217,8 +222,9 @@ public class MembershipService {
     }
 
     /**
-     * Reacts to a normalized status callback — the ONLY driver of the registration outcome, and of
-     * the membership's terminal state: a confirmation means the holder is registered AND its
+     * Reacts to a normalized status — from a callback, or polled by the
+     * {@link RegistrationStatusPoller} — the ONLY driver of the registration outcome, and of the
+     * membership's terminal state: a confirmation means the holder is registered AND its
      * credentials offered, so the record goes straight to CREDENTIALS_OFFERED. A redelivered
      * confirmation against a record already there is ignored. DECLINED terminally rejects a
      * not-yet-confirmed record (the internal REJECTED state); after a confirmation it is

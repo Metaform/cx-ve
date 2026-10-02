@@ -1,5 +1,6 @@
 package com.metaform.cxve.hub.adapter.out.persistence.jpa;
 
+import com.metaform.cxve.hub.domain.model.MembershipState;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -9,4 +10,6 @@ public interface SpringDataMembershipRepository extends JpaRepository<Membership
     List<MembershipEntity> findByDataspaceAndMemberId(String dataspace, String memberId);
 
     List<MembershipEntity> findByDid(String did);
+
+    List<MembershipEntity> findByState(MembershipState state);
 }

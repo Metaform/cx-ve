@@ -219,8 +219,24 @@ verification:
       # (see the hub's dataspaces.decade-x.dataspace-profiles).
       dsp-profile: cx-neptune
       policy-context: https://w3id.org/decadex/policy/context.jsonld
+      # The TSP's onboarding request, minus what the hub fills in itself (legal name, DID,
+      # applicantReference); the hub also adds the placeholder GTC and UCA documents.
       registration-template: |
-        { "country": "DE", "contactEmail": "vui-{{uniqueId}}@example.com" }
+        {
+          "legalEntity": {
+            "registrationCountry": "DE",
+            "companyType": "LIMITED_LIABILITY_COMPANY",
+            "registrationNumbers": [ { "scheme": "vatID", "value": "{{uniqueId}}" } ],
+            "legalAddress": { "street": "Otto-Hahn-Ring 6", "postalCode": "81739", "locality": "Munich",
+                              "countryCode": "DE", "countryName": "Germany" }
+          },
+          "legalPerson": { "fullName": "Verification Operator", "email": "vui-{{uniqueId}}@example.com",
+                           "role": "Operator" },
+          "gtc": { "versionId": "0b8e1f0e-5c0a-4a52-9a53-7a1d2c3b4e5f", "versionNumber": "1.0", "accepted": true },
+          "ucas": [ { "useCaseId": "ccm", "useCaseName": "Company Certificate Management", "versionNumber": "1.0",
+                      "accepted": true } ],
+          "declarations": { "informationAccurate": true, "authorisedToAct": true, "evidenceMayBeRequested": true }
+        }
       verification-participant:
         name: "Verification Participant (Decade-X)"
         short-name: verification-participant-dx

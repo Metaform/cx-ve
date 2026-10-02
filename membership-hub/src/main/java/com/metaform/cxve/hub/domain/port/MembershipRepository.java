@@ -2,6 +2,7 @@ package com.metaform.cxve.hub.domain.port;
 
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
+import com.metaform.cxve.hub.domain.model.MembershipState;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,6 +35,9 @@ public interface MembershipRepository {
      * onboarding such a member a second time would be declined rather than repeated.
      */
     List<Membership> findByDid(String did);
+
+    /** All memberships currently in the given state, across dataspaces. */
+    List<Membership> findByState(MembershipState state);
 
     /** The request payload the membership was created from. */
     Optional<MemberData> findPayload(String externalId);

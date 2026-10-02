@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
+import com.metaform.cxve.hub.domain.model.MembershipState;
 import com.metaform.cxve.hub.domain.port.MembershipRepository;
 import java.util.List;
 import java.util.Objects;
@@ -77,6 +78,12 @@ public class JpaMembershipRepository implements MembershipRepository {
     @Transactional(readOnly = true)
     public List<Membership> findByDid(String did) {
         return repository.findByDid(did).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Membership> findByState(MembershipState state) {
+        return repository.findByState(state).stream().map(this::toDomain).toList();
     }
 
     @Override

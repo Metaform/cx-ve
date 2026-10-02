@@ -1,40 +1,69 @@
 package com.metaform.cxve.hub.adapter.out.onboarding.decadex;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.metaform.cxve.hub.adapter.out.onboarding.ClientCredentials;
 import com.metaform.cxve.hub.adapter.out.onboarding.RegistrationValidator;
 import com.metaform.cxve.hub.config.DataspaceProperties;
 import com.metaform.cxve.hub.domain.model.MemberData;
+import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.model.RegistrationOutcome;
 import com.metaform.cxve.hub.domain.port.DataspaceOnboarding;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClient;
 
 /**
- * Decade-X onboarding through its membership-application API (the VE's dx-onboarding-api stub):
- * the hub sets its decision webhook and submits applications under its own reference — the
- * {@code externalId} — which the decision echoes back as {@code applicationRef}.
+ * Decade-X onboarding through the TSP's onboarding intake (the VE's dx-onboarding-api): the hub
+ * submits the member's onboarding request — the {@code registration} object, completed with the
+ * member's legal name, DID and the hub's external id as {@code applicantReference} — together with
+ * placeholder GTC and UCA documents, as one multipart request.
  *
- * <p>An APPROVED decision maps to the hub's CONFIRMED. Unlike Catena-X's confirmation, the stub's
- * approval does not mean credentials were offered: no Decade-X issuer is set up in the VE yet.
+ * <p>The TSP has no status callbacks: the hub {@linkplain #pollsStatus() polls} the request's
+ * status instead. {@code APPROVED} maps to the hub's CONFIRMED, {@code REJECTED} to DECLINED, and
+ * every other status — the steps of the TSP operator's review — to PENDING. Unlike Catena-X's
+ * confirmation, an approval does not mean credentials were offered: no Decade-X issuer is set up
+ * in the VE yet.
+ *
+ * <p>In the dataspace, a participant reaches the TSP as an asset of the federated connector, whose
+ * data plane stamps the calling connector's identity on every call. The hub calls the TSP directly
+ * and stands in for that data plane: it sends the member's DID as the identity, in the header the
+ * TSP is ASSUMED to read it from ({@value #CONNECTOR_ID_HEADER} — the TSP's specification does not
+ * say how the identity reaches it). Requests are scoped to that identity, so the status is read
+ * under the same one.
  */
 public class DecadeXOnboarding implements DataspaceOnboarding {
 
     public static final String DATASPACE = "decade-x";
 
+    static final String CONNECTOR_ID_HEADER = "X-Connector-Id";
+    static final String REQUESTS_PATH = "/api/v1/onboarding-requests";
+
     private static final Logger log = LoggerFactory.getLogger(DecadeXOnboarding.class);
 
+    // A plain mapper, like the RegistrationValidator's: the registration's shape is independent of
+    // the web layer's JSON configuration.
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final RestClient restClient;
     private final ClientCredentials credentials;
-    private final DataspaceProperties.Callback callback;
     private final RegistrationValidator validator;
 
     public DecadeXOnboarding(DataspaceProperties.Onboarding onboarding, RegistrationValidator validator) {
-        this.restClient = RestClient.builder().baseUrl(onboarding.url()).build();
-        this.credentials = new ClientCredentials(onboarding.auth());
-        this.callback = onboarding.callback();
+        this(RestClient.builder(), onboarding, new ClientCredentials(onboarding.auth()), validator);
+    }
+
+    DecadeXOnboarding(RestClient.Builder restClient, DataspaceProperties.Onboarding onboarding,
+                      ClientCredentials credentials, RegistrationValidator validator) {
+        this.restClient = restClient.baseUrl(onboarding.url()).build();
+        this.credentials = credentials;
         this.validator = validator;
     }
 
@@ -61,67 +90,130 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
                 "bpn", data.memberId());
     }
 
+    /** Nothing to register: the TSP has no status callbacks — its status is polled. */
     @Override
     public void registerCallback() {
-        var webhook = new HashMap<String, Object>();
-        webhook.put("url", callback.url());
-        webhook.put("tokenUrl", callback.tokenUrl());
-        webhook.put("clientId", callback.clientId());
-        webhook.put("clientSecret", callback.clientSecret() == null ? "" : callback.clientSecret());
-        restClient.put()
-                .uri("/api/v1/webhook")
-                .header("Authorization", "Bearer " + credentials.getToken())
-                .body(webhook)
-                .retrieve()
-                .toBodilessEntity();
-        log.debug("Registered decision webhook '{}' with the Decade-X onboarding API", callback.url());
     }
 
     @Override
     public String submitRegistration(String externalId, String did, MemberData data) {
         var registration = registration(data);
+        var parts = new LinkedMultiValueMap<String, Object>();
+        parts.add("request", part(request(externalId, did, data), MediaType.APPLICATION_JSON));
+        parts.add("gtcDocument", pdf("gtc-placeholder.pdf",
+                PlaceholderDocuments.gtc(registration.gtc().versionNumber(), data.name())));
+        for (var uca : registration.ucas()) {
+            parts.add("ucaDocument[" + uca.useCaseId() + "]", pdf("uca-" + uca.useCaseId() + "-placeholder.pdf",
+                    PlaceholderDocuments.uca(uca.useCaseId(), uca.versionNumber(), data.name())));
+        }
         var receipt = restClient.post()
-                .uri("/api/v1/applications")
-                .header("Authorization", "Bearer " + credentials.getToken())
-                .body(Map.of(
-                        "applicationRef", externalId,
-                        "legalName", data.name(),
-                        "decadeXId", data.memberId(),
-                        "did", did,
-                        "country", registration.country(),
-                        "contactEmail", registration.contactEmail()))
+                .uri(REQUESTS_PATH)
+                .headers(headers -> authorize(headers, did))
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(parts)
                 .retrieve()
                 .body(Receipt.class);
-        if (receipt == null || receipt.applicationId() == null) {
-            throw new IllegalStateException("The Decade-X onboarding API returned no application id");
+        if (receipt == null || receipt.id() == null) {
+            throw new IllegalStateException("The Decade-X onboarding API returned no request id");
         }
-        return receipt.applicationId();
+        log.info("Decade-X onboarding request '{}' ({}) submitted for '{}': {}", receipt.id(), receipt.businessId(),
+                externalId, receipt.status());
+        return receipt.id();
     }
 
-    /** Reads a decision: {@code applicationRef}, {@code decision} APPROVED/REJECTED, {@code reason}. */
+    /** Callbacks are not part of the TSP's API; the hub refuses them for a polled dataspace. */
     @Override
     public RegistrationOutcome readCallback(Map<String, Object> body) {
-        var applicationRef = string(body, "applicationRef");
-        var decision = string(body, "decision");
-        log.info("Decade-X decision: applicationRef={}, applicationId={}, decision={}",
-                applicationRef, string(body, "applicationId"), decision);
-        var status = switch (decision == null ? "" : decision.toUpperCase()) {
-            case "APPROVED" -> RegistrationOutcome.Status.CONFIRMED;
-            case "REJECTED" -> RegistrationOutcome.Status.DECLINED;
-            default -> RegistrationOutcome.Status.PENDING;
+        throw new UnsupportedOperationException("The Decade-X onboarding API reports no callbacks; its status is polled");
+    }
+
+    @Override
+    public boolean pollsStatus() {
+        return true;
+    }
+
+    @Override
+    public RegistrationOutcome pollStatus(Membership membership) {
+        var request = restClient.get()
+                .uri(REQUESTS_PATH + "/{id}", membership.onboardingProcessId())
+                .headers(headers -> authorize(headers, membership.did()))
+                .retrieve()
+                .body(RequestStatus.class);
+        if (request == null || request.status() == null) {
+            throw new IllegalStateException("The Decade-X onboarding API returned no status for request "
+                    + membership.onboardingProcessId());
+        }
+        log.debug("Decade-X onboarding request '{}' of '{}': {}", membership.onboardingProcessId(),
+                membership.externalId(), request.status());
+        return switch (request.status()) {
+            case "APPROVED" -> new RegistrationOutcome(membership.externalId(), RegistrationOutcome.Status.CONFIRMED, null);
+            case "REJECTED" -> new RegistrationOutcome(membership.externalId(), RegistrationOutcome.Status.DECLINED,
+                    request.decision() == null ? null : request.decision().describe());
+            default -> {
+                if ("APPROVAL_FAILED".equals(request.status())) {
+                    log.warn("Decade-X onboarding request '{}' of '{}': the TSP's provisioning after the approval failed",
+                            membership.onboardingProcessId(), membership.externalId());
+                }
+                yield new RegistrationOutcome(membership.externalId(), RegistrationOutcome.Status.PENDING, null);
+            }
         };
-        return new RegistrationOutcome(applicationRef, status, string(body, "reason"));
+    }
+
+    private static HttpEntity<Object> part(Object body, MediaType contentType) {
+        var headers = new HttpHeaders();
+        headers.setContentType(contentType);
+        return new HttpEntity<>(body, headers);
+    }
+
+    /** A file part: the multipart writer takes the part's filename from the resource. */
+    private static HttpEntity<Object> pdf(String filename, byte[] content) {
+        return part(new ByteArrayResource(content) {
+            @Override
+            public String getFilename() {
+                return filename;
+            }
+        }, MediaType.APPLICATION_PDF);
+    }
+
+    private void authorize(HttpHeaders headers, String did) {
+        headers.setBearerAuth(credentials.getToken());
+        headers.set(CONNECTOR_ID_HEADER, did);
+    }
+
+    /** The registration as the TSP's {@code request} part, completed with what the hub owns. */
+    private Map<String, Object> request(String externalId, String did, MemberData data) {
+        var request = objectMapper.convertValue(data.registration(), new TypeReference<LinkedHashMap<String, Object>>() {
+        });
+        var legalEntity = objectMapper.convertValue(request.get("legalEntity"),
+                new TypeReference<LinkedHashMap<String, Object>>() {
+                });
+        legalEntity.put("legalName", data.name());
+        legalEntity.put("preferredDid", did);
+        request.put("legalEntity", legalEntity);
+        request.put("applicantReference", externalId);
+        return request;
     }
 
     private DecadeXRegistration registration(MemberData data) {
         return validator.read(data.registration(), DecadeXRegistration.class, DATASPACE);
     }
 
-    private static String string(Map<String, Object> body, String key) {
-        var value = body.get(key);
-        return value == null ? null : value.toString();
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Receipt(String id, String businessId, String status) {
     }
 
-    private record Receipt(String applicationId) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record RequestStatus(String status, Decision decision) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Decision(String rejectReasonCode, String rejectComment) {
+
+        String describe() {
+            if (rejectComment == null || rejectComment.isBlank()) {
+                return rejectReasonCode;
+            }
+            return rejectReasonCode == null ? rejectComment : rejectReasonCode + ": " + rejectComment;
+        }
     }
 }

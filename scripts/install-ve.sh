@@ -182,7 +182,7 @@ helm dependency update "$UMBRELLA_CHART"
 docker buildx build -t ghcr.io/metaform/cx-ve/cx-onboarding-api:latest cx-onboarding-api
 kind load docker-image ghcr.io/metaform/cx-ve/cx-onboarding-api:latest -n $CLUSTER_NAME
 
-# Build and load the latest version of the Decade-X onboarding API (stub); same context layout.
+# Build and load the latest version of the Decade-X onboarding API; same context layout.
 docker buildx build -t ghcr.io/metaform/cx-ve/dx-onboarding-api:latest dx-onboarding-api
 kind load docker-image ghcr.io/metaform/cx-ve/dx-onboarding-api:latest -n $CLUSTER_NAME
 

@@ -95,6 +95,19 @@ class JpaMembershipRepositoryTest {
     }
 
     @Test
+    void findByState_listsTheMembershipsInThatStateAcrossDataspaces() {
+        var data = payload();
+        repository.create(Membership.submitted("ext-1", "catena-x", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), data);
+        repository.create(Membership.submitted("ext-2", "decade-x", "Acme Corp", "did:web:acme2", "DX-00000001"), data);
+        repository.create(Membership.provisioning("ext-3", "decade-x", "Other Corp", "did:web:other", "DX-00000002"), data);
+
+        assertThat(repository.findByState(MembershipState.SUBMITTED))
+                .extracting(Membership::externalId)
+                .containsExactlyInAnyOrder("ext-1", "ext-2");
+        assertThat(repository.findByState(MembershipState.REJECTED)).isEmpty();
+    }
+
+    @Test
     void save_transitionsTheMembershipWithoutLosingThePayload() {
         var data = payload();
         repository.create(Membership.submitted("ext-1", "catena-x", data.name(), "did:web:acme", data.memberId()), data);

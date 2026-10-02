@@ -62,6 +62,10 @@ class MembershipServiceTest {
         boolean failSubmission;
         boolean refuseRegistration;
         Consumer<String> onSubmit = externalId -> { };
+        // polling, for a dataspace whose API has no callbacks: the status each external id reports
+        boolean polled;
+        final Map<String, RegistrationOutcome.Status> polledStatus = new HashMap<>();
+        final List<String> polledExternalIds = new ArrayList<>();
 
         RecordingOnboarding(String dataspace) {
             this.dataspace = dataspace;
@@ -104,6 +108,21 @@ class MembershipServiceTest {
             submittedExternalIds.add(externalId);
             submittedDids.add(did);
             return "process-" + externalId;
+        }
+
+        @Override
+        public boolean pollsStatus() {
+            return polled;
+        }
+
+        @Override
+        public RegistrationOutcome pollStatus(Membership membership) {
+            polledExternalIds.add(membership.externalId());
+            var status = polledStatus.get(membership.externalId());
+            if (status == null) {
+                throw new RuntimeException("onboarding API unreachable");
+            }
+            return new RegistrationOutcome(membership.externalId(), status, status + " by the API");
         }
     }
 
@@ -590,6 +609,72 @@ class MembershipServiceTest {
 
         callback(membership.externalId(), "PENDING", null);
 
+        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.SUBMITTED);
+    }
+
+    // --- dataspaces whose onboarding API is polled instead of calling back ---------------------
+
+    private final RegistrationStatusPoller poller = new RegistrationStatusPoller(repository, dataspaces, service);
+
+    private Membership onboardExternally(String dataspace, String did, String memberId) {
+        return service.onboard(request(dataspace, did, memberId, memberId));
+    }
+
+    @Test
+    void thePoller_appliesThePolledOutcomeOfEverySubmittedRegistration() {
+        otherOnboarding.polled = true;
+        var confirmed = onboardExternally(OTHER_DATASPACE, "did:web:one.example.com", "M-1");
+        var declined = onboardExternally(OTHER_DATASPACE, "did:web:two.example.com", "M-2");
+        var pending = onboardExternally(OTHER_DATASPACE, "did:web:three.example.com", "M-3");
+        otherOnboarding.polledStatus.put(confirmed.externalId(), RegistrationOutcome.Status.CONFIRMED);
+        otherOnboarding.polledStatus.put(declined.externalId(), RegistrationOutcome.Status.DECLINED);
+        otherOnboarding.polledStatus.put(pending.externalId(), RegistrationOutcome.Status.PENDING);
+
+        poller.poll();
+
+        assertThat(stored(confirmed.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+        assertThat(stored(declined.externalId()).state()).isEqualTo(MembershipState.REJECTED);
+        assertThat(stored(declined.externalId()).failureReason()).isEqualTo("DECLINED by the API");
+        assertThat(stored(pending.externalId()).state()).isEqualTo(MembershipState.SUBMITTED);
+
+        // decided registrations are not polled again
+        otherOnboarding.polledExternalIds.clear();
+        poller.poll();
+        assertThat(otherOnboarding.polledExternalIds).containsExactly(pending.externalId());
+    }
+
+    @Test
+    void thePoller_leavesCallbackDrivenDataspacesAlone() {
+        otherOnboarding.polled = true;
+        service.onboard(externalRequest());
+
+        poller.poll();
+
+        assertThat(onboardingApi.polledExternalIds).isEmpty();
+    }
+
+    @Test
+    void thePoller_carriesOnPastAFailedPoll() {
+        otherOnboarding.polled = true;
+        var unreachable = onboardExternally(OTHER_DATASPACE, "did:web:one.example.com", "M-1");
+        var confirmed = onboardExternally(OTHER_DATASPACE, "did:web:two.example.com", "M-2");
+        otherOnboarding.polledStatus.put(confirmed.externalId(), RegistrationOutcome.Status.CONFIRMED);
+
+        poller.poll();
+
+        assertThat(stored(unreachable.externalId()).state()).isEqualTo(MembershipState.SUBMITTED);
+        assertThat(stored(confirmed.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+    }
+
+    @Test
+    void aPolledDataspace_takesNoCallbacks() {
+        otherOnboarding.polled = true;
+        var membership = onboardExternally(OTHER_DATASPACE, SUT_DID, "M-1");
+        var body = new HashMap<String, Object>(Map.of("externalId", membership.externalId(), "status", "CONFIRMED"));
+
+        var thrown = catchThrowable(() -> service.onRegistrationStatus(OTHER_DATASPACE, body));
+
+        assertThat(thrown).isInstanceOf(NoSuchElementException.class).hasMessageContaining("polling");
         assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.SUBMITTED);
     }
 }
