@@ -1,4 +1,4 @@
-# Runtime configuration for the Decade-X onboarding API (stub). Values here are the defaults baked
+# Runtime configuration for the Decade-X onboarding API (the TSP onboarding intake). Values here are the defaults baked
 # into the image; every key can be overridden through environment variables or a mounted yaml file
 # (SPRING_CONFIG_ADDITIONALLOCATION).
 
@@ -26,9 +26,6 @@ springdoc:
     path: /swagger                                              # SPRINGDOC_SWAGGERUI_PATH
 
 dx-onboarding:
-  # How long an application waits before it is decided — 0 decides right away (still off the
-  # request thread, so the webhook may arrive before or after the submitting call returns).
-  decision-delay: 0s                                            # DXONBOARDING_DECISIONDELAY
   # The header the federated connector's data plane stamps the calling connector's identity in;
   # onboarding requests are scoped to it. ASSUMPTION: the spec does not say how the data plane
   # passes the identity on — a header is assumed, and trusted unverified (warned about at startup).

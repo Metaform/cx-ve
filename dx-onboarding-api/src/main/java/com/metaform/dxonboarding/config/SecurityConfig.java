@@ -12,8 +12,9 @@ import org.springframework.security.web.SecurityFilterChain;
 
 /**
  * {@code /api/**} is a JWT resource server against the VE's OSP IdP (Boot's property-driven
- * decoder under {@code spring.security.oauth2.resourceserver.jwt}). Any authenticated onboarding
- * service provider may use it — the stub has no roles. Everything else (actuator, swagger) is open.
+ * decoder under {@code spring.security.oauth2.resourceserver.jwt}). Any authenticated caller may
+ * use it — there are no roles; requests are scoped by the connector identity instead. Everything
+ * else (actuator, swagger) is open.
  */
 @Configuration
 @EnableWebSecurity

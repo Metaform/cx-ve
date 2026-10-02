@@ -12,7 +12,7 @@ Monorepo containing:
 | Path | Contents |
 |---|---|
 | `cx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — the **Catena-X** onboarding API: CX-0006 partner registration incl. credential-holder registration at the IssuerService; self-contained build |
-| `dx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — a **Decade-X** onboarding API stub with deliberately different payloads (membership applications, decision webhook); issues nothing; self-contained build |
+| `dx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — the **Decade-X** onboarding API: the TSP onboarding intake (multipart onboarding requests with documents, status read-back); in memory, no review yet, issues nothing; self-contained build |
 | `membership-hub/` | Spring Boot application (Java 17, Gradle) — the Membership Hub: drives the full member journey in each dataspace it serves (EDC resource provisioning via the CFM Tenant Manager, then registration via the dataspace's onboarding API); self-contained build |
 | `verification-ui/` | Spring Boot BFF + Angular dashboard — dataspace and use-case selection, verification runs ([README](verification-ui/README.md)) |
 | `compliance-tracker/` | CFM lifecycle agent (Go) consuming lifecycle CloudEvents off NATS — self-contained module |

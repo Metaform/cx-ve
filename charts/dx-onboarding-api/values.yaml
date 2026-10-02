@@ -33,4 +33,6 @@ config:
             jwk-set-uri: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
             issuer-uri: http://cxve.localhost/auth/osp
   dx-onboarding:
-    decision-delay: 0s
+    # The header the federated connector's data plane is ASSUMED to stamp the calling
+    # connector's identity in (trusted unverified — see the app's OnboardingRequestController).
+    connector-id-header: X-Connector-Id

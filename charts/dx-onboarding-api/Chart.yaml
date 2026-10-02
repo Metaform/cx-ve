@@ -1,6 +1,6 @@
 apiVersion: v2
 name: dx-onboarding-api
-description: Decade-X onboarding API (stub) — the second dataspace's membership-application API, shaped unlike the Catena-X one so the Membership Hub's per-dataspace onboarding has a counterpart
+description: Decade-X onboarding API — the TSP onboarding intake (onboarding requests with their documents, read back with their review status), in memory
 type: application
 version: 0.1.0
 appVersion: "latest"
