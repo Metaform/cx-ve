@@ -1,9 +1,11 @@
 package com.metaform.cxve.adapter.out.issuer;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.metaform.cxve.adapter.out.auth.TokenProvider;
 import com.metaform.cxve.domain.model.OnboardingProcess;
 import com.metaform.cxve.domain.model.PartnerRegistrationData;
 import com.metaform.cxve.domain.port.HolderRegistrationService;
+import java.util.HashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +27,16 @@ import org.springframework.web.client.RestClient;
  * missing them makes credential generation fail ("Failed to apply mapping definition") and leaves
  * issuance stuck. Shape and content mirror the {@code cfm.issuer} VPA properties the registration
  * agent used to pass.
+ *
+ * <p>Holder ids are unique across the issuer, which serves every dataspace: the DID may already
+ * be a holder — left by an earlier attempt of this participant (a dead registration frees its DID
+ * for a new one, possibly with a corrected BPN), or registered by another dataspace's onboarding
+ * (an external participant may join Decade-X too, whose onboarding registers holders with its own
+ * properties). A 409 therefore MERGES: the Catena-X properties are put on the existing holder,
+ * replacing stale values of their own keys and keeping everything else — its name and the other
+ * dataspaces' properties. Taking the 409 as success instead would leave the holder without these
+ * properties, or with an earlier attempt's BPN, and the credentials would fail to generate or carry
+ * the wrong identity, out of sight of this process.
  *
  * <p>Auth mirrors that agent, too: the workload token is exchanged (resource {@code sudo}, scope
  * {@code issuer-admin-api:admin}). The admin scope is required — the exchanged token's {@code sub}
@@ -59,23 +71,50 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
     @Override
     public void registerHolder(OnboardingProcess process, PartnerRegistrationData registrationData) {
         var did = process.holderId();
+        var properties = holderProperties(process, registrationData);
+        var token = tokenProvider.getToken(tokenResource, SCOPE);
         try {
             restClient.post()
                     .uri("/v1/participants/{issuerContextId}/holders", issuerContextId)
-                    .header("Authorization", "Bearer " + tokenProvider.getToken(tokenResource, SCOPE))
-                    .body(Map.of(
-                            "did", did,
-                            "holderId", did,
-                            "name", registrationData.name(),
-                            "properties", holderProperties(process, registrationData)))
+                    .header("Authorization", "Bearer " + token)
+                    .body(holder(did, registrationData.name(), properties))
                     .retrieve()
                     .toBodilessEntity();
             log.info("Registered holder '{}' with the IssuerService for onboarding {}", did, process.id());
         } catch (HttpClientErrorException.Conflict e) {
-            // A holder left behind by an earlier, partially-failed drive of the same onboarding.
-            // The entry exists, which is all this step is for.
-            log.info("Holder '{}' already registered with the IssuerService, continuing onboarding {}", did, process.id());
+            mergeInto(did, properties, token);
+            log.info("Holder '{}' already registered with the IssuerService — put this registration's properties "
+                    + "on it, keeping the others, for onboarding {}", did, process.id());
         }
+    }
+
+    /** Puts the properties on the existing holder: its own keys replaced, everything else kept. */
+    private void mergeInto(String did, Map<String, Object> properties, String token) {
+        var existing = restClient.get()
+                .uri("/v1/participants/{issuerContextId}/holders/{holderId}", issuerContextId, did)
+                .header("Authorization", "Bearer " + token)
+                .retrieve()
+                .body(ExistingHolder.class);
+        if (existing == null) {
+            throw new IllegalStateException("The IssuerService reported holder %s as existing, but returned none".formatted(did));
+        }
+        var merged = new HashMap<String, Object>(existing.properties() == null ? Map.of() : existing.properties());
+        merged.putAll(properties);
+        restClient.put()
+                .uri("/v1/participants/{issuerContextId}/holders", issuerContextId)
+                .header("Authorization", "Bearer " + token)
+                .body(holder(did, existing.holderName(), merged))
+                .retrieve()
+                .toBodilessEntity();
+    }
+
+    private static Map<String, Object> holder(String did, String name, Map<String, Object> properties) {
+        var holder = new HashMap<String, Object>();
+        holder.put("did", did);
+        holder.put("holderId", did);
+        holder.put("name", name);
+        holder.put("properties", properties);
+        return holder;
     }
 
     private Map<String, Object> holderProperties(OnboardingProcess process, PartnerRegistrationData registrationData) {
@@ -90,5 +129,10 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
                 "contractVersion", "1.0",
                 "memberOf", memberOf,
                 "bpn", process.bpn());
+    }
+
+    /** A holder as the admin API returns it; only what a merge carries over is read. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ExistingHolder(String holderId, String did, String holderName, Map<String, Object> properties) {
     }
 }

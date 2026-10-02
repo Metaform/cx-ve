@@ -12,8 +12,10 @@ import com.metaform.cxve.domain.model.PartnerRegistrationData;
 public interface HolderRegistrationService {
 
     /**
-     * Creates the holder entry, idempotently: registering an already-registered holder is a no-op.
-     * Throws on any other failure.
+     * Creates the holder entry. When the DID is already a holder — left by an earlier attempt, or
+     * registered by another dataspace's onboarding — this registration's properties are put on it,
+     * replacing stale values of their own keys and keeping everything else. Throws on any other
+     * failure.
      */
     void registerHolder(OnboardingProcess process, PartnerRegistrationData registrationData);
 }
