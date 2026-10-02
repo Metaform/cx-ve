@@ -5,6 +5,13 @@
 spring:
   application:
     name: dx-onboarding-api                                     # SPRING_APPLICATION_NAME
+  # The onboarding-request intake's document limits: 10 MB per file, 25 MB per request. Resolved
+  # lazily, so an oversized upload is answered by the controller rather than before it.
+  servlet:
+    multipart:
+      max-file-size: 10MB                                       # SPRING_SERVLET_MULTIPART_MAXFILESIZE
+      max-request-size: 26MB                                    # SPRING_SERVLET_MULTIPART_MAXREQUESTSIZE
+      resolve-lazily: true                                      # SPRING_SERVLET_MULTIPART_RESOLVELAZILY
   # Bearer-JWT validation on /api/** against the VE's OSP IdP (Ory Hydra) — the same IdP the
   # Catena-X onboarding API trusts. issuer-uri is the expected `iss`: the IdP's EXTERNAL URL.
   security:
@@ -22,3 +29,7 @@ dx-onboarding:
   # How long an application waits before it is decided — 0 decides right away (still off the
   # request thread, so the webhook may arrive before or after the submitting call returns).
   decision-delay: 0s                                            # DXONBOARDING_DECISIONDELAY
+  # The header the federated connector's data plane stamps the calling connector's identity in;
+  # onboarding requests are scoped to it. ASSUMPTION: the spec does not say how the data plane
+  # passes the identity on — a header is assumed, and trusted unverified (warned about at startup).
+  connector-id-header: X-Connector-Id                           # DXONBOARDING_CONNECTORIDHEADER
