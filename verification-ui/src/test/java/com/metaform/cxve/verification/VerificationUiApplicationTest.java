@@ -43,9 +43,6 @@ class VerificationUiApplicationTest {
         assertEquals(Map.of("events.onboarding.started", 1, "events.onboarding.completed", 1,
                         "events.issuance.credential.delivered", 1),
                 properties.dataspace("decade-x").useCase("ccm").ccm().externalExpectedEvents());
-        // every participant declares its member id up front, in either dataspace
-        assertFalse(properties.dataspace("decade-x").memberId().assignedToExternal());
-        assertFalse(properties.dataspace("catena-x").memberId().assignedToExternal());
         assertFalse(properties.timeouts().onboarding().isZero());
     }
 }

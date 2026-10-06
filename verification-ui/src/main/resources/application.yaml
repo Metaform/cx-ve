@@ -217,9 +217,6 @@ verification:
         label: DECADE-X-ID
         pattern: "DX-[0-9]{8}"
         example: DX-00000001
-        # Declared up front by every participant, external ones included — like a Catena-X BPN: the
-        # DECADE-X TSP honors the id it is given (it would assign one to a participant declaring none).
-        assigned-to-external: false
       # DECADE-X's own (seeded by the umbrella's decadex-profile): cx-neptune's DCP scopes ask for the
       # Catena-X credentials, which a DECADE-X participant does not hold. A DID document still
       # advertises cx-neptune (one platform-wide profile), so this is dialled explicitly.

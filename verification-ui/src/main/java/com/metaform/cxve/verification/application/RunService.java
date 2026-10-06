@@ -44,12 +44,11 @@ public class RunService {
      * identity and only its own half of the exchange is driven from here; without one, the
      * participant is onboarded into this environment and driven end to end.
      *
-     * <p>The member id is REQUIRED (the catalog checks it against the dataspace's format). This
-     * environment issues the participant's member credential for exactly that value (Catena-X: the
-     * BpnCredential), and an external system's is agreed with its operator — Certo checks its
-     * certificates against it — so nothing here may substitute a derived placeholder for a missing
-     * one. The exception would be an external participant of a dataspace that ASSIGNS its member id
-     * on onboarding (none does today): it comes without one, and the run adopts the assigned id.
+     * <p>The member id is REQUIRED and arrives validated from the boundary (and against the
+     * dataspace's format here). This environment issues the participant's member credential for
+     * exactly that value (Catena-X: the BpnCredential), and an external system's is agreed with its
+     * operator — Certo checks its certificates against it — so nothing here may substitute a
+     * derived placeholder for a missing one.
      *
      * <p>The remaining absent inputs are still derived: the short name from the run id, the
      * registration's unique id deterministically from the short name (the e2e suite's VAT-id
@@ -59,12 +58,12 @@ public class RunService {
      */
     public VerificationRun.Snapshot start(String dataspace, String useCase, String name, String shortName,
                                           String memberId, String did) {
-        var resolvedMemberId = hasText(memberId) ? memberId.trim() : null;
-        var declaredDid = hasText(did) ? did.trim() : null;
-        var flow = catalog.resolve(dataspace, useCase, resolvedMemberId, declaredDid != null);
+        var resolvedMemberId = memberId.trim();
+        var flow = catalog.resolve(dataspace, useCase, resolvedMemberId);
         var runId = UUID.randomUUID().toString().substring(0, 8);
         var resolvedShortName = hasText(shortName) ? shortName.trim() : "put-" + runId;
         var resolvedName = hasText(name) ? name.trim() : "Participant " + runId;
+        var declaredDid = hasText(did) ? did.trim() : null;
         var run = new VerificationRun(runId, dataspace, useCase, resolvedName, resolvedShortName, resolvedMemberId,
                 VatIdDeriver.vatIdFor(resolvedShortName), declaredDid, flow.steps(declaredDid != null));
         runs.put(runId, run);

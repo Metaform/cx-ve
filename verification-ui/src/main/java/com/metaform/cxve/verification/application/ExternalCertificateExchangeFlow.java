@@ -89,7 +89,7 @@ public class ExternalCertificateExchangeFlow {
                 var offered = membership.isCredentialsOffered()
                         ? membership
                         : hub.awaitCredentialsOffered(membership.externalId());
-                run.onExternallyOnboarded(offered.did(), offered.onboardingProcessId(), offered.memberId());
+                run.onExternallyOnboarded(offered.did(), offered.onboardingProcessId());
                 return offered;
             }, offered -> "credentials offered to %s (process %s)".formatted(
                     offered.did(), offered.onboardingProcessId()));

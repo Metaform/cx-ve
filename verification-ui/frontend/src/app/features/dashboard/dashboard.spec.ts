@@ -12,7 +12,7 @@ const BPN: MemberIdFormat = { label: 'BPN', pattern: 'BPNL[0-9A-Z]{12}', example
 const DECADE_X_ID: MemberIdFormat = { label: 'DECADE-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001' };
 
 /** Catena-X and DECADE-X as configured: CCM verifiable where the dataspace is, Traceability and Substance tracing nowhere. */
-function catalog({ catenaX = true, decadeX = false, decadeXAssignsIds = false } = {}): CatalogDataspace[] {
+function catalog({ catenaX = true, decadeX = false } = {}): CatalogDataspace[] {
   return [
     {
       id: 'catena-x', displayName: 'Catena-X', available: catenaX, memberId: BPN,
@@ -23,7 +23,7 @@ function catalog({ catenaX = true, decadeX = false, decadeXAssignsIds = false } 
     },
     {
       id: 'decade-x', displayName: 'DECADE-X', available: decadeX,
-      memberId: { ...DECADE_X_ID, assignedToExternal: decadeXAssignsIds },
+      memberId: DECADE_X_ID,
       useCases: [
         { id: 'ccm', displayName: 'Company Certificate Management', available: decadeX },
         { id: 'substance-tracing', displayName: 'Substance tracing', available: false }
@@ -386,33 +386,6 @@ describe('Dashboard', () => {
       finish();
     }));
 
-    it('is not asked of an external participant where the dataspace assigns it on onboarding', fakeAsync(() => {
-      api.catalog.and.returnValue(of(catalog({ decadeX: true, decadeXAssignsIds: true })));
-      create();
-      dashboard.selectDataspace('decade-x');
-      dashboard.memberId = 'DX-00000001';
-      dashboard.did = 'did:web:sut.example.com';
-      settle();
-      // ngModel applies a [disabled] change asynchronously, after the change detection that bound it
-      settle();
-
-      expect(dashboard.memberIdAssigned).toBeTrue();
-      expect(dashboard.effectiveMemberId).toBe('');
-      expect(text('label.field:has(input[name="memberId"]) .label')).toBe('DECADE-X-ID');
-      expect(element<HTMLInputElement>('input[name="memberId"]')!.disabled).toBeTrue();
-      expect(element<HTMLInputElement>('input[name="memberId"]')!.placeholder).toBe('assigned on onboarding');
-      expect(dashboard.memberIdHint).toBe('Assigned by DECADE-X when the system is onboarded — nothing to enter.');
-      expect(dashboard.canStart).toBeTrue();
-
-      // a participant hosted here brings its own: its deployment needs it
-      dashboard.did = '';
-      dashboard.memberId = '';
-      settle();
-      expect(dashboard.memberIdAssigned).toBeFalse();
-      expect(dashboard.startBlocker).toBe('Enter the DECADE-X-ID to start the run.');
-      finish();
-    }));
-
     it('is asked of an external participant in DECADE-X, which declares it like a BPN', fakeAsync(() => {
       api.catalog.and.returnValue(of(catalog({ decadeX: true })));
       create();
@@ -420,7 +393,6 @@ describe('Dashboard', () => {
       dashboard.did = 'did:web:sut.example.com';
       settle();
 
-      expect(dashboard.memberIdAssigned).toBeFalse();
       expect(dashboard.startBlocker).toBe('Enter the DECADE-X-ID to start the run.');
       finish();
     }));
@@ -430,7 +402,6 @@ describe('Dashboard', () => {
       dashboard.did = 'did:web:sut.example.com';
       fixture.detectChanges();
 
-      expect(dashboard.memberIdAssigned).toBeFalse();
       expect(dashboard.startBlocker).toBe('Enter the BPN to start the run.');
       finish();
     }));
@@ -481,24 +452,6 @@ describe('Dashboard', () => {
 
       expect(api.startRun).toHaveBeenCalledOnceWith({
         dataspace: 'catena-x', useCase: 'ccm', memberId: 'BPNL000000000001', did: 'did:web:sut.example.com'
-      });
-      finish();
-    }));
-
-    it('submits no member id for an external participant of a dataspace that assigns it', fakeAsync(() => {
-      spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
-      api.startRun.and.returnValue(of({ id: 'r1' } as RunSnapshot));
-      api.catalog.and.returnValue(of(catalog({ decadeX: true, decadeXAssignsIds: true })));
-      create();
-      dashboard.selectDataspace('decade-x');
-      dashboard.memberId = 'DX-00000001';
-      dashboard.did = 'did:web:sut.example.com';
-      dashboard.onDidChange();
-
-      dashboard.startRun();
-
-      expect(api.startRun).toHaveBeenCalledOnceWith({
-        dataspace: 'decade-x', useCase: 'ccm', did: 'did:web:sut.example.com'
       });
       finish();
     }));

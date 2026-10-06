@@ -128,16 +128,11 @@ public record VerificationProperties(
     }
 
     /**
-     * @param label              what the dataspace calls a member id, e.g. "BPN"
-     * @param pattern            a regular expression a member id must match in full; blank accepts anything
-     * @param example            a sample value, shown as the input's placeholder
-     * @param assignedToExternal whether the dataspace's onboarding ASSIGNS an externally hosted
-     *                           participant's member id — a run then takes none up front and adopts
-     *                           the one the hub records; a participant hosted here always brings its
-     *                           own, its deployment needs it. Off for every dataspace today: Catena-X
-     *                           and DECADE-X participants declare their BPN / DECADE-X-ID.
+     * @param label   what the dataspace calls a member id, e.g. "BPN"
+     * @param pattern a regular expression a member id must match in full; blank accepts anything
+     * @param example a sample value, shown as the input's placeholder
      */
-    public record MemberId(String label, String pattern, String example, boolean assignedToExternal) {
+    public record MemberId(String label, String pattern, String example) {
     }
 
     /** A policy constraint; the leftOperand is resolved against the dataspace's policy context. */

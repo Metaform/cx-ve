@@ -25,8 +25,7 @@ public class VerificationRun {
     private final String useCase;
     private final String name;
     private final String shortName;
-    /** Null until assigned, for an external participant of a dataspace that assigns it. */
-    private String memberId;
+    private final String memberId;
     private final String uniqueId;
     /** The declared DID of an externally hosted participant; null for one this environment hosts. */
     private final String declaredDid;
@@ -82,7 +81,7 @@ public class VerificationRun {
     }
 
     /** The participant's id within the run's dataspace — the BPN in Catena-X, the DECADE-X-ID in DECADE-X. */
-    public synchronized String memberId() {
+    public String memberId() {
         return memberId;
     }
 
@@ -167,18 +166,13 @@ public class VerificationRun {
     }
 
     /**
-     * An externally hosted participant's onboarding outcome: its membership has its credentials
-     * offered. It brought its own identity, and this environment provisioned nothing for it — so
-     * there is no participant context id, and its absence is the normal case rather than a missing
-     * value. A run that came without a member id — of a dataspace that assigns it (see
-     * {@code MemberId#assignedToExternal}) — adopts the one the dataspace assigned.
+     * An externally hosted participant's onboarding outcome: it brought its own identity, and this
+     * environment provisioned nothing for it — so there is no participant context id, and its
+     * absence is the normal case rather than a missing value.
      */
-    public synchronized void onExternallyOnboarded(String did, String onboardingProcessId, String memberId) {
+    public synchronized void onExternallyOnboarded(String did, String onboardingProcessId) {
         this.did = did;
         this.onboardingProcessId = onboardingProcessId;
-        if (this.memberId == null) {
-            this.memberId = memberId;
-        }
     }
 
     public synchronized void verificationParticipant(VerificationParticipant participant) {
