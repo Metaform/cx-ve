@@ -20,25 +20,27 @@ global:
 # <release>-nats-auth Secret, vault-bootstrap creates a `nats-<component>` policy + k8s-auth role
 # per service account, and each pod gets a fetch-nats-nkey init container that pulls its own seed.
 #
-# TURNING IT OFF IS ALL-OR-NOTHING — there are SIX switches across four charts and no single
+# TURNING IT OFF IS ALL-OR-NOTHING — there are EIGHT switches across five charts and no single
 # global flag (a parent chart cannot drive a subchart value from a template, so they cannot be
 # collapsed). Flip ALL of them together, or leave them all alone:
 #
 #   1. core-platform-distribution.nats.auth.enabled  -> false   (below)
 #   2. certoAgent.natsAuth.enabled                   -> false   (see certoAgent, further down)
-#   3. onboarding-api.natsAuth.enabled               -> false   (see onboarding-api, below)
-#   4. onboarding-api.config.nats.nkey-seed-path     -> ""      (see onboarding-api, below)
+#   3. cx-onboarding-api.natsAuth.enabled               -> false   (see cx-onboarding-api, below)
+#   4. cx-onboarding-api.config.nats.nkey-seed-path     -> ""      (see cx-onboarding-api, below)
 #   5. complianceTracker.natsAuth.enabled            -> false   (see complianceTracker, at the end)
 #   6. certo.natsAuth.enabled                        -> false   (see certo, below)
+#   7. dx-onboarding-api.natsAuth.enabled            -> false   (see dx-onboarding-api, below)
+#   8. dx-onboarding-api.config.nats.nkey-seed-path  -> ""      (see dx-onboarding-api, below)
 #
 # Flipping only #1 is the dangerous half-measure: it removes the PROVISIONING (no
 # nats-auth-bootstrap job -> no <release>-nats-auth Secret; vault-bootstrap skips the nats-*
-# policies and roles) while #2/#3/#5/#6 still CONSUME it. Their init containers and seed jobs retry
+# policies and roles) while #2/#3/#5/#6/#7 still CONSUME it. Their init containers and seed jobs retry
 # forever by design, so the pods sit in Init:0/1 indefinitely instead of failing — certo-agent and
 # compliance-tracker loop on `invalid role name "nats-cfm-agents"` (hidden by a 2>/dev/null in the
-# templates) and the onboarding-api nats-auth-seed loops waiting for the users.conf Secret.
+# templates) and the cx-onboarding-api nats-auth-seed loops waiting for the users.conf Secret.
 #
-# #4 is easy to miss: it is NOT gated by #3. It is a plain value rendered through
+# #4 (and #8, its DECADE-X twin) is easy to miss: it is NOT gated by #3 (#7). It is a plain value rendered through
 # `toYaml .Values.config` into the app's application.yaml, so leaving it set makes the app attempt
 # NKey auth against a seed file no init container writes any more. "" is the documented
 # connect-unauthenticated value (NatsProperties.hasNkeyAuth() is false for blank).
@@ -87,7 +89,8 @@ core-platform-distribution:
             - identityhub
             - issuerservice
             - certo
-            - onboarding-api
+            - cx-onboarding-api
+            - dx-onboarding-api
   edc:
     controlplane:
       # ADDITIONAL issuers for the ROOT (config-based) trusted-issuer registry, rendered as
@@ -147,8 +150,8 @@ core-platform-distribution:
     # Helm replaces lists wholesale, so this list must repeat the platform defaults in full —
     # the `certo`, `event_tracker` and `hydra` entries are the CX-VE-specific additions (certo's
     # database, the compliance tracker's event ledger and the OSP IdP's store live in the
-    # platform's Postgres). The onboarding API's `onboarding` database is deliberately NOT here:
-    # the onboarding-api chart provisions it itself (its postgres-seed job), so it works against
+    # platform's Postgres). The Catena-X onboarding API's `cx_onboarding` database is deliberately NOT here:
+    # the cx-onboarding-api chart provisions it itself (its postgres-seed job), so it works against
     # a platform release this list never touched — an option the components deployed from THIS
     # chart don't need.
     databases:
@@ -184,10 +187,13 @@ catenax-profile:
     # bump the pin in Chart.yaml.
     trustedIssuers: []
 
-# ---- Onboarding API --------------------------------------------------------------------------
+# ---- Catena-X onboarding API -----------------------------------------------------------------
 # The app chart's own defaults already target this umbrella (cx-ve-* infra names, cxve.localhost
 # hostnames); only deltas belong here.
-onboarding-api:
+cx-onboarding-api:
+  # Goes together with the hub's membership-hub.config.dataspaces.catena-x.enabled: a hub serving
+  # Catena-X without this API fails every registration, and this API without the hub is idle.
+  enabled: true
   image:
     pullPolicy: IfNotPresent
   # NATS auth switches 3 and 4 of 4 — see the NATS authentication block at the top of this file.
@@ -201,13 +207,38 @@ onboarding-api:
   #   nats:
   #     nkey-seed-path: ""
 
+# ---- DECADE-X onboarding API -------------------------------------------------------------------
+# The TSP onboarding intake. There is no TSP operator yet: requests are approved automatically —
+# those of participants hosted here, and for now those of external ones too
+# (dx-onboarding-api.config.dx-onboarding.review). On approval it registers the participant as a
+# credential holder and has the platform's issuer offer it the DecadeXMembershipCredential (see
+# decadex-profile below), as the cx-onboarding-api does for Catena-X. Goes together with the hub's
+# membership-hub.config.dataspaces.decade-x.enabled, like the Catena-X switch above.
+dx-onboarding-api:
+  enabled: true
+  image:
+    pullPolicy: IfNotPresent
 
-# ---- Catena-X Membership Hub ------------------------------------------------------------------
-# Drives the full member journey: EDC resource provisioning via the CFM Tenant Manager for a
-# member this VE hosts, then registration via the Onboarding API (as OSP client membership-hub,
-# seeded under ospIdp.clients below), which registers the credential holder and offers it the
-# credentials. All URLs in the subchart's defaults already point at the umbrella's in-cluster
-# services.
+# ---- DECADE-X profile ---------------------------------------------------------------------------
+# DECADE-X's dataspace seeding (charts/decadex-profile), the catenax-profile's counterpart: the
+# DecadeXMembershipCredential's definition on the platform's issuer, and the EDC dataspace profile
+# DECADE-X participants run DSP under (`decade-x`, trusting the platform's issuer, with a DCP scope
+# asking for the credential). Goes together with dx-onboarding-api.enabled; its credential
+# definition id must match the dx-onboarding-api's issuer-service.credential-definition-ids, and its
+# dspProfile the hub's and the verification UI's DECADE-X DSP profile.
+decadex-profile:
+  enabled: true
+  dspProfile: decade-x
+  issuer:
+    # host-derived: the install scripts override it
+    did: "did:web:issuer.cxve.localhost:issuer"
+
+# ---- Membership Hub ---------------------------------------------------------------------------
+# Drives the full member journey in each dataspace it serves: EDC resource provisioning via the
+# CFM Tenant Manager for a member this VE hosts, then registration via the dataspace's onboarding
+# API (as OSP client membership-hub, seeded under ospIdp.clients below) — for Catena-X it
+# registers the credential holder and offers it the credentials. All URLs in the subchart's
+# defaults already point at the umbrella's in-cluster services.
 membership-hub:
   image:
     pullPolicy: IfNotPresent
@@ -308,7 +339,7 @@ certo:
 # OAuth2 issuer for EXTERNAL callers of the Onboarding API (the onboarding service provider
 # role): client_credentials tokens, validated by the API against this IdP's JWKS. See
 # templates/osp-idp.yaml — the issuer/token URL is http://<global.host>/auth/osp, so it follows
-# the host automatically; the onboarding-api subchart's issuer-uri must be overridden alongside
+# the host automatically; the cx-onboarding-api subchart's issuer-uri must be overridden alongside
 # a non-default host (install-ve.sh does).
 ospIdp:
   enabled: true
@@ -332,14 +363,14 @@ ospIdp:
       scope: "configure_partner_registration registration:read registration:write callback-config:read callback-config:write"
     # The Membership Hub's own OSP identity — a separate client, so its callback registration
     # cannot collide with osp-client's (e.g. the e2e suite's). Must agree with the
-    # membership-hub chart's config onboarding-api.auth.*
+    # membership-hub chart's config dataspaces.catena-x.onboarding.auth.*
     - id: membership-hub
       secret: membership-hub-secret
       scope: "configure_partner_registration registration:read registration:write callback-config:read callback-config:write"
     # The credentials the hub registers ALONGSIDE its callback URL: the Onboarding API uses them
     # (client_credentials) to authenticate the status callbacks it sends BACK to the hub, whose
     # callback endpoint validates the bearer against this IdP. Must agree with the membership-hub
-    # chart's config onboarding-api.callback.*
+    # chart's config dataspaces.catena-x.onboarding.callback.*
     - id: membership-hub-callback
       secret: membership-hub-callback-secret
       scope: "callback"

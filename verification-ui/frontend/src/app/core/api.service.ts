@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { EventlogRollup, RunSnapshot, RunSummary, VpStatus } from './models';
+import { CatalogDataspace, EventlogRollup, RunSnapshot, RunSummary, StartRunRequest, VpStatus } from './models';
 
 /**
  * The BFF's API — strictly same-origin relative URLs: behind the gateway the app lives under
@@ -13,17 +13,26 @@ export class ApiService {
 
   private readonly http = inject(HttpClient);
 
-  vpStatus(): Observable<VpStatus> {
-    return this.http.get<VpStatus>('api/verification-participant');
+  /** What a run can be started for: the dataspaces, their use cases and member-id formats. */
+  catalog(): Observable<CatalogDataspace[]> {
+    return this.http.get<CatalogDataspace[]>('api/catalog');
+  }
+
+  /** The verification participant of one dataspace — each has its own. */
+  vpStatus(dataspace: string): Observable<VpStatus> {
+    return this.http.get<VpStatus>('api/verification-participant', { params: { dataspace } });
   }
 
   /** Synchronous on the server — a first-time ensure runs the whole onboarding (minutes). */
-  ensureVp(): Observable<VpStatus> {
-    return this.http.post<VpStatus>('api/verification-participant', {});
+  ensureVp(dataspace: string): Observable<VpStatus> {
+    return this.http.post<VpStatus>('api/verification-participant', {}, { params: { dataspace } });
   }
 
-  /** A `did` makes it a run against a third-party system; without one the participant is onboarded here. */
-  startRun(request: { name?: string; shortName?: string; bpn?: string; did?: string }): Observable<RunSnapshot> {
+  /**
+   * Answers 400 with a plain-text reason for a dataspace, use case or member id the catalog
+   * refuses.
+   */
+  startRun(request: StartRunRequest): Observable<RunSnapshot> {
     return this.http.post<RunSnapshot>('api/runs', request);
   }
 

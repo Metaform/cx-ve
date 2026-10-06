@@ -16,9 +16,10 @@ import org.springframework.security.web.SecurityFilterChain;
 
 /**
  * OAuth2 security for the status-callback endpoint: {@code /api/callbacks/**} is a JWT resource
- * server. The caller is the Onboarding API, which obtained its bearer via client_credentials from
- * the VE's OSP IdP (Ory Hydra) using the client id/secret this app registered ALONGSIDE its
- * callback URL — see {@code OnboardingApiClient#registerCallback}. Validation is Boot's standard
+ * server. The caller is a dataspace's onboarding API, which obtained its bearer via
+ * client_credentials from the VE's OSP IdP (Ory Hydra) using the client id/secret this app
+ * registered ALONGSIDE its callback URL — see {@code DataspaceOnboarding#registerCallback}. Every
+ * onboarding API the VE runs authenticates against that one IdP. Validation is Boot's standard
  * property-driven decoder under {@code spring.security.oauth2.resourceserver.jwt}: signature via
  * the IdP's JWKS, {@code exp}/{@code nbf}, and {@code iss} against the configured issuer.
  *

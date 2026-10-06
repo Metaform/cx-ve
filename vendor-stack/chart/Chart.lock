@@ -5,8 +5,11 @@ dependencies:
 - name: catenax-profile
   repository: oci://ghcr.io/metaform/charts
   version: 0.0.11
+- name: decadex-profile
+  repository: file://../../charts/decadex-profile
+  version: 0.1.0
 - name: certo
   repository: oci://ghcr.io/metaform/charts
   version: 0.0.6
-digest: sha256:4be9fdda3857179f568f1ac8937a967de975ddc296889e2184243b98dc7e8c28
-generated: "2026-09-17T09:04:58.122402+02:00"
+digest: sha256:bdb61f3e23e15f00bafeeea5443b55364d4c28f43f8946e4c6978657559e87be
+generated: "2026-10-02T13:28:18.708347+02:00"

@@ -1,6 +1,66 @@
 <div class="dash-grid">
   <div class="col-left">
 
+    <section class="panel scope-panel">
+      <div class="panel-head">
+        <h2>Dataspace &amp; use case</h2>
+      </div>
+      @if (catalog; as dataspaces) {
+        @if (dataspaces.length === 0) {
+          <p class="muted">No dataspace is configured in this environment.</p>
+        } @else {
+          <fieldset class="pick">
+            <legend><span class="step-no" aria-hidden="true">1</span>Dataspace</legend>
+            <div class="choices dataspaces">
+              @for (dataspace of dataspaces; track dataspace.id) {
+                <label class="choice" [class.selected]="dataspace.id === dataspaceId"
+                       [class.unavailable]="!dataspace.available">
+                  <input type="radio" name="dataspace" [checked]="dataspace.id === dataspaceId"
+                         [disabled]="!dataspace.available" (change)="selectDataspace(dataspace.id)">
+                  <span class="choice-name">{{ dataspace.displayName }}</span>
+                  @if (dataspace.available) {
+                    <span class="choice-note mono">{{ dataspace.id }}</span>
+                  } @else {
+                    <span class="choice-note">not available in this environment</span>
+                  }
+                </label>
+              }
+            </div>
+          </fieldset>
+          <fieldset class="pick">
+            <legend><span class="step-no" aria-hidden="true">2</span>Use case</legend>
+            @if (selectedDataspace; as dataspace) {
+              <div class="choices">
+                @for (useCase of dataspace.useCases; track useCase.id) {
+                  <label class="choice" [class.selected]="useCase.id === useCaseId"
+                         [class.unavailable]="!useCase.available">
+                    <input type="radio" name="useCase" [checked]="useCase.id === useCaseId"
+                           [disabled]="!useCase.available" (change)="selectUseCase(useCase.id)">
+                    <span class="choice-name">{{ useCase.displayName }}</span>
+                    @if (useCase.available) {
+                      <span class="choice-note mono">{{ useCase.id }}</span>
+                    } @else {
+                      <span class="choice-note">
+                        {{ dataspace.available ? 'not verifiable yet' : 'not available in this environment' }}
+                      </span>
+                    }
+                  </label>
+                } @empty {
+                  <p class="muted small">{{ dataspace.displayName }} lists no use cases.</p>
+                }
+              </div>
+            } @else {
+              <p class="muted small">Pick a dataspace first — each has its own use cases.</p>
+            }
+          </fieldset>
+        }
+      } @else if (catalogUnreachable) {
+        <p class="muted">The verification environment is not reachable. Retrying…</p>
+      } @else {
+        <p class="muted">Loading…</p>
+      }
+    </section>
+
     <section class="panel vp-card">
       <div class="panel-head">
         <h2>Verification participant</h2>
@@ -9,42 +69,54 @@
         }
       </div>
 
-      @if (!vp && !vpUnreachable) {
-        <p class="muted">Loading…</p>
-      } @else if (vpUnreachable && !vp) {
-        <p class="muted">The verification environment is not reachable. Retrying…</p>
-      } @else if (vp && !vp.exists) {
-        <p class="muted">
-          The permanent consumer side of every verification run. Ensure it once —
-          all runs reuse it.
-        </p>
-        <button class="btn primary" (click)="ensure()" [disabled]="ensuring">
-          {{ ensuring ? 'Ensuring…' : 'Ensure participant' }}
-        </button>
-        @if (ensuring) {
-          <p class="muted small">First-time onboarding runs the full registration — this can take a few minutes.</p>
-        }
-      } @else if (vp?.membership; as membership) {
-        <dl class="kv">
-          <dt>Name</dt><dd>{{ membership.name }}</dd>
-          <dt>BPN</dt><dd>{{ membership.bpn }}</dd>
-          @if (membership.did) {
-            <dt>DID</dt><dd>{{ membership.did }}</dd>
-          }
-          @if (membership.participantContextId) {
-            <dt>Context</dt><dd>{{ membership.participantContextId }}</dd>
-          }
-        </dl>
-        <div class="vp-foot">
-          @if (vp!.offerSeeded) {
-            <span class="chip ok">inbox offer seeded</span>
-          } @else {
-            <span class="chip neutral">offer not verified yet</span>
-          }
-          <button class="btn quiet" (click)="ensure()" [disabled]="ensuring">
-            {{ ensuring ? 'Checking…' : 'Re-check & seed' }}
+      @if (selectedDataspace; as dataspace) {
+        @if (!dataspace.available) {
+          <p class="muted">
+            {{ dataspace.displayName }} is not available in this environment, and neither is its
+            verification participant.
+          </p>
+        } @else if (!vp && !vpUnreachable) {
+          <p class="muted">Loading…</p>
+        } @else if (vpUnreachable && !vp) {
+          <p class="muted">The verification environment is not reachable. Retrying…</p>
+        } @else if (vp && !vp.exists) {
+          <p class="muted">
+            The permanent consumer side of every verification run in {{ dataspace.displayName }}.
+            Ensure it once — all of its runs reuse it.
+          </p>
+          <button class="btn primary" (click)="ensure()" [disabled]="ensuring">
+            {{ ensuring ? 'Ensuring…' : 'Ensure participant' }}
           </button>
-        </div>
+          @if (ensuring) {
+            <p class="muted small">First-time onboarding runs the full registration — this can take a few minutes.</p>
+          }
+        } @else if (vp?.membership; as membership) {
+          <dl class="kv">
+            <dt>Name</dt><dd>{{ membership.name }}</dd>
+            <dt>{{ memberIdLabel }}</dt><dd>{{ membership.memberId }}</dd>
+            @if (membership.did) {
+              <dt>DID</dt><dd>{{ membership.did }}</dd>
+            }
+            @if (membership.participantContextId) {
+              <dt>Context</dt><dd>{{ membership.participantContextId }}</dd>
+            }
+          </dl>
+          <div class="vp-foot">
+            @if (vp!.offerSeeded) {
+              <span class="chip ok">inbox offer seeded</span>
+            } @else {
+              <span class="chip neutral">offer not verified yet</span>
+            }
+            <button class="btn quiet" (click)="ensure()" [disabled]="ensuring">
+              {{ ensuring ? 'Checking…' : 'Re-check & seed' }}
+            </button>
+          </div>
+        }
+        @if (vpError) {
+          <p class="error">{{ vpError }}</p>
+        }
+      } @else {
+        <p class="muted">Each dataspace has its own — pick one to see it.</p>
       }
     </section>
 
@@ -52,53 +124,86 @@
       <div class="panel-head">
         <h2>Start a verification run</h2>
       </div>
-      @if (external) {
-        <p class="muted small">
-          Verifies a system that already runs elsewhere: its DID is onboarded without provisioning
-          anything here, the issuer offers it credentials, and this environment then consumes its
-          certificate offer. Seeding the offer and pushing the certificate are the system's own
-          obligations — the run waits for them.
-        </p>
-      } @else {
-        <p class="muted small">
-          Onboards a participant under test as data provider, establishes both CCM flows and
-          runs the certificate exchange. Leave fields empty to auto-generate an identity.
-        </p>
-      }
-      <form (ngSubmit)="startRun()">
-        <label class="field">
-          <span class="label">Participant DID</span>
-          <input type="text" name="did" [(ngModel)]="did" spellcheck="false" autocomplete="off"
-                 placeholder="empty — onboard a participant into this environment">
-          <span class="hint">Set it to verify an external system under test, hosted elsewhere.</span>
-        </label>
-        <label class="field">
-          <span class="label">Participant name</span>
-          <input type="text" name="name" [(ngModel)]="name" placeholder="auto-generated" autocomplete="off">
-        </label>
-        <label class="field">
-          <span class="label">Short name</span>
-          <input type="text" name="shortName" [(ngModel)]="shortName" placeholder="auto-generated"
-                 autocomplete="off" spellcheck="false">
-        </label>
-        <label class="field">
-          <span class="label">BPN</span>
-          <input type="text" name="bpn" [(ngModel)]="bpn" [disabled]="deriveBpn"
-                 [placeholder]="derivedBpn || 'derived from short name'" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="derive">
-          <input type="checkbox" name="deriveBpn" [(ngModel)]="deriveBpn">
-          <span>Derive BPN from short name</span>
-          @if (deriveBpn && derivedBpn) {
-            <span class="mono preview">→ {{ derivedBpn }}</span>
+      @if (selectedDataspace; as dataspace) {
+        @if (selectedUseCase; as useCase) {
+          <p class="muted small">
+            @if (external) {
+              @if (isCcm) {
+                Verifies a system that already runs elsewhere: its DID is onboarded into
+                {{ dataspace.displayName }} without provisioning anything here, the issuer offers
+                it credentials, and this environment then consumes its certificate offer. Seeding
+                the offer and pushing the certificate are the system's own obligations — the run
+                waits for them.
+              } @else {
+                Verifies a system that already runs elsewhere: its DID is onboarded into
+                {{ dataspace.displayName }} without provisioning anything here, and its side of
+                {{ useCase.displayName }} is its own to drive — the run waits for it.
+              }
+              It is named by its own system, so only its {{ memberIdLabel }} is asked for here.
+            } @else {
+              @if (isCcm) {
+                Onboards a participant under test into {{ dataspace.displayName }} as data
+                provider, establishes both CCM flows and runs the certificate exchange.
+              } @else {
+                Onboards a participant under test into {{ dataspace.displayName }} and verifies
+                {{ useCase.displayName }} with it.
+              }
+              Leave the name fields empty to auto-generate them; the {{ memberIdLabel }} is
+              required{{ canDeriveBpn ? ', and can be derived from the short name' : '' }}.
+            }
+          </p>
+          <form (ngSubmit)="startRun()">
+            <label class="field">
+              <span class="label">Participant DID</span>
+              <input type="text" name="did" [(ngModel)]="did" (ngModelChange)="onDidChange()"
+                     spellcheck="false" autocomplete="off"
+                     placeholder="empty — onboard a participant into this environment">
+              <span class="hint">Set it to verify an external system under test, hosted elsewhere.</span>
+            </label>
+            <label class="field">
+              <span class="label">Participant name</span>
+              <input type="text" name="name" [(ngModel)]="name" [disabled]="external"
+                     [placeholder]="external ? 'named by the system that runs it' : 'required'"
+                     autocomplete="off">
+            </label>
+            <label class="field">
+              <span class="label">Short name</span>
+              <input type="text" name="shortName" [(ngModel)]="shortName" [disabled]="external"
+                     [placeholder]="external ? 'named by the system that runs it' : 'required'"
+                     autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">
+              <span class="label">{{ memberIdLabel }}<span class="req">required</span></span>
+              <input type="text" name="memberId" [(ngModel)]="memberId" [disabled]="derivingBpn"
+                     [placeholder]="memberIdPlaceholder" [class.invalid]="memberIdInvalid"
+                     [attr.aria-invalid]="memberIdInvalid || null"
+                     autocomplete="off" spellcheck="false">
+              <span class="hint" [class.invalid]="memberIdInvalid">{{ memberIdHint }}</span>
+            </label>
+            @if (canDeriveBpn) {
+              <label class="derive">
+                <input type="checkbox" name="deriveBpn" [(ngModel)]="deriveBpn">
+                <span>Derive {{ memberIdLabel }} from short name</span>
+                @if (derivingBpn && derivedBpn) {
+                  <span class="mono preview">→ {{ derivedBpn }}</span>
+                }
+              </label>
+            }
+            <button class="btn primary submit" type="submit" [disabled]="!canStart">
+              {{ starting ? 'Starting…' : 'Start verification run' }}
+            </button>
+            @if (startBlocker; as reason) {
+              <p class="muted small blocked">{{ reason }}</p>
+            }
+          </form>
+          @if (error) {
+            <p class="error">{{ error }}</p>
           }
-        </label>
-        <button class="btn primary submit" type="submit" [disabled]="starting">
-          {{ starting ? 'Starting…' : 'Start verification run' }}
-        </button>
-      </form>
-      @if (error) {
-        <p class="error">{{ error }}</p>
+        } @else {
+          <p class="muted">Pick a use case of {{ dataspace.displayName }} to start a run.</p>
+        }
+      } @else {
+        <p class="muted">Pick a dataspace and a use case to start a run.</p>
       }
     </section>
   </div>
@@ -118,11 +223,16 @@
             <a class="run-row" [routerLink]="['/runs', run.id]">
               <span class="mono runid">#{{ run.id }}</span>
               <span class="run-name">
-                {{ run.name }}
-                @if (run.externallyHosted) {
-                  <span class="tag">external</span>
-                }
-                <span class="mono sub">{{ run.bpn }}</span>
+                <span>
+                  {{ run.name }}
+                  @if (run.externallyHosted) {
+                    <span class="tag">external</span>
+                  }
+                </span>
+                <span class="sub">
+                  <span class="mono">{{ run.memberId }}</span>
+                  · {{ dataspaceName(run.dataspace) }} · {{ useCaseName(run) }}
+                </span>
               </span>
               <span class="run-step">
                 @if (run.state === 'RUNNING' && run.currentStep) {

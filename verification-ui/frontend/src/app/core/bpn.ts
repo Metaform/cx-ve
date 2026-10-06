@@ -1,9 +1,13 @@
 /**
- * Client-side mirror of the BFF's BpnDeriver (which mirrors the e2e suite): BPN and VAT id
- * derived deterministically from the short name via Java's String.hashCode. Kept in sync by
- * hand — it only PREVIEWS what the server will derive; the server's derivation is authoritative
- * when the fields are submitted empty.
+ * Catena-X BPN derivation from a seed (the participant's short name): the e2e suite's formula
+ * (VerificationEnvironmentE2eTest#bpnFor) over Java's String.hashCode, kept in sync by hand, so a
+ * derived BPN is one operators know from e2e runs. A run-form convenience only — the BFF derives
+ * no BPN (the member id is mandatory on every run), so what this returns is exactly what gets
+ * submitted. It yields a BPN, so it applies only where member ids are BPNs: in {@link CATENA_X}.
  */
+
+/** The dataspace whose member id is the BPN — the only one {@link bpnFor} may fill it in for. */
+export const CATENA_X = 'catena-x';
 
 /** Java String.hashCode over UTF-16 code units, with 32-bit overflow semantics. */
 function javaHashCode(value: string): number {
@@ -22,8 +26,4 @@ function hex8(value: string): string {
 
 export function bpnFor(seed: string): string {
   return ('BPNL' + hex8(seed) + '000000').substring(0, 16);
-}
-
-export function vatIdFor(seed: string): string {
-  return 'DE' + hex8(seed);
 }

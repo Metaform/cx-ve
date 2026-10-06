@@ -25,6 +25,13 @@ dependencies:
   - name: catenax-profile
     repository: oci://ghcr.io/metaform/charts
     version: 0.0.11
+  # DECADE-X dataspace seeding (EDC dataspace profile + DCP scope) from this repository — on for a
+  # DECADE-X stack (install.sh -d decade-x). The catenax-profile stays either way: provisioning needs
+  # its tenant-manager dataspace profile and cell.
+  - name: decadex-profile
+    repository: file://../../charts/decadex-profile
+    version: ">=0.0.0-0"
+    condition: decadex-profile.enabled
   # Certo (CX-0135 certificate exchange service)
   - name: certo
     repository: oci://ghcr.io/metaform/charts

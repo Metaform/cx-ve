@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dx-onboarding-api.fullname" . }}-config
+  labels:
+    {{- include "dx-onboarding-api.labels" . | nindent 4 }}
+data:
+  # Complete application config; loaded via SPRING_CONFIG_ADDITIONALLOCATION, so these values
+  # take precedence over the application.yaml packaged in the image.
+  application.yaml: |
+    {{- toYaml .Values.config | nindent 4 }}

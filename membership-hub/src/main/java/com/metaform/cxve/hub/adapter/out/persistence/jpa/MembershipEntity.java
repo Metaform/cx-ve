@@ -26,14 +26,19 @@ public class MembershipEntity {
     @Column(name = "external_id", nullable = false)
     private String externalId;
 
+    /** The dataspace the membership is of, e.g. {@code catena-x}. */
+    @Column(name = "dataspace")
+    private String dataspace;
+
     @Column(name = "name")
     private String name;
 
     @Column(name = "did")
     private String did;
 
-    @Column(name = "bpn")
-    private String bpn;
+    /** The member's id within its dataspace — the BPN in Catena-X. */
+    @Column(name = "member_id")
+    private String memberId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "state", nullable = false)
@@ -55,9 +60,10 @@ public class MembershipEntity {
     @Column(name = "failure_reason")
     private String failureReason;
 
-    // NOTE an `externally_hosted` column survives in databases created before every member was
-    // offered its credentials over DCP. Nothing reads or writes it any more, and ddl-auto never
-    // drops a column, so it stays until a schema migration removes it.
+    // NOTE legacy columns survive in older databases: `bpn` (from before memberships were per
+    // dataspace — its value is `member_id` now) and `externally_hosted` (from before every member
+    // was offered its credentials over DCP). Nothing reads or writes them any more, and ddl-auto
+    // never drops a column, so they stay until a schema migration removes them.
 
     /** The membership request as JSON ({@code text} on Postgres). Written once at create. */
     @JdbcTypeCode(SqlTypes.JSON)
@@ -84,6 +90,14 @@ public class MembershipEntity {
         this.externalId = externalId;
     }
 
+    public String getDataspace() {
+        return dataspace;
+    }
+
+    public void setDataspace(String dataspace) {
+        this.dataspace = dataspace;
+    }
+
     public String getName() {
         return name;
     }
@@ -100,12 +114,12 @@ public class MembershipEntity {
         this.did = did;
     }
 
-    public String getBpn() {
-        return bpn;
+    public String getMemberId() {
+        return memberId;
     }
 
-    public void setBpn(String bpn) {
-        this.bpn = bpn;
+    public void setMemberId(String memberId) {
+        this.memberId = memberId;
     }
 
     public MembershipState getState() {

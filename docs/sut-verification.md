@@ -163,21 +163,29 @@ from the picture once ve2 is replaced by a real SUT.
 
 ## Running a verification against a SUT (Verification UI)
 
-The Verification UI implements this document for the CX-0135 certificate exchange. Entering a
-**participant DID** on the run form switches it from onboarding a participant into the VE to
-verifying one that already exists elsewhere: nothing is provisioned for that DID, and only the
-VE's own half of the exchange is driven from here.
+The Verification UI implements this document for the CCM certificate exchange. A run is of a
+**use case** in a **dataspace**, both picked before the run form opens; what follows is the
+Catena-X CCM run (CX-0135) — another dataspace's profile changes the member-id format, DSP
+profile, policies and CCM vocabulary, not the steps. Entering a **participant DID** on the run
+form switches it from onboarding a participant into the VE to verifying one that already exists
+elsewhere: nothing is provisioned for that DID, and only the VE's own half of the exchange is
+driven from here.
 
-**Declared up front** (run form): the participant DID, and optionally the company name and the
-BPN the VE should issue credentials for (otherwise derived).
+**Declared up front** (run form): the participant DID, its member id in the dataspace (the BPN
+in Catena-X — mandatory: the VE issues the member credential for exactly that value, and it is
+agreed with the SUT's operator), and optionally the company name. In DECADE-X it is the
+DECADE-X-ID, declared the same way: the `dx-onboarding-api` (the TSP) honors it when it approves
+the SUT's onboarding request, and has the issuer offer the `DecadeXMembershipCredential` for it.
+DECADE-X runs use DECADE-X's own DSP profile, `decade-x` (cx-neptune's DCP scopes ask for the
+Catena-X credentials), which the SUT must serve.
 
 **What the VE does, in order** — each step waits for the SUT rather than acting on it:
 
 | # | VE | SUT obligation to proceed |
 |---|---|---|
 | 1 | Resolves the DID document | Served and reachable from the VE, advertising `ProtocolEndpoint` and `CredentialService` (Checkpoint 0) |
-| 2 | Registers the SUT through its **Onboarding API**, which registers the DID as a credential holder and then has the IssuerService send a DCP CredentialOffer to the advertised `CredentialService` | Accept the offer and request the credentials (Checkpoint 1). The VE waits for `events.issuance.credential.delivered` in its ledger — nothing else proves the SUT holds them |
-| 3 | Requests the SUT's catalog as the verification participant, negotiates and starts a `https://w3id.org/dspace-sig/profile/http-pull` transfer | An asset fronting its CCM API, declaring the CX-0135 provider API — `dct:type` `cx-taxo:CCMAPI`, `dct:subject` `cx-taxo:CompanyCertificateManagementProviderApi`, `cx-common:version` (`verification.ccm-api-version`, default `3.0`) — gated on the three CX credential constraints (Checkpoint 2). The VE finds it by those properties, whatever its id; a catalog offering the API twice fails the run, since CX-0135 allows one offer per API and version |
+| 2 | Registers the SUT through the dataspace's **onboarding API** (Catena-X: `cx-onboarding-api`), which registers the DID as a credential holder and then has the IssuerService send a DCP CredentialOffer to the advertised `CredentialService` | Accept the offer and request the credentials (Checkpoint 1). The VE waits for `events.issuance.credential.delivered` in its ledger — nothing else proves the SUT holds them |
+| 3 | Requests the SUT's catalog as the verification participant, negotiates and starts a `https://w3id.org/dspace-sig/profile/http-pull` transfer | An asset fronting its CCM API, declaring the CX-0135 provider API — `dct:type` `cx-taxo:CCMAPI`, `dct:subject` `cx-taxo:CompanyCertificateManagementProviderApi`, `cx-common:version` (the dataspace profile's `use-cases.ccm.ccm.api.version`, default `3.0`) — gated on the three CX credential constraints (Checkpoint 2). The VE finds it by those properties, whatever its id; a catalog offering the API twice fails the run, since CX-0135 allows one offer per API and version |
 | 4 | Waits for a certificate on the verification participant's inbox | Find the VE's permanent inbox offer — the dataset declaring the CX-0135 consumer API (`cx-taxo:CompanyCertificateManagementConsumerApi`) — consume it and push a certificate over that flow (Checkpoint 3 + CX-0135 Flow B) |
 | 5 | Retrieves the certificate over the pull flow and reports the `ACCEPTED` verdict | — |
 
@@ -186,7 +194,7 @@ original, since the SUT authored it; step 5 checks the delivery's internal consi
 exchange having happened under VE-issued credentials is the finding. And the compliance ledger
 can only attribute a SUT's **onboarding and credential delivery** to it — the exchange's own
 events carry the verification participant's context — so the ledger checklist for an external run
-is deliberately short (`verification.external.expected-events`).
+is deliberately short (the dataspace profile's `use-cases.ccm.ccm.external-expected-events`).
 
 The VE issues to its own participants exactly this way too: every member the Membership Hub
 onboards — the verification participant included — goes through the same registration, is offered

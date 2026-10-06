@@ -48,7 +48,7 @@ jwtlet:
     mappings:
       # Tenant Manager tokens (deploying a hosted member's EDC resources) — the app's ONLY
       # exchange. Must agree with the app's config tenant-manager.token-resource; the scopes cover
-      # exactly what TenantManagerClient requests. Credential offers are the onboarding-api's, and
+      # exactly what TenantManagerClient requests. Credential offers are the cx-onboarding-api's, and
       # so is the issuer-admin-api mapping they need.
       - participantContext: issuer
         scopes:
@@ -128,25 +128,65 @@ config:
   logging:
     level:
       com.metaform.cxve.hub: INFO
-  # The Onboarding API, called as an onboarding service provider. Tokens come from the OSP IdP's
-  # cluster-internal public port; their `iss` is the IdP's external issuer URL regardless of
-  # which host the request hit, so validation on the receiving side is unaffected. Both clients
-  # must be seeded in the IdP (umbrella: ospIdp.clients): `auth` is the hub's OSP identity
-  # (configure_partner_registration scope), `callback` the credentials it hands the Onboarding
-  # API for authenticating the status callbacks back to this app — the resourceserver block
-  # above validates them. The callback url is this app's own in-cluster address.
-  onboarding-api:
-    url: http://cx-ve-onboarding-api.edc-v.svc.cluster.local:8080
-    callback:
-      url: http://cx-ve-membership-hub.edc-v.svc.cluster.local:8080/api/callbacks/registration-status
-      token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
-      client-id: membership-hub-callback
-      client-secret: membership-hub-callback-secret
-    auth:
-      token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
-      client-id: membership-hub
-      client-secret: membership-hub-secret
-      scope: configure_partner_registration
+  # The dataspaces members can be onboarded into (see the app's application.yaml for the full
+  # key reference). Each dataspace's onboarding API is called as an onboarding service provider.
+  # Tokens come from the OSP IdP's cluster-internal public port; their `iss` is the IdP's external
+  # issuer URL regardless of which host the request hit, so validation on the receiving side is
+  # unaffected. Both clients must be seeded in the IdP (umbrella: ospIdp.clients): `auth` is the
+  # hub's OSP identity, `callback` the credentials it hands the onboarding API for authenticating
+  # the status callbacks back to this app — the resourceserver block above validates them. The
+  # callback url is this app's own in-cluster address, under the dataspace's callback path.
+  dataspaces:
+    catena-x:
+      enabled: true
+      display-name: Catena-X
+      onboarding:
+        url: http://cx-ve-cx-onboarding-api.edc-v.svc.cluster.local:8080
+        callback:
+          url: http://cx-ve-membership-hub.edc-v.svc.cluster.local:8080/api/callbacks/catena-x/registration-status
+          token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+          client-id: membership-hub-callback
+          client-secret: membership-hub-callback-secret
+        auth:
+          token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+          client-id: membership-hub
+          client-secret: membership-hub-secret
+          scope: configure_partner_registration
+      # Must agree with the connector's advertised dataspace profile (umbrella:
+      # core-platform-distribution.edc.controlplane.dataspaceProfiles) and the profile the
+      # catenax-profile chart seeds.
+      dataspace-profiles:
+        - cx-neptune
+      member-id-claim:
+        credential-type: BpnCredential
+        claim: bpn
+        flow-claim: bpn
+    # DECADE-X, through the dx-onboarding-api (the TSP onboarding intake): same IdP client. No
+    # callback — the TSP has none, so the hub polls each request's status
+    # (participant.registration.poll-interval).
+    decade-x:
+      enabled: true
+      display-name: DECADE-X
+      onboarding:
+        url: http://cx-ve-dx-onboarding-api.edc-v.svc.cluster.local:8080
+        auth:
+          token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+          client-id: membership-hub
+          client-secret: membership-hub-secret
+          # the TSP requires an authenticated caller, no particular scope
+          scope: ""
+      # DECADE-X's own DSP profile (the umbrella's decadex-profile): cx-neptune's DCP scopes ask every
+      # counterparty for the Catena-X credentials, which a DECADE-X participant does not hold. The
+      # platform still ADVERTISES one profile in every DID document (cx-neptune), so a counterparty
+      # has to address a DECADE-X participant's /decade-x endpoint explicitly.
+      dataspace-profiles:
+        - decade-x
+      # The dx-onboarding-api has the issuer offer it on approval; its decadeXId is the member's
+      # DECADE-X-ID.
+      member-id-claim:
+        credential-type: DecadeXMembershipCredential
+        claim: decadeXId
+        flow-claim: bpn
   # The CFM Tenant Manager. token-resource must agree with a jwtlet.seed.mappings entry above.
   tenant-manager:
     url: http://tenant-manager.edc-v.svc.cluster.local:8080/api/v1alpha1
@@ -160,7 +200,7 @@ config:
       audience: edcv
   # Prefix for member DIDs when the membership request doesn't supply one; the member's short
   # name is appended. Must match the platform's IdentityHub did:web hostname (identity.<host>)
-  # and the Onboarding API's template.
+  # and the CX onboarding API's template.
   participant:
     did:
       template: "did:web:identity.cxve.localhost:"

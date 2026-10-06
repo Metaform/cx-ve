@@ -1,6 +1,7 @@
 package com.metaform.cxve.verification;
 
 import com.metaform.cxve.verification.config.VerificationProperties;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -10,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * Context smoke test: the full application context (incl. the {@code verification.*} properties
- * binding — durations, nested records, the bracketed-key expected-events map) must assemble from
+ * binding — durations, nested records, the dataspace profiles, the bracketed-key expected-events maps) must assemble from
  * the packaged defaults alone.
  */
 @SpringBootTest
@@ -21,9 +22,27 @@ class VerificationUiApplicationTest {
 
     @Test
     void contextLoadsAndPropertiesBind() {
-        assertEquals("BPNLVERIFY000001", properties.participant().bpn());
-        assertEquals("ccm-inbox-verification", properties.inboxAssetId());
-        assertEquals(2, properties.expectedEvents().get("events.contract.negotiation.finalized"));
+        var catenaX = properties.dataspace("catena-x");
+        assertEquals("BPNLVERIFY000001", catenaX.verificationParticipant().memberId());
+        assertEquals("cx-neptune", catenaX.dspProfile());
+        assertEquals(3, catenaX.contractConstraints().size());
+        var ccm = catenaX.useCase("ccm").ccm();
+        assertEquals("ccm-inbox-verification", ccm.inboxAssetId());
+        assertEquals("3.0", ccm.api().version());
+        assertEquals(2, ccm.expectedEvents().get("events.contract.negotiation.finalized"));
+        assertEquals("Company Certificate Management", catenaX.useCase("ccm").displayName());
+        assertEquals("Traceability", catenaX.useCase("traceability").displayName());
+        assertFalse(catenaX.useCase("traceability").enabled());
+        var decadeX = properties.dataspace("decade-x");
+        assertEquals("Company Certificate Management", decadeX.useCase("ccm").displayName());
+        assertEquals("Substance tracing", decadeX.useCase("substance-tracing").displayName());
+        assertFalse(decadeX.useCase("substance-tracing").enabled());
+        // a dataspace may leave its policies unset
+        assertEquals(0, properties.dataspace("decade-x").accessConstraints().size());
+        // DECADE-X's checklist: its own onboarding events and its credential's delivery
+        assertEquals(Map.of("events.onboarding.started", 1, "events.onboarding.completed", 1,
+                        "events.issuance.credential.delivered", 1),
+                properties.dataspace("decade-x").useCase("ccm").ccm().externalExpectedEvents());
         assertFalse(properties.timeouts().onboarding().isZero());
     }
 }

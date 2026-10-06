@@ -28,9 +28,24 @@
   margin: 4px 0 6px;
 }
 
+/* what the run verifies: the dataspace, and the use case within it */
+.scope {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
 .idline {
   font-size: 12px;
   color: var(--ink-soft);
+}
+
+.idline .mono {
+  font-size: 12px;
+}
+
+.idlabel {
+  margin-right: 4px;
 }
 
 .verdict-slot {

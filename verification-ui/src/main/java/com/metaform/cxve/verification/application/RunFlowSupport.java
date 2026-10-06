@@ -73,24 +73,25 @@ public class RunFlowSupport {
      * offer this environment seeded itself it is a settling delay, for a third party's it is the
      * SUT's own turnaround.
      */
-    public CcmFlow establishCcmFlow(String consumerPcid, String providerDsp, String providerDid,
+    public CcmFlow establishCcmFlow(String consumerPcid, String providerDsp, String providerDid, String protocol,
                                     String assetId, Duration catalogTimeout) {
-        return establish(consumerPcid, providerDsp, providerDid,
-                management.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, assetId, catalogTimeout));
+        return establish(consumerPcid, providerDsp, providerDid, protocol,
+                management.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, protocol, assetId, catalogTimeout));
     }
 
     /**
      * As above against a counterparty's offer of {@code api}, whatever the counterparty named the
-     * asset: CX-0135 identifies the API by its catalog properties, not by id.
+     * asset: the CCM standard identifies the API by its catalog properties, not by id.
      */
-    public CcmFlow establishCcmFlow(String consumerPcid, String providerDsp, String providerDid,
+    public CcmFlow establishCcmFlow(String consumerPcid, String providerDsp, String providerDid, String protocol,
                                     CcmApi api, Duration catalogTimeout) {
-        return establish(consumerPcid, providerDsp, providerDid,
-                management.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, api, catalogTimeout));
+        return establish(consumerPcid, providerDsp, providerDid, protocol,
+                management.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, protocol, api, catalogTimeout));
     }
 
-    private CcmFlow establish(String consumerPcid, String providerDsp, String providerDid, CatalogOffer offer) {
-        var negotiationId = management.startNegotiation(consumerPcid, providerDsp, providerDid, offer);
+    private CcmFlow establish(String consumerPcid, String providerDsp, String providerDid, String protocol,
+                              CatalogOffer offer) {
+        var negotiationId = management.startNegotiation(consumerPcid, providerDsp, providerDid, protocol, offer);
         var negotiation = management.awaitState(
                 "/participants/%s/contractnegotiations/%s".formatted(consumerPcid, negotiationId),
                 properties.timeouts().negotiation(), Set.of("FINALIZED"));
@@ -98,7 +99,8 @@ public class RunFlowSupport {
         if (agreementId.isEmpty()) {
             throw new VerificationException("FINALIZED negotiation %s carries no contractAgreementId".formatted(negotiationId));
         }
-        var transferId = management.startTransfer(consumerPcid, agreementId, providerDsp, properties.transferType());
+        var transferId = management.startTransfer(consumerPcid, agreementId, providerDsp, protocol,
+                properties.transferType());
         management.awaitState("/participants/%s/transferprocesses/%s".formatted(consumerPcid, transferId),
                 properties.timeouts().transfer(), Set.of("STARTED"));
         log.info("CCM flow established: {} consuming '{}' at {} (flowId {})",

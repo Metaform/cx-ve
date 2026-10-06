@@ -2,6 +2,7 @@ package com.metaform.cxve.hub.adapter.out.persistence;
 
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
+import com.metaform.cxve.hub.domain.model.MembershipState;
 import com.metaform.cxve.hub.domain.port.MembershipRepository;
 import java.util.List;
 import java.util.Objects;
@@ -49,9 +50,10 @@ public class InMemoryMembershipRepository implements MembershipRepository {
     }
 
     @Override
-    public List<Membership> findByBpn(String bpn) {
+    public List<Membership> findByMemberId(String dataspace, String memberId) {
         return memberships.values().stream()
-                .filter(membership -> Objects.equals(membership.bpn(), bpn))
+                .filter(membership -> Objects.equals(membership.dataspace(), dataspace))
+                .filter(membership -> Objects.equals(membership.memberId(), memberId))
                 .toList();
     }
 
@@ -59,6 +61,13 @@ public class InMemoryMembershipRepository implements MembershipRepository {
     public List<Membership> findByDid(String did) {
         return memberships.values().stream()
                 .filter(membership -> Objects.equals(membership.did(), did))
+                .toList();
+    }
+
+    @Override
+    public List<Membership> findByState(MembershipState state) {
+        return memberships.values().stream()
+                .filter(membership -> membership.state() == state)
                 .toList();
     }
 

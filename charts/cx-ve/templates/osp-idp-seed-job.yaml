@@ -1,5 +1,5 @@
 ## Seeds the OSP clients into the OSP IdP (Ory Hydra) via its cluster-internal admin API.
-## A plain Job, not a helm hook (same reasoning as the onboarding-api postgres-seed job): it
+## A plain Job, not a helm hook (same reasoning as the cx-onboarding-api postgres-seed job): it
 ## waits for the IdP to be ready itself, and the revision-suffixed name sidesteps Job spec
 ## immutability on upgrades. Idempotent: an existing client is updated (PUT), so secret/scope
 ## changes in values propagate on upgrade.

@@ -1,0 +1,111 @@
+image:
+  repository: ghcr.io/metaform/cx-ve/dx-onboarding-api
+  # Defaults to the chart's appVersion
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+
+# Gateway API exposure (there is deliberately no Ingress template)
+httpRoute:
+  enabled: true
+  # The Gateway this route attaches to — adjust to the target cluster
+  parentRefs:
+    - name: edcv-gateway
+  hostnames:
+    - cxve.localhost
+  pathPrefix: /dx-onboarding
+
+resources: {}
+
+# The ServiceAccount the pod runs as — its identity towards the jwtlet. The name is fixed: the
+# jwtlet mapping's clientIdentifier is derived from it.
+serviceAccount:
+  create: true
+  name: dx-onboarding-api
+
+# NATS authentication: the onboarding lifecycle events go onto the platform's edc-events stream
+# under its shared `edc-events` identity, like the cx-onboarding-api's — which requires this chart's
+# ServiceAccount in the platform's nats.auth.users.edc-events.serviceAccounts (the umbrella sets it).
+# The defaults match the umbrella's release name (cx-ve-vault).
+natsAuth:
+  enabled: true
+  vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200
+  vaultRole: nats-edc-events
+  vaultSecretPath: secret/nats/edc-events
+  image: hashicorp/vault:latest
+
+# JWTlet: the pod's projected SA token is exchanged there (RFC 8693) for the token its IssuerService
+# calls need. The audience of the projected token must match jwtlet's `client_audience` (the
+# Kubernetes cluster issuer).
+jwtlet:
+  healthUrl: http://jwtlet.edc-v.svc.cluster.local:8080/health
+  mgmtUrl: http://jwtlet.edc-v.svc.cluster.local:8081/api/v1
+  subjectTokenAudience: https://kubernetes.default.svc.cluster.local
+  subjectTokenExpirationSeconds: 3600
+  # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet — one mapping
+  # per participant context the app exchanges under. The scope mappings themselves are seeded by
+  # the platform.
+  seed:
+    enabled: true
+    mappings:
+      # IssuerService admin API (holder registration, credential offers) — the app's only exchange.
+      # Must agree with config issuer-service.token-resource; `sudo` is no participant context the
+      # issuer knows, which is why the admin scope is what lets the calls through.
+      - participantContext: sudo
+        scopes:
+          - issuer-admin-api:admin
+    audiences:
+      - edcv
+    image: curlimages/curl:latest
+    hookDeletePolicy: before-hook-creation,hook-succeeded
+    ttlSecondsAfterFinished: 600
+
+# Complete application configuration. Rendered 1:1 into the ConfigMap as application.yaml and
+# mounted over the image's packaged defaults (SPRING_CONFIG_ADDITIONALLOCATION).
+config:
+  spring:
+    security:
+      oauth2:
+        resourceserver:
+          jwt:
+            # The VE's OSP IdP — the same one the CX onboarding API trusts. issuer-uri is the
+            # EXTERNAL gateway URL clients obtain tokens from (host-derived: the install scripts
+            # override it for a non-default host).
+            jwk-set-uri: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
+            issuer-uri: http://cxve.localhost/auth/osp
+  # The IssuerService an approved participant is registered with and offered its DECADE-X
+  # credentials through (in-cluster admin port). token-resource must agree with the jwtlet seed
+  # mapping above; the credential definition is the umbrella's DECADE-X issuer seed's.
+  issuer-service:
+    url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
+    issuer-context-id: issuer
+    token-resource: sudo
+    credential-definition-ids: decadex-membership-credential-def
+  # The onboarding lifecycle events, which the compliance tracker follows a participant by.
+  # nkey-seed-path is where the natsAuth init container writes the seed; "" connects
+  # unauthenticated (with natsAuth.enabled off).
+  nats:
+    enabled: true
+    url: nats://cx-ve-nats.edc-v.svc.cluster.local:4222
+    nkey-seed-path: /vault/secrets/nats.nk
+  token:
+    file:
+      path: /var/run/secrets/jwtlet/token
+    exchange:
+      url: http://jwtlet.edc-v.svc.cluster.local:8080
+      audience: edcv
+  dx-onboarding:
+    # The header the federated connector's data plane is ASSUMED to stamp the calling
+    # connector's identity in (trusted unverified — see the app's OnboardingRequestController).
+    connector-id-header: X-Connector-Id
+    # No TSP operator in the VE yet: participants hosted here (DID under hosted-did-prefix, the
+    # hub's participant.did.template — host-derived, the install scripts override it) are approved
+    # automatically; external ones too, for now. Switch external off to have them wait in SUBMITTED.
+    review:
+      hosted-did-prefix: "did:web:identity.cxve.localhost:"
+      auto-approve:
+        hosted: true
+        external: true
+      delay: 0s

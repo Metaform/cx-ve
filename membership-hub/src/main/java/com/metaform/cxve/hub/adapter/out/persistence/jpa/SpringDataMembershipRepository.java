@@ -1,12 +1,15 @@
 package com.metaform.cxve.hub.adapter.out.persistence.jpa;
 
+import com.metaform.cxve.hub.domain.model.MembershipState;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /** Spring Data backing for {@link JpaMembershipRepository}; the external id is the primary key. */
 public interface SpringDataMembershipRepository extends JpaRepository<MembershipEntity, String> {
 
-    List<MembershipEntity> findByBpn(String bpn);
+    List<MembershipEntity> findByDataspaceAndMemberId(String dataspace, String memberId);
 
     List<MembershipEntity> findByDid(String did);
+
+    List<MembershipEntity> findByState(MembershipState state);
 }

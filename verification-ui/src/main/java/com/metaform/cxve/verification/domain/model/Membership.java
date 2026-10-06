@@ -8,9 +8,10 @@ package com.metaform.cxve.verification.domain.model;
  */
 public record Membership(
         String externalId,
+        String dataspace,
         String name,
         String did,
-        String bpn,
+        String memberId,
         String state,
         String onboardingProcessId,
         String tenantId,
@@ -20,7 +21,7 @@ public record Membership(
 
     /**
      * Everything a run needs from this record: the participant context (its resources exist) and
-     * the onboarding process id (its registration is with the Onboarding API — the event ledger is
+     * the onboarding process id (its registration is with the dataspace's onboarding API — the event ledger is
      * keyed by it). Both are present from the moment the hub submits the registration, which it
      * does only once the deployment has completed.
      */
@@ -31,7 +32,7 @@ public record Membership(
 
     /**
      * The terminal success of every member: its registration was confirmed, which means the
-     * Onboarding API registered it as a credential holder and had the issuer offer it the
+     * dataspace's onboarding API registered it as a credential holder and had the issuer offer it the
      * membership credentials. Whether the member then requested and received them is a separate
      * question, answered by the event ledger.
      */

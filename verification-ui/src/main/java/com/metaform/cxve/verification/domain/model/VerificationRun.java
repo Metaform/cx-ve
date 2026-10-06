@@ -6,24 +6,27 @@ import java.util.EnumMap;
 import java.util.List;
 
 /**
- * One verification run: the participant-under-test's identity plus the live step ledger the
+ * One verification run of one use case in one dataspace: the participant-under-test's identity plus
+ * the live step ledger the
  * executing flow writes and the UI polls. Mutated only by the run's executor thread, read by web
  * threads — every access goes through synchronized methods, and readers only ever see immutable
  * {@link Snapshot}s. State is in-memory by design (v1): a pod restart loses the run record, but
  * nothing durable — the participant lives in the hub's database and the events in the tracker's.
  *
- * <p>The ledger holds exactly the steps the run's own sequence declares ({@link RunStep#MANAGED}
- * or {@link RunStep#EXTERNAL}), so the timeline never shows a step this run was never going to
- * take.
+ * <p>The ledger holds exactly the steps the run's own sequence declares (the use case's, for a
+ * managed or an external participant), so the timeline never shows a step this run was never going
+ * to take.
  */
 public class VerificationRun {
 
     private final String id;
     private final Instant startedAt = Instant.now();
+    private final String dataspace;
+    private final String useCase;
     private final String name;
     private final String shortName;
-    private final String bpn;
-    private final String vatId;
+    private final String memberId;
+    private final String uniqueId;
     /** The declared DID of an externally hosted participant; null for one this environment hosts. */
     private final String declaredDid;
     private final EnumMap<RunStep, StepRecord> steps = new EnumMap<>(RunStep.class);
@@ -41,13 +44,15 @@ public class VerificationRun {
     private VerificationParticipant verificationParticipant;
     private List<ChecklistItem> checklist = List.of();
 
-    public VerificationRun(String id, String name, String shortName, String bpn, String vatId,
-                           String declaredDid, List<RunStep> sequence) {
+    public VerificationRun(String id, String dataspace, String useCase, String name, String shortName,
+                           String memberId, String uniqueId, String declaredDid, List<RunStep> sequence) {
         this.id = id;
+        this.dataspace = dataspace;
+        this.useCase = useCase;
         this.name = name;
         this.shortName = shortName;
-        this.bpn = bpn;
-        this.vatId = vatId;
+        this.memberId = memberId;
+        this.uniqueId = uniqueId;
         this.declaredDid = declaredDid;
         this.did = declaredDid;
         for (var step : sequence) {
@@ -59,6 +64,14 @@ public class VerificationRun {
         return id;
     }
 
+    public String dataspace() {
+        return dataspace;
+    }
+
+    public String useCase() {
+        return useCase;
+    }
+
     public String name() {
         return name;
     }
@@ -67,12 +80,14 @@ public class VerificationRun {
         return shortName;
     }
 
-    public String bpn() {
-        return bpn;
+    /** The participant's id within the run's dataspace — the BPN in Catena-X, the DECADE-X-ID in DECADE-X. */
+    public String memberId() {
+        return memberId;
     }
 
-    public String vatId() {
-        return vatId;
+    /** A unique identifier for the dataspace's registration (e.g. a VAT id), derived per participant. */
+    public String uniqueId() {
+        return uniqueId;
     }
 
     /** Non-null exactly when this run verifies a participant hosted outside this environment. */
@@ -176,8 +191,8 @@ public class VerificationRun {
         var stepSnapshots = new ArrayList<StepSnapshot>();
         steps.forEach((step, record) -> stepSnapshots.add(
                 new StepSnapshot(step, record.status, record.detail, record.startedAt, record.finishedAt)));
-        return new Snapshot(id, state, startedAt, finishedAt,
-                new ParticipantInfo(name, shortName, bpn, vatId, externalId, did, participantContextId,
+        return new Snapshot(id, dataspace, useCase, state, startedAt, finishedAt,
+                new ParticipantInfo(name, shortName, memberId, uniqueId, externalId, did, participantContextId,
                         onboardingProcessId, externallyHosted()),
                 verificationParticipant, List.copyOf(stepSnapshots), checklist, failureReason, failedStep);
     }
@@ -188,8 +203,8 @@ public class VerificationRun {
                 .map(java.util.Map.Entry::getKey)
                 .findFirst()
                 .orElse(null);
-        return new Summary(id, state, current, startedAt, finishedAt, name, shortName, bpn, externalId,
-                externallyHosted());
+        return new Summary(id, dataspace, useCase, state, current, startedAt, finishedAt, name, shortName,
+                memberId, externalId, externallyHosted());
     }
 
     private static final class StepRecord {
@@ -202,6 +217,8 @@ public class VerificationRun {
     /** Immutable full view of a run, serialized to the UI as-is. */
     public record Snapshot(
             String id,
+            String dataspace,
+            String useCase,
             RunState state,
             Instant startedAt,
             Instant finishedAt,
@@ -221,8 +238,8 @@ public class VerificationRun {
     public record ParticipantInfo(
             String name,
             String shortName,
-            String bpn,
-            String vatId,
+            String memberId,
+            String uniqueId,
             String externalId,
             String did,
             String participantContextId,
@@ -236,13 +253,15 @@ public class VerificationRun {
     /** Slim list-view row. */
     public record Summary(
             String id,
+            String dataspace,
+            String useCase,
             RunState state,
             RunStep currentStep,
             Instant startedAt,
             Instant finishedAt,
             String name,
             String shortName,
-            String bpn,
+            String memberId,
             String externalId,
             boolean externallyHosted) {
     }

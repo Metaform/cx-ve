@@ -1,14 +1,19 @@
 package com.metaform.cxve.hub.application;
 
 import com.metaform.cxve.hub.adapter.out.persistence.InMemoryMembershipRepository;
+import com.metaform.cxve.hub.config.DataspaceProperties;
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.model.MembershipState;
-import com.metaform.cxve.hub.domain.port.OnboardingApi;
+import com.metaform.cxve.hub.domain.model.RegistrationOutcome;
+import com.metaform.cxve.hub.domain.port.DataspaceOnboarding;
 import com.metaform.cxve.hub.domain.port.TenantManager;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
@@ -27,6 +32,8 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 class MembershipServiceTest {
 
     private static final String DID_TEMPLATE = "did:web:identity.test:";
+    private static final String DATASPACE = "test-space";
+    private static final String OTHER_DATASPACE = "other-space";
 
     /** The in-memory store, remembering the minted external id so tests can find failed records. */
     private static class TrackingRepository extends InMemoryMembershipRepository {
@@ -42,15 +49,51 @@ class MembershipServiceTest {
     private final TrackingRepository repository = new TrackingRepository();
 
     /**
-     * Records calls; can be told to fail, and runs a hook while the "HTTP call" is in flight —
-     * where the current Onboarding API's synchronous status callback would land in production.
+     * A dataspace's onboarding that records calls; can be told to fail or to refuse the
+     * registration object, and runs a hook while the "HTTP call" is in flight — where the CX
+     * onboarding API's synchronous status callback lands in production. Its callback wire format
+     * is a plain {externalId, status, message}.
      */
-    private static class RecordingOnboardingApi implements OnboardingApi {
+    private static class RecordingOnboarding implements DataspaceOnboarding {
+        final String dataspace;
         final List<String> submittedExternalIds = new ArrayList<>();
         final List<String> submittedDids = new ArrayList<>();
         int callbackRegistrations;
         boolean failSubmission;
+        boolean refuseRegistration;
         Consumer<String> onSubmit = externalId -> { };
+        // polling, for a dataspace whose API has no callbacks: the status each external id reports
+        boolean polled;
+        final Map<String, RegistrationOutcome.Status> polledStatus = new HashMap<>();
+        final Map<String, String> assignedMemberIds = new HashMap<>();
+        final List<String> polledExternalIds = new ArrayList<>();
+
+        RecordingOnboarding(String dataspace) {
+            this.dataspace = dataspace;
+        }
+
+        @Override
+        public String dataspace() {
+            return dataspace;
+        }
+
+        @Override
+        public void validate(MemberData data) {
+            if (refuseRegistration) {
+                throw new InvalidRegistrationException("registration.city must not be blank");
+            }
+        }
+
+        @Override
+        public Map<String, Object> issuerProperties(String did, MemberData data) {
+            return Map.of("id", did, "memberOf", data.registration().get("memberOf"), "memberId", data.memberId());
+        }
+
+        @Override
+        public RegistrationOutcome readCallback(Map<String, Object> body) {
+            return new RegistrationOutcome((String) body.get("externalId"),
+                    RegistrationOutcome.Status.valueOf((String) body.get("status")), (String) body.get("message"));
+        }
 
         @Override
         public void registerCallback() {
@@ -60,18 +103,34 @@ class MembershipServiceTest {
         @Override
         public String submitRegistration(String externalId, String did, MemberData data) {
             if (failSubmission) {
-                throw new RuntimeException("Onboarding API unreachable");
+                throw new RuntimeException("onboarding API unreachable");
             }
             onSubmit.accept(externalId);
             submittedExternalIds.add(externalId);
             submittedDids.add(did);
             return "process-" + externalId;
         }
+
+        @Override
+        public boolean pollsStatus() {
+            return polled;
+        }
+
+        @Override
+        public RegistrationOutcome pollStatus(Membership membership) {
+            polledExternalIds.add(membership.externalId());
+            var status = polledStatus.get(membership.externalId());
+            if (status == null) {
+                throw new RuntimeException("onboarding API unreachable");
+            }
+            return new RegistrationOutcome(membership.externalId(), status, status + " by the API",
+                    assignedMemberIds.get(membership.externalId()));
+        }
     }
 
     /** Deploys with a configurable context id; records what it was handed and how often refreshed. */
     private static class RecordingTenantManager implements TenantManager {
-        final List<List<String>> deployedAgreements = new ArrayList<>();
+        final List<DeploymentSpec> deployedSpecs = new ArrayList<>();
         final List<Membership> deployed = new ArrayList<>();
         String contextIdOnDeploy;
         String contextIdOnRefresh;
@@ -80,12 +139,12 @@ class MembershipServiceTest {
         boolean failDeployment;
 
         @Override
-        public ProvisionedProfile deployParticipant(Membership membership, List<String> activeAgreementIds) {
+        public ProvisionedProfile deployParticipant(Membership membership, DeploymentSpec spec) {
             if (failDeployment) {
                 throw new RuntimeException("Tenant Manager unreachable");
             }
             deployed.add(membership);
-            deployedAgreements.add(activeAgreementIds);
+            deployedSpecs.add(spec);
             return new ProvisionedProfile("tenant-1", "profile-1", contextIdOnDeploy, error);
         }
 
@@ -97,11 +156,16 @@ class MembershipServiceTest {
         }
     }
 
-    private final RecordingOnboardingApi onboardingApi = new RecordingOnboardingApi();
+    private final RecordingOnboarding onboardingApi = new RecordingOnboarding(DATASPACE);
+    private final RecordingOnboarding otherOnboarding = new RecordingOnboarding(OTHER_DATASPACE);
+    private final DataspaceRegistry dataspaces = new DataspaceRegistry(List.of(onboardingApi, otherOnboarding),
+            new DataspaceProperties(Map.of(
+                    DATASPACE, dataspace("profile-a", new DataspaceProperties.MemberIdClaim("IdCredential", "id", "memberId")),
+                    OTHER_DATASPACE, dataspace("profile-b", null))));
     private final RecordingTenantManager tenantManager = new RecordingTenantManager();
     // swappable per test; the service holds the indirection, not the executor itself
     private Executor provisioningExecutor = Runnable::run;
-    private final MembershipService service = new MembershipService(repository, onboardingApi, tenantManager,
+    private final MembershipService service = new MembershipService(repository, dataspaces, tenantManager,
             DID_TEMPLATE, PROVISIONING_TIMEOUT, Duration.ofMillis(1),
             task -> provisioningExecutor.execute(task));
 
@@ -114,18 +178,29 @@ class MembershipServiceTest {
         tasks.forEach(Runnable::run);
     }
 
-    private static MemberData request(String did) {
-        return request(did, "Acme", "BPNL0000000000XY");
+    private static DataspaceProperties.Dataspace dataspace(String profile, DataspaceProperties.MemberIdClaim claim) {
+        return new DataspaceProperties.Dataspace(true, profile, null, List.of(profile), claim);
     }
 
-    private static MemberData request(String did, String shortName, String bpn) {
-        return new MemberData("Acme Corp", shortName, bpn,
-                "Berlin", "Musterstrasse", "DE", "BE", did,
-                List.of(new MemberData.UniqueId("VAT_ID", "DE123456789")),
-                List.of("ACTIVE_PARTICIPANT"),
-                List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE"),
-                        new MemberData.AgreementConsent("agreement-2", "INACTIVE")),
-                List.of(new MemberData.UserDetail(null, "prov-1", "jdoe", "John", "Doe", "john.doe@acme.example")));
+    private static MemberData request(String did) {
+        return request(did, "Acme", "MEMBER-0001");
+    }
+
+    private static MemberData request(String did, String shortName, String memberId) {
+        return request(DATASPACE, did, shortName, memberId);
+    }
+
+    private static MemberData request(String dataspace, String did, String shortName, String memberId) {
+        return new MemberData(dataspace, "Acme Corp", shortName, memberId, did, Map.of("memberOf", "Test Space"));
+    }
+
+    /** A status callback in the recording onboarding's wire format, for the test dataspace. */
+    private Membership callback(String externalId, String status, String message) {
+        var body = new HashMap<String, Object>();
+        body.put("externalId", externalId);
+        body.put("status", status);
+        body.put("message", message);
+        return service.onRegistrationStatus(DATASPACE, body);
     }
 
     /** A member whose resources run elsewhere: it brings its own DID, so nothing is provisioned. */
@@ -185,10 +260,18 @@ class MembershipServiceTest {
         assertThat(onboardingApi.callbackRegistrations).isEqualTo(1);
         assertThat(onboardingApi.submittedExternalIds).containsExactly(externalId);
         assertThat(onboardingApi.submittedDids).containsExactly(ACME_DID);
-        // Only ACTIVE consents make it into the cfm.issuer memberOf property, deployed under the
-        // resolved DID.
-        assertThat(tenantManager.deployedAgreements).containsExactly(List.of("agreement-1"));
+        // The dataspace decides the profile's dataspace-dependent parts: its onboarding the
+        // cfm.issuer properties, its settings the DSP profiles and the member-id claim.
+        var spec = tenantManager.deployedSpecs.get(0);
+        assertThat(spec.issuerProperties())
+                .containsEntry("id", ACME_DID)
+                .containsEntry("memberOf", "Test Space")
+                .containsEntry("memberId", "MEMBER-0001");
+        assertThat(spec.dataspaceProfiles()).containsExactly("profile-a");
+        assertThat(spec.memberIdClaim()).isEqualTo(new TenantManager.MemberIdClaim("IdCredential", "id", "memberId"));
         assertThat(tenantManager.deployed.get(0).did()).isEqualTo(ACME_DID);
+        assertThat(tenantManager.deployed.get(0).dataspace()).isEqualTo(DATASPACE);
+        assertThat(otherOnboarding.submittedExternalIds).isEmpty();
     }
 
     @Test
@@ -243,7 +326,7 @@ class MembershipServiceTest {
 
         var failed = stored(membership.externalId());
         assertThat(failed.state()).isEqualTo(MembershipState.FAILED);
-        assertThat(failed.failureReason()).contains("Onboarding API unreachable");
+        assertThat(failed.failureReason()).contains("onboarding API unreachable");
         assertThat(tenantManager.deployed).hasSize(1);
     }
 
@@ -264,11 +347,11 @@ class MembershipServiceTest {
 
     @Test
     void confirmedCallback_isTheMembershipsTerminalSuccess() {
-        // The Onboarding API confirms only once it has registered the credential holder AND had
+        // The onboarding API confirms only once it has registered the credential holder AND had
         // the issuer offer it the credentials, so the confirmation IS "credentials offered".
         var membership = service.onboard(externalRequest());
 
-        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+        callback(membership.externalId(), "CONFIRMED", null);
 
         var offered = stored(membership.externalId());
         assertThat(offered.state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
@@ -277,11 +360,11 @@ class MembershipServiceTest {
 
     @Test
     void aCallbackWithinTheSubmission_racesWithoutLosingEitherWrite() {
-        // The current Onboarding API delivers the confirmation while the submission is still on
+        // The CX onboarding API delivers the confirmation while the submission is still on
         // the wire, so the record reaches CREDENTIALS_OFFERED before the process id is recorded —
         // the compare-and-swap must interleave the two writers so neither field is lost.
         tenantManager.contextIdOnDeploy = "pctx-1";
-        onboardingApi.onSubmit = externalId -> service.onRegistrationStatus(externalId, "CONFIRMED", null);
+        onboardingApi.onSubmit = externalId -> callback(externalId, "CONFIRMED", null);
 
         var membership = service.onboard(request(null));
 
@@ -306,11 +389,11 @@ class MembershipServiceTest {
 
         var thrown = catchThrowable(() -> service.onboard(externalRequest()));
 
-        assertThat(thrown).hasMessage("Onboarding API unreachable");
+        assertThat(thrown).hasMessage("onboarding API unreachable");
         // The record survives for audit, terminally failed — not wedged in SUBMITTED.
         var failed = stored(repository.lastCreatedExternalId);
         assertThat(failed.state()).isEqualTo(MembershipState.FAILED);
-        assertThat(failed.failureReason()).contains("Onboarding API unreachable");
+        assertThat(failed.failureReason()).contains("onboarding API unreachable");
         assertThat(tenantManager.deployed).isEmpty();
     }
 
@@ -326,22 +409,79 @@ class MembershipServiceTest {
     }
 
     @Test
-    void onboard_refusesABpnALiveMembershipAlreadyHolds_beforeDeployingAnything() {
-        // The check exists because the deployment comes FIRST now: a duplicate the Onboarding API
+    void onboard_refusesAMemberIdALiveMembershipAlreadyHolds_beforeDeployingAnything() {
+        // The check exists because the deployment comes FIRST: a duplicate the onboarding API
         // would decline must be caught while there is still nothing to leave behind.
         tenantManager.contextIdOnDeploy = "pctx-1";
         service.onboard(request(null));
 
-        var thrown = catchThrowable(() -> service.onboard(request(null, "AcmeTwo", "BPNL0000000000XY")));
+        var thrown = catchThrowable(() -> service.onboard(request(null, "AcmeTwo", "MEMBER-0001")));
 
         assertThat(thrown).isInstanceOf(DuplicateMembershipException.class)
-                .hasMessageContaining("BPNL0000000000XY");
+                .hasMessageContaining("MEMBER-0001");
         assertThat(tenantManager.deployed).hasSize(1);
     }
 
     @Test
+    void onboard_allowsTheSameMemberIdAndExternalDidInAnotherDataspace() {
+        // Member ids are only unique within their dataspace, and a member running elsewhere may
+        // join several dataspaces under one DID.
+        service.onboard(externalRequest());
+
+        var other = service.onboard(request(OTHER_DATASPACE, SUT_DID, "Acme", "MEMBER-0001"));
+
+        assertThat(other.dataspace()).isEqualTo(OTHER_DATASPACE);
+        assertThat(otherOnboarding.submittedDids).containsExactly(SUT_DID);
+        assertThat(onboardingApi.submittedDids).containsExactly(SUT_DID);
+    }
+
+    @Test
+    void onboard_refusesAHostedDidInASecondDataspace() {
+        // A hosted member's DID IS a deployed participant profile — a second membership would
+        // deploy the same identity twice.
+        tenantManager.contextIdOnDeploy = "pctx-1";
+        service.onboard(request(null));
+
+        var thrown = catchThrowable(() -> service.onboard(request(OTHER_DATASPACE, null, "Acme", "OTHER-1")));
+
+        assertThat(thrown).isInstanceOf(DuplicateMembershipException.class).hasMessageContaining(ACME_DID);
+        assertThat(tenantManager.deployed).hasSize(1);
+    }
+
+    @Test
+    void onboard_refusesAnUnservedDataspace_beforeCreatingAnything() {
+        var thrown = catchThrowable(() -> service.onboard(request("decade-x", null, "Acme", "DX-1")));
+
+        assertThat(thrown).isInstanceOf(DataspaceOnboarding.UnknownDataspaceException.class)
+                .hasMessageContaining("decade-x");
+        assertThat(repository.lastCreatedExternalId).isNull();
+    }
+
+    @Test
+    void onboard_refusesARegistrationObjectTheDataspaceRejects_beforeCreatingAnything() {
+        onboardingApi.refuseRegistration = true;
+
+        var thrown = catchThrowable(() -> service.onboard(request(null)));
+
+        assertThat(thrown).isInstanceOf(DataspaceOnboarding.InvalidRegistrationException.class);
+        assertThat(repository.lastCreatedExternalId).isNull();
+        assertThat(tenantManager.deployed).isEmpty();
+    }
+
+    @Test
+    void aCallbackFromAnotherDataspacesApi_isNotForThisMembership() {
+        var membership = service.onboard(externalRequest());
+        var body = new HashMap<String, Object>(Map.of("externalId", membership.externalId(), "status", "CONFIRMED"));
+
+        var thrown = catchThrowable(() -> service.onRegistrationStatus(OTHER_DATASPACE, body));
+
+        assertThat(thrown).isInstanceOf(NoSuchElementException.class);
+        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.SUBMITTED);
+    }
+
+    @Test
     void onboard_allowsRetryingAfterADeadAttempt() {
-        // A rejected or failed attempt releases its DID and BPN — otherwise a single bad
+        // A rejected or failed attempt releases its DID and member id — otherwise a single bad
         // registration would retire the member's identity forever.
         onboardingApi.failSubmission = true;
         catchThrowable(() -> service.onboard(externalRequest()));
@@ -357,11 +497,11 @@ class MembershipServiceTest {
     void declinedCallback_terminallyRejects() {
         var membership = service.onboard(externalRequest());
 
-        service.onRegistrationStatus(membership.externalId(), "DECLINED", "duplicate BPN");
+        callback(membership.externalId(), "DECLINED", "duplicate member id");
 
         var rejected = stored(membership.externalId());
         assertThat(rejected.state()).isEqualTo(MembershipState.REJECTED);
-        assertThat(rejected.failureReason()).isEqualTo("duplicate BPN");
+        assertThat(rejected.failureReason()).isEqualTo("duplicate member id");
         // The process id of the rejected onboarding is still recorded for audit.
         assertThat(rejected.onboardingProcessId()).isEqualTo("process-" + membership.externalId());
     }
@@ -374,7 +514,7 @@ class MembershipServiceTest {
         tenantManager.contextIdOnDeploy = "pctx-1";
         var membership = service.onboard(request(null));
 
-        service.onRegistrationStatus(membership.externalId(), "DECLINED", "BPN already registered");
+        callback(membership.externalId(), "DECLINED", "member id already registered");
 
         assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.REJECTED);
         assertThat(stored(membership.externalId()).participantContextId()).isEqualTo("pctx-1");
@@ -385,12 +525,12 @@ class MembershipServiceTest {
     void lateCallbacks_doNotDisturbATerminalMembership() {
         tenantManager.contextIdOnDeploy = "pctx-1";
         var membership = service.onboard(request(null));
-        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
+        callback(membership.externalId(), "CONFIRMED", null);
         assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
 
         // Redelivered or contradictory callbacks must not re-deploy or overwrite the outcome.
-        service.onRegistrationStatus(membership.externalId(), "CONFIRMED", null);
-        service.onRegistrationStatus(membership.externalId(), "DECLINED", "too late");
+        callback(membership.externalId(), "CONFIRMED", null);
+        callback(membership.externalId(), "DECLINED", "too late");
 
         assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
         assertThat(tenantManager.deployed).hasSize(1);
@@ -400,10 +540,10 @@ class MembershipServiceTest {
     void aLegacyRegisteringRecord_healsOnALateCallback() {
         // Rows the former synchronous flow left in REGISTERING must still advance when their
         // callback finally arrives.
-        repository.create(Membership.submitted("legacy-1", "Acme Corp", ACME_DID, "BPNL0000000000XY"), request(null));
+        repository.create(Membership.submitted("legacy-1", DATASPACE, "Acme Corp", ACME_DID, "MEMBER-0001"), request(null));
         repository.save(stored("legacy-1").withState(MembershipState.REGISTERING));
 
-        service.onRegistrationStatus("legacy-1", "CONFIRMED", null);
+        callback("legacy-1", "CONFIRMED", null);
 
         assertThat(stored("legacy-1").state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
     }
@@ -412,10 +552,10 @@ class MembershipServiceTest {
     void aLegacyConfirmedRecord_healsOnARedeliveredCallback() {
         // Rows an older hub left in CONFIRMED (it offered the credentials itself, after the
         // confirmation) reach the terminal state on the next callback rather than stranding.
-        repository.create(Membership.submitted("legacy-2", "Acme Corp", ACME_DID, "BPNL0000000000XY"), request(null));
+        repository.create(Membership.submitted("legacy-2", DATASPACE, "Acme Corp", ACME_DID, "MEMBER-0001"), request(null));
         repository.save(stored("legacy-2").withState(MembershipState.CONFIRMED));
 
-        service.onRegistrationStatus("legacy-2", "CONFIRMED", null);
+        callback("legacy-2", "CONFIRMED", null);
 
         assertThat(stored("legacy-2").state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
     }
@@ -424,7 +564,7 @@ class MembershipServiceTest {
     void get_readsTheProfileThroughTheStoredIdUntilTheContextIdAppears() {
         // A record left PROVISIONING by a worker that died mid-deployment: a read still completes
         // it from the Tenant Manager, which is what the operator's polling relies on.
-        repository.create(Membership.provisioning("stranded-1", "Acme Corp", ACME_DID, "BPNL0000000000XY"),
+        repository.create(Membership.provisioning("stranded-1", DATASPACE, "Acme Corp", ACME_DID, "MEMBER-0001"),
                 request(null));
         repository.save(stored("stranded-1").withProfile("tenant-1", "profile-1"));
 
@@ -449,7 +589,7 @@ class MembershipServiceTest {
 
     @Test
     void get_failsAMembershipWhoseProfileReportsAnError() {
-        repository.create(Membership.provisioning("erroring-1", "Acme Corp", ACME_DID, "BPNL0000000000XY"),
+        repository.create(Membership.provisioning("erroring-1", DATASPACE, "Acme Corp", ACME_DID, "MEMBER-0001"),
                 request(null));
         repository.save(stored("erroring-1").withProfile("tenant-1", "profile-1"));
         tenantManager.error = true;
@@ -469,8 +609,112 @@ class MembershipServiceTest {
     void anUnknownStatus_changesNothing() {
         var membership = service.onboard(externalRequest());
 
-        service.onRegistrationStatus(membership.externalId(), "SUBMITTED", null);
+        callback(membership.externalId(), "PENDING", null);
 
         assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.SUBMITTED);
+    }
+
+    // --- dataspaces whose onboarding API is polled instead of calling back ---------------------
+
+    private final RegistrationStatusPoller poller = new RegistrationStatusPoller(repository, dataspaces, service);
+
+    private Membership onboardExternally(String dataspace, String did, String memberId) {
+        return service.onboard(request(dataspace, did, memberId, memberId));
+    }
+
+    @Test
+    void thePoller_appliesThePolledOutcomeOfEverySubmittedRegistration() {
+        otherOnboarding.polled = true;
+        var confirmed = onboardExternally(OTHER_DATASPACE, "did:web:one.example.com", "M-1");
+        var declined = onboardExternally(OTHER_DATASPACE, "did:web:two.example.com", "M-2");
+        var pending = onboardExternally(OTHER_DATASPACE, "did:web:three.example.com", "M-3");
+        otherOnboarding.polledStatus.put(confirmed.externalId(), RegistrationOutcome.Status.CONFIRMED);
+        otherOnboarding.polledStatus.put(declined.externalId(), RegistrationOutcome.Status.DECLINED);
+        otherOnboarding.polledStatus.put(pending.externalId(), RegistrationOutcome.Status.PENDING);
+
+        poller.poll();
+
+        assertThat(stored(confirmed.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+        assertThat(stored(declined.externalId()).state()).isEqualTo(MembershipState.REJECTED);
+        assertThat(stored(declined.externalId()).failureReason()).isEqualTo("DECLINED by the API");
+        assertThat(stored(pending.externalId()).state()).isEqualTo(MembershipState.SUBMITTED);
+
+        // decided registrations are not polled again
+        otherOnboarding.polledExternalIds.clear();
+        poller.poll();
+        assertThat(otherOnboarding.polledExternalIds).containsExactly(pending.externalId());
+    }
+
+    @Test
+    void thePoller_leavesCallbackDrivenDataspacesAlone() {
+        otherOnboarding.polled = true;
+        service.onboard(externalRequest());
+
+        poller.poll();
+
+        assertThat(onboardingApi.polledExternalIds).isEmpty();
+    }
+
+    @Test
+    void thePoller_carriesOnPastAFailedPoll() {
+        otherOnboarding.polled = true;
+        var unreachable = onboardExternally(OTHER_DATASPACE, "did:web:one.example.com", "M-1");
+        var confirmed = onboardExternally(OTHER_DATASPACE, "did:web:two.example.com", "M-2");
+        otherOnboarding.polledStatus.put(confirmed.externalId(), RegistrationOutcome.Status.CONFIRMED);
+
+        poller.poll();
+
+        assertThat(stored(unreachable.externalId()).state()).isEqualTo(MembershipState.SUBMITTED);
+        assertThat(stored(confirmed.externalId()).state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+    }
+
+    @Test
+    void aPolledDataspace_takesNoCallbacks() {
+        otherOnboarding.polled = true;
+        var membership = onboardExternally(OTHER_DATASPACE, SUT_DID, "M-1");
+        var body = new HashMap<String, Object>(Map.of("externalId", membership.externalId(), "status", "CONFIRMED"));
+
+        var thrown = catchThrowable(() -> service.onRegistrationStatus(OTHER_DATASPACE, body));
+
+        assertThat(thrown).isInstanceOf(NoSuchElementException.class).hasMessageContaining("polling");
+        assertThat(stored(membership.externalId()).state()).isEqualTo(MembershipState.SUBMITTED);
+    }
+
+    @Test
+    void aMemberIdTheDataspaceAssigns_isRecordedWithTheConfirmation() {
+        otherOnboarding.polled = true;
+        var membership = service.onboard(request(OTHER_DATASPACE, SUT_DID, "sut", null));
+        assertThat(membership.memberId()).isNull();
+        otherOnboarding.polledStatus.put(membership.externalId(), RegistrationOutcome.Status.CONFIRMED);
+        otherOnboarding.assignedMemberIds.put(membership.externalId(), "DX-00000042");
+
+        poller.poll();
+
+        var confirmed = stored(membership.externalId());
+        assertThat(confirmed.state()).isEqualTo(MembershipState.CREDENTIALS_OFFERED);
+        assertThat(confirmed.memberId()).isEqualTo("DX-00000042");
+        assertThat(service.findByMemberId(OTHER_DATASPACE, "DX-00000042")).extracting(Membership::externalId)
+                .containsExactly(membership.externalId());
+    }
+
+    @Test
+    void aMemberIdTheRecordHolds_isKeptOverAnAssignedOne() {
+        otherOnboarding.polled = true;
+        var membership = onboardExternally(OTHER_DATASPACE, SUT_DID, "DX-00000001");
+        otherOnboarding.polledStatus.put(membership.externalId(), RegistrationOutcome.Status.CONFIRMED);
+        otherOnboarding.assignedMemberIds.put(membership.externalId(), "DX-00000042");
+
+        poller.poll();
+
+        assertThat(stored(membership.externalId()).memberId()).isEqualTo("DX-00000001");
+    }
+
+    @Test
+    void membersWithoutAMemberIdYet_doNotCollide() {
+        service.onboard(request(OTHER_DATASPACE, "did:web:one.example.com", "one", null));
+
+        var second = service.onboard(request(OTHER_DATASPACE, "did:web:two.example.com", "two", null));
+
+        assertThat(second.state()).isEqualTo(MembershipState.SUBMITTED);
     }
 }

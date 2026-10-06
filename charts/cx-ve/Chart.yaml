@@ -1,9 +1,9 @@
 apiVersion: v2
 name: cx-ve
 description: >-
-  Umbrella chart for the CX Verification Environment: Core Platform Distribution, Catena-X
-  profile seeding, Onboarding API, Certo (CX-0135) and the Certo CFM agent, installed as a
-  single release.
+  Umbrella chart for the Verification Environment: Core Platform Distribution, Catena-X
+  profile seeding, the dataspaces' onboarding APIs (Catena-X; DECADE-X as a stub),
+  Membership Hub, Verification UI, Certo and the Certo CFM agent, installed as a single release.
 type: application
 version: 0.1.0
 appVersion: "latest"
@@ -23,11 +23,23 @@ dependencies:
   - name: catenax-profile
     repository: oci://ghcr.io/metaform/charts
     version: 0.0.11
-  # The Onboarding API application chart from this repository
-  - name: onboarding-api
-    repository: file://../onboarding-api
+  # The Catena-X onboarding API application chart from this repository
+  - name: cx-onboarding-api
+    repository: file://../cx-onboarding-api
     version: ">=0.0.0-0"
-  # The Catena-X Membership Hub application chart from this repository
+    condition: cx-onboarding-api.enabled
+  # The DECADE-X onboarding API (the TSP onboarding intake) from this repository
+  - name: dx-onboarding-api
+    repository: file://../dx-onboarding-api
+    version: ">=0.0.0-0"
+    condition: dx-onboarding-api.enabled
+  # DECADE-X dataspace seeding (the issuer's credential definition, the EDC dataspace profile and
+  # its DCP scope) from this repository — the catenax-profile's counterpart
+  - name: decadex-profile
+    repository: file://../decadex-profile
+    version: ">=0.0.0-0"
+    condition: decadex-profile.enabled
+  # The Membership Hub application chart from this repository
   - name: membership-hub
     repository: file://../membership-hub
     version: ">=0.0.0-0"

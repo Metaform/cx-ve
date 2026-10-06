@@ -1,0 +1,120 @@
+# Runtime configuration for the Onboarding API. Values here are the defaults baked into the image.
+#
+# Every key can be overridden from outside without rebuilding, e.g. from a Kubernetes ConfigMap:
+#   - as environment variables (env/envFrom): the exact variable name is noted next to each key
+#   - or by mounting a yaml file and pointing SPRING_CONFIG_ADDITIONALLOCATION at it
+#     (spring.config.additional-location=/path/to/dir/)
+
+spring:
+  application:
+    name: cx-ve                                                 # SPRING_APPLICATION_NAME
+  # Postgres persistence for onboarding processes (JpaOnboardingRepository) is the DEFAULT.
+  # Startup requires a reachable database; run with SPRING_PROFILES_ACTIVE=test (the profile
+  # document at the bottom of this file) to fall back to the in-memory store instead — no
+  # database needed, state lost on restart.
+  datasource:
+    url: jdbc:postgresql://localhost:5432/cx_onboarding            # SPRING_DATASOURCE_URL
+    username: cx_onboarding                                        # SPRING_DATASOURCE_USERNAME
+    password: cx_onboarding                                        # SPRING_DATASOURCE_PASSWORD
+  jpa:
+    hibernate:
+      # Hibernate manages the schema; move to `validate` once it is migration-managed.
+      ddl-auto: update                                          # SPRING_JPA_HIBERNATE_DDLAUTO
+    open-in-view: false
+  # Bearer-JWT validation on /api/** against the VE's OSP IdP, Ory Hydra (ApiSecurityConfig) —
+  # NOT the platform's jwtlet: API callers are external onboarding service providers, and
+  # jwtlet's only grant exchanges Kubernetes SA tokens, a workload-identity mechanism external
+  # clients must not be handed. The JWKS is fetched lazily on the first request, so startup does
+  # not need the IdP to be reachable. issuer-uri is the expected `iss` value — Hydra's
+  # urls.self.issuer, the EXTERNAL gateway URL clients obtain their tokens from; with jwk-set-uri
+  # also set, Boot performs no discovery against it.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json  # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI
+          issuer-uri: http://cxve.localhost/auth/osp                                      # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUERURI
+
+springdoc:
+  swagger-ui:
+    path: /swagger                                              # SPRINGDOC_SWAGGERUI_PATH
+
+logging:
+  level:
+    com.metaform.cxve: INFO                                     # LOGGING_LEVEL_COM_METAFORM_CXVE
+
+# NATS/JetStream connection for publishing the onboarding lifecycle events.
+# Disable when running without a broker (local docker run, tests).
+nats:
+  enabled: true                                                 # NATS_ENABLED
+  url: nats://core-platform-nats.edc-v.svc.cluster.local:4222   # NATS_URL
+  # Absent -> connect unauthenticated (e.g. local dev NATS)
+  # nkey-seed-path: /vault/secrets/nats.nk                      # NATS_NKEYSEEDPATH
+
+# Vault, holding the OSP callback registrations (VaultCallbackStore) — they carry the provider's
+# OAuth2 client secret. Access replicates the platform components' non-root path: the workload
+# token (token.file.path below) is exchanged at jwtlet for a token whose sub is auth.resource,
+# and THAT is logged in at Vault's pre-existing `participant` JWT role — the resulting client
+# token is policy-confined to participants/data/<auth.resource>/*. The "test" profile runs
+# without Vault (InMemoryCallbackStore); these keys are then unused.
+vault:
+  url: http://cx-ve-vault.edc-v.svc.cluster.local:8200          # VAULT_URL
+  auth:
+    # The platform's JWT-auth role; its policies confine the token to the partition named by
+    # the token's sub.
+    role: participant                                           # VAULT_AUTH_ROLE
+    # The jwtlet mapping (RFC 8693 `resource`) selected for the exchange = this app's vault
+    # partition. Must match the mapping the chart's jwtlet-seed job registers.
+    resource: cx-onboarding-api                                    # VAULT_AUTH_RESOURCE
+    # Must be allowlisted in that mapping's scopes.
+    scope: "read"                                               # VAULT_AUTH_SCOPE
+  # KV v2 API path prefix of the callback registrations; one secret per client id below it.
+  # Must lie inside the partition: participants/data/<auth.resource>/...
+  secret-path: participants/data/cx-onboarding-api/callbacks       # VAULT_SECRETPATH
+
+# Token exchange (RFC 8693): workload token file + exchange endpoint
+token:
+  # user.dir = the process working directory (same as $PWD in a shell, but also resolvable in
+  # containers, where no shell sets PWD). In Kubernetes point this at the projected token,
+  # e.g. /var/run/secrets/jwtlet/token.
+  file:
+    path: "${user.dir}/token"                                   # TOKEN_FILE_PATH
+  exchange:
+    url: http://cxve.localhost/api/auth                          # TOKEN_EXCHANGE_URL
+    audience: edcv                                              # TOKEN_EXCHANGE_AUDIENCE
+
+# The IssuerService Admin API, where the onboarding registers the participant as a credential
+# holder. The token for it is exchanged under `token-resource` (the jwtlet mapping whose scopes
+# must include issuer-admin-api:admin); `issuer-context-id` is the issuer's own participant
+# context, addressed in the holders path.
+issuer-service:
+  url: http://cxve.localhost/api/issuer/admin                    # ISSUER_SERVICE_URL
+  issuer-context-id: issuer                                     # ISSUER_SERVICE_ISSUER_CONTEXT_ID
+  token-resource: sudo                                          # ISSUER_SERVICE_TOKEN_RESOURCE
+  # The credential definitions offered to every registered holder, right after the holder entry is
+  # created. They must name definitions seeded with the issuer (the Catena-X profile chart seeds
+  # exactly these); an id that names none makes the IssuerService reject the whole offer.
+  credential-definition-ids: membership-credential-def,bpn-credential-def,gov-credential-def  # ISSUER_SERVICE_CREDENTIAL_DEFINITION_IDS
+
+# Prefix for participant DIDs when the registration doesn't supply one; the participant's short
+# name is appended. Must match the platform's IdentityHub did:web hostname (identity.<host>) —
+# IdentityHub resolves a DID document by the request URL, so a DID minted under any other
+# authority will not resolve through the gateway. A non-default gateway port is percent-encoded
+# into the authority, e.g. "did:web:identity.example.com%3A8080:".
+participant:
+  did:
+    template: "did:web:identity.cxve.localhost:"   # PARTICIPANT_DID_TEMPLATE
+
+# Profile "test": the in-memory OnboardingRepository instead of Postgres, with the whole
+# DataSource/JPA machinery excluded so no database is required at startup. For tests and
+# storage-free local runs.
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
+      - org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration

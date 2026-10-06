@@ -46,7 +46,7 @@ class VerificationEnvironmentE2eTest {
     public static final ManagementApi.Constraint USAGE_PURPOSE_CONSTRAINT = new ManagementApi.Constraint("UsagePurpose", "isAnyOf", "cx.pcf.base:1");
     public static final ManagementApi.Constraint DATA_USAGE_DEFINITION_CONSTRAINT = new ManagementApi.Constraint("DataUsageEndDefinition", "eq", "cx.dataUsageEnd.unlimited:1");
 
-    private static final String ONBOARDING_API_URL = "http://cxve.localhost/onboarding";
+    private static final String ONBOARDING_API_URL = "http://cxve.localhost/cx-onboarding";
     private static final String MEMBERSHIP_HUB_URL = "http://cxve.localhost/hub";
     // Hostname under which the in-cluster Onboarding API can reach THIS test process: the
     // callback receiver (WireMock) runs on the host. Docker Desktop (macOS/Windows) resolves

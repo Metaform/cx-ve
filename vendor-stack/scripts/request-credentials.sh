@@ -13,12 +13,15 @@
 # AWAIT_CREDENTIAL_OFFER — the issuer rejects requests from holders it does not know.
 #
 # Usage:
-#   ./vendor-stack/scripts/request-credentials.sh [--issuer-did <did>] [-s|--short-name <name>]
-#                                                 [-h|--help]
+#   ./vendor-stack/scripts/request-credentials.sh [-d|--dataspace <dataspace>] [--issuer-did <did>]
+#                                                 [-s|--short-name <name>] [-h|--help]
 #
-#   --issuer-did   the VE's issuer (default: did:web:issuer.cxve.localhost:issuer)
+#   -d, --dataspace  catena-x (default) or decade-x — which credentials to request: the three
+#                    Catena-X ones, or the DecadeXMembershipCredential
+#   --issuer-did     the VE's issuer (default: did:web:issuer.cxve.localhost:issuer)
 #
-# Environment: VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), TIMEOUT (seconds, default 180)
+# Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), TIMEOUT
+# (seconds, default 180)
 
 source "$(dirname "$0")/lib.sh"
 
@@ -29,9 +32,10 @@ usage() { awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p' "$0" | sed 's/^# \{0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -s|--short-name|--issuer-did)
+    -d|--dataspace|-s|--short-name|--issuer-did)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
+        -d|--dataspace) use_dataspace "$2" ;;
         -s|--short-name) PARTICIPANT_SHORT_NAME="$2" ;;
         --issuer-did) ISSUER_DID="$2" ;;
       esac
@@ -46,15 +50,20 @@ DID=$(participant_did)
 PCID=$(participant_context_of "$DID") || exit 1
 [[ -n "$PCID" ]] || die "no participant context for $DID — run create-participant.sh first"
 
-# The credential definitions the VE's catenax-profile seeds (and the Membership Hub offers).
-REQUEST=$(jq -n --arg issuer "$ISSUER_DID" '{
-  issuerDid: $issuer,
-  credentials: [
-    {id: "membership-credential-def", type: "MembershipCredential",             format: "VC1_0_JWT"},
-    {id: "bpn-credential-def",        type: "BpnCredential",                    format: "VC1_0_JWT"},
-    {id: "gov-credential-def",        type: "DataExchangeGovernanceCredential", format: "VC1_0_JWT"}
-  ]
-}')
+# The credential definitions the VE seeds for the dataspace — the catenax-profile's, or the
+# decadex-profile's — and its onboarding API offers.
+case "$VENDOR_DATASPACE" in
+  catena-x)
+    CREDENTIALS='[
+      {"id": "membership-credential-def", "type": "MembershipCredential",             "format": "VC1_0_JWT"},
+      {"id": "bpn-credential-def",        "type": "BpnCredential",                    "format": "VC1_0_JWT"},
+      {"id": "gov-credential-def",        "type": "DataExchangeGovernanceCredential", "format": "VC1_0_JWT"}]' ;;
+  decade-x)
+    CREDENTIALS='[
+      {"id": "decadex-membership-credential-def", "type": "DecadeXMembershipCredential", "format": "VC1_0_JWT"}]' ;;
+esac
+REQUEST=$(jq -n --arg issuer "$ISSUER_DID" --argjson credentials "$CREDENTIALS" \
+  '{issuerDid: $issuer, credentials: $credentials}')
 identity POST "/participants/$PCID/credentials/request" "$REQUEST"
 expect_2xx "credential request"
 HOLDER_PID=$(printf '%s' "$HTTP_BODY" | jq -r '.holderPid // empty' 2>/dev/null || true)

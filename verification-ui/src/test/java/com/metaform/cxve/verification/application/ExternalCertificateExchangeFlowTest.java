@@ -69,32 +69,32 @@ class ExternalCertificateExchangeFlowTest {
         var properties = TestFixtures.props(Map.of("events.onboarding.started", 1));
         var support = new RunFlowSupport(management, hub, new ChecklistEvaluator(), properties);
         flow = new ExternalCertificateExchangeFlow(hub, certo, didResolver, participantService, support, properties);
-        run = new VerificationRun("r1", "SUT GmbH", "sut", "BPNLSUT000000001", "DESUT0001",
-                SUT_DID, RunStep.EXTERNAL);
+        run = new VerificationRun("r1", TestFixtures.DATASPACE, TestFixtures.USE_CASE, "SUT GmbH", "sut",
+                "BPNLSUT000000001", "DESUT0001", SUT_DID, RunStep.EXTERNAL);
     }
 
     private void happyStubs() {
-        when(participantService.ensure())
-                .thenReturn(new VerificationParticipant("vp-1", "VP", "BPNLVERIFY000001", "did:web:vp", "pctx-vp"));
+        when(participantService.ensure(TestFixtures.DATASPACE))
+                .thenReturn(new VerificationParticipant("vp-1", TestFixtures.DATASPACE, "VP", "BPNLVERIFY000001", "did:web:vp", "pctx-vp"));
         when(didResolver.resolve(SUT_DID))
                 .thenReturn(new DidDocument(SUT_DID, SUT_DSP, "http://sut.example.com/api/credentials"));
-        when(hub.findByDid(SUT_DID)).thenReturn(List.of());
-        when(hub.onboard("SUT GmbH", "sut", "BPNLSUT000000001", "DESUT0001", SUT_DID))
+        when(hub.findByDid(TestFixtures.DATASPACE, SUT_DID)).thenReturn(List.of());
+        when(hub.onboard(TestFixtures.DATASPACE, "SUT GmbH", "sut", "BPNLSUT000000001", "DESUT0001", SUT_DID))
                 .thenReturn(TestFixtures.externalMembership("sut-ext", "SUBMITTED", SUT_DID, null));
         when(hub.awaitCredentialsOffered("sut-ext"))
                 .thenReturn(TestFixtures.externalMembership("sut-ext", "CREDENTIALS_OFFERED", SUT_DID, "proc-1"));
         when(hub.eventlog("proc-1"))
                 .thenReturn(Optional.of(rollup("events.issuance.credential.delivered")));
-        when(management.awaitCatalogOffer(anyString(), anyString(), anyString(), any(CcmApi.class), any()))
+        when(management.awaitCatalogOffer(anyString(), anyString(), anyString(), anyString(), any(CcmApi.class), any()))
                 .thenReturn(new ManagementApiClient.CatalogOffer("vendor-named-asset",
                         mapper.createObjectNode().put("@id", "offer-1"), mapper.createArrayNode()));
-        when(management.startNegotiation(anyString(), anyString(), anyString(), any()))
+        when(management.startNegotiation(anyString(), anyString(), anyString(), eq(TestFixtures.DSP_PROFILE), any()))
                 .thenReturn("neg-1");
         when(management.awaitState(contains("contractnegotiations"), any(), any()))
                 .thenReturn(mapper.createObjectNode().put("state", "FINALIZED").put("contractAgreementId", "agr-1"));
         when(management.awaitState(contains("transferprocesses"), any(), any()))
                 .thenReturn(mapper.createObjectNode().put("state", "STARTED"));
-        when(management.startTransfer(anyString(), eq("agr-1"), anyString(), eq("https://w3id.org/dspace-sig/profile/http-pull")))
+        when(management.startTransfer(anyString(), eq("agr-1"), anyString(), eq(TestFixtures.DSP_PROFILE), eq("https://w3id.org/dspace-sig/profile/http-pull")))
                 .thenReturn("flow-pull");
         when(certo.consumerExchanges("pctx-vp", true)).thenReturn(exchangePage("ex-sut", null));
         when(certo.consumerExchanges("pctx-vp", false)).thenReturn(exchangePage("ex-sut", "ACCEPTED"));
@@ -123,7 +123,7 @@ class ExternalCertificateExchangeFlowTest {
         // Nothing was published, seeded or provisioned on the SUT's behalf — the certificate came
         // from the SUT, and the verdict went back over the pull flow this environment opened.
         verify(certo, never()).addDocument(anyString(), anyString(), any());
-        verify(certo, never()).addCertificate(anyString(), anyString(), anyString(), anyString());
+        verify(certo, never()).addCertificate(anyString(), anyString(), anyString(), anyString(), any());
         verify(certo, never()).publish(anyString(), anyString(), anyString(), anyString(), anyString());
         verify(management, never()).upsertAsset(anyString(), anyString(), any());
         verify(certo).accept("pctx-vp", "ex-sut", "ACCEPTED", "flow-pull");
@@ -137,8 +137,8 @@ class ExternalCertificateExchangeFlowTest {
 
         // The counterparty address comes from the SUT's DID document; a synthesized one would
         // point back into this cluster and verify the wrong system.
-        verify(management).awaitCatalogOffer(eq("pctx-vp"), eq(SUT_DSP), eq(SUT_DID), any(CcmApi.class), any());
-        verify(management).startNegotiation(eq("pctx-vp"), eq(SUT_DSP), eq(SUT_DID), any());
+        verify(management).awaitCatalogOffer(eq("pctx-vp"), eq(SUT_DSP), eq(SUT_DID), eq(TestFixtures.DSP_PROFILE), any(CcmApi.class), any());
+        verify(management).startNegotiation(eq("pctx-vp"), eq(SUT_DSP), eq(SUT_DID), eq(TestFixtures.DSP_PROFILE), any());
     }
 
     @Test
@@ -149,7 +149,7 @@ class ExternalCertificateExchangeFlowTest {
 
         // CX-0135 identifies the offer by dct:subject + cx-common:version; the vendor names the
         // asset as it likes, and the step reports the name it chose.
-        verify(management).awaitCatalogOffer(anyString(), anyString(), anyString(), eq(CcmApi.provider("3.0")), any());
+        verify(management).awaitCatalogOffer(anyString(), anyString(), anyString(), anyString(), eq(CcmApi.provider(TestFixtures.CCM_API)), any());
         assertThat(run.snapshot().steps()).filteredOn(step -> step.step() == RunStep.ESTABLISH_PULL_FLOW)
                 .singleElement()
                 .satisfies(step -> assertThat(step.detail()).contains("flow-pull").contains("vendor-named-asset"));
@@ -167,32 +167,32 @@ class ExternalCertificateExchangeFlowTest {
         assertThat(snapshot.state()).isEqualTo(RunState.FAILED);
         assertThat(snapshot.failedStep()).isEqualTo(RunStep.RESOLVE_DID);
         assertThat(snapshot.failureReason()).contains("unreachable");
-        verify(hub, never()).onboard(anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(hub, never()).onboard(anyString(), anyString(), anyString(), anyString(), anyString(), any());
     }
 
     @Test
     void anExistingMembershipIsAdopted_becauseReOnboardingTheSameDidWouldBeDeclined() {
         happyStubs();
-        when(hub.findByDid(SUT_DID)).thenReturn(List.of(
+        when(hub.findByDid(TestFixtures.DATASPACE, SUT_DID)).thenReturn(List.of(
                 TestFixtures.externalMembership("sut-ext", "CREDENTIALS_OFFERED", SUT_DID, "proc-1")));
 
         flow.execute(run);
 
         assertThat(run.snapshot().state()).isEqualTo(RunState.SUCCEEDED);
         assertThat(run.snapshot().participant().externalId()).isEqualTo("sut-ext");
-        verify(hub, never()).onboard(anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(hub, never()).onboard(anyString(), anyString(), anyString(), anyString(), anyString(), any());
     }
 
     @Test
     void aFailedMembershipIsNotAdopted() {
         happyStubs();
-        when(hub.findByDid(SUT_DID)).thenReturn(List.of(
+        when(hub.findByDid(TestFixtures.DATASPACE, SUT_DID)).thenReturn(List.of(
                 TestFixtures.externalMembership("dead-ext", "FAILED", SUT_DID, null)));
 
         flow.execute(run);
 
         // A dead attempt retires nothing, so a fresh registration is the right move.
-        verify(hub).onboard("SUT GmbH", "sut", "BPNLSUT000000001", "DESUT0001", SUT_DID);
+        verify(hub).onboard(TestFixtures.DATASPACE, "SUT GmbH", "sut", "BPNLSUT000000001", "DESUT0001", SUT_DID);
     }
 
     @Test
@@ -210,7 +210,7 @@ class ExternalCertificateExchangeFlowTest {
             assertThat(item.subject()).isEqualTo("events.issuance.credential.delivered");
             assertThat(item.satisfied()).isFalse();
         });
-        verify(management, never()).awaitCatalogOffer(anyString(), anyString(), anyString(), any(CcmApi.class), any());
+        verify(management, never()).awaitCatalogOffer(anyString(), anyString(), anyString(), anyString(), any(CcmApi.class), any());
     }
 
     @Test
