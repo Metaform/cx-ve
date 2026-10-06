@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /**
- * Has the IssuerService offer the holder the configured Decade-X credential definitions
+ * Has the IssuerService offer the holder the configured DECADE-X credential definitions
  * ({@code issuer-service.credential-definition-ids}), authorized like the holder registration. The
  * IssuerService resolves the holder's DID document and pushes a DCP CredentialOffer to the
  * CredentialService it advertises; an unknown definition id fails the whole offer.

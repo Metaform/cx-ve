@@ -31,7 +31,7 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * The TSP onboarding intake (Decade-X {@code dataspace-api-docs}): submit an onboarding request
+ * The TSP onboarding intake (DECADE-X {@code dataspace-api-docs}): submit an onboarding request
  * as a multipart body, and read it back by its id. It is meant to sit behind the federated
  * connector's data plane, which forwards a participant's calls here and stamps the calling
  * connector's identity on them; the caller cannot set it. Requests are scoped to that identity.

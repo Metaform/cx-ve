@@ -10,7 +10,7 @@ package com.metaform.cxve.hub.domain.model;
  *                   refused; PENDING — anything in between, nothing for the hub to do
  * @param message          the onboarding API's explanation, if any (kept as the rejection reason)
  * @param assignedMemberId the member id the onboarding assigned with a confirmation, if it assigns
- *                         one (Decade-X, for an external member); null otherwise
+ *                         one (DECADE-X, for an external member); null otherwise
  */
 public record RegistrationOutcome(String externalId, Status status, String message, String assignedMemberId) {
 

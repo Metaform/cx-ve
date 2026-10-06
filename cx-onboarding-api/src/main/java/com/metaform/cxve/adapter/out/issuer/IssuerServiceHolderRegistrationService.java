@@ -31,7 +31,7 @@ import org.springframework.web.client.RestClient;
  * <p>Holder ids are unique across the issuer, which serves every dataspace: the DID may already
  * be a holder — left by an earlier attempt of this participant (a dead registration frees its DID
  * for a new one, possibly with a corrected BPN), or registered by another dataspace's onboarding
- * (an external participant may join Decade-X too, whose onboarding registers holders with its own
+ * (an external participant may join DECADE-X too, whose onboarding registers holders with its own
  * properties). A 409 therefore MERGES: the Catena-X properties are put on the existing holder,
  * replacing stale values of their own keys and keeping everything else — its name and the other
  * dataspaces' properties. Taking the 409 as success instead would leave the holder without these

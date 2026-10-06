@@ -96,7 +96,7 @@ class SubmissionTest {
 
         assertThat(new Submission(withId.apply("DX-00000001"), documents()).violations()).isEmpty();
         assertThat(new Submission(withId.apply("BPNL0000000000XY"), documents()).violations())
-                .containsExactly("legalEntity.legalEntityId: not a Decade-X-ID (DX- and 8 digits)");
+                .containsExactly("legalEntity.legalEntityId: not a DECADE-X-ID (DX- and 8 digits)");
     }
 
     @Test

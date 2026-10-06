@@ -101,7 +101,7 @@ public record Submission(OnboardingRequestData request, List<SubmittedDocument> 
         }
         checkRegistrationNumbers("legalEntity.registrationNumbers", entity.registrationNumbers(), violations);
         if (entity.legalEntityId() != null && !DECADE_X_ID.matcher(entity.legalEntityId()).matches()) {
-            violations.add("legalEntity.legalEntityId: not a Decade-X-ID (DX- and 8 digits)");
+            violations.add("legalEntity.legalEntityId: not a DECADE-X-ID (DX- and 8 digits)");
         }
         var address = entity.legalAddress();
         if (address == null) {

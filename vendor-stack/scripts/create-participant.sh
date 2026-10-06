@@ -21,7 +21,7 @@
 #   -n, --name         company name (default: "Vendor Participant")
 #   -s, --short-name   last DID segment (default: vendor-participant)
 #   -m, --member-id    the participant's member id in the dataspace — its BPNL in Catena-X (default
-#                      BPNLVENDOR000001; -b/--bpn is an alias), its Decade-X-ID in Decade-X (default
+#                      BPNLVENDOR000001; -b/--bpn is an alias), its DECADE-X-ID in DECADE-X (default
 #                      DX-00009001). Enter the SAME id on the VE's run form: the VE issues the member
 #                      credential for the id it is given (BpnCredential / DecadeXMembershipCredential),
 #                      and Certo on both sides checks certificates against the id in that credential.
@@ -82,7 +82,7 @@ else
       ;;
     decade-x)
       ISSUER_PROPERTIES=$(jq -n --arg did "$DID" --arg id "$MEMBER_ID" \
-        '{id: $did, memberOf: "Decade-X", decadeXId: $id, bpn: $id}')
+        '{id: $did, memberOf: "DECADE-X", decadeXId: $id, bpn: $id}')
       FLOW_CLAIM="flow.claims.vc.withType('DecadeXMembershipCredential').claim('decadeXId')"
       ;;
   esac

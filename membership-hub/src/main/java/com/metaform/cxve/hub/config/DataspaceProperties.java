@@ -56,7 +56,7 @@ public record DataspaceProperties(Map<String, Dataspace> dataspaces) {
      * own client-credentials identity towards it; {@code callback} is what the hub registers as its
      * status-callback address — the url must be reachable FROM the onboarding API, and the token
      * url and client are what it authenticates its callback calls with. Absent for an onboarding
-     * API without callbacks, whose status the hub polls (Decade-X).
+     * API without callbacks, whose status the hub polls (DECADE-X).
      */
     public record Onboarding(String url, Client auth, Callback callback) {
     }

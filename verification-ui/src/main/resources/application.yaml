@@ -204,7 +204,7 @@ verification:
         traceability:
           display-name: Traceability
           enabled: false
-    # Decade-X, onboarded through the dx-onboarding-api, the TSP onboarding intake (the hub's
+    # DECADE-X, onboarded through the dx-onboarding-api, the TSP onboarding intake (the hub's
     # dataspaces.decade-x): an approval has the platform's issuer offer the participant the
     # DecadeXMembershipCredential, which its wallet then requests; the onboarding events it
     # publishes are what the compliance tracker follows the participant by. Still partly a PLACEHOLDER: the
@@ -212,16 +212,16 @@ verification:
     # nothing asks for the credential yet), and the CCM vocabulary assumes Certo's Catena-X API
     # identity carries over.
     decade-x:
-      display-name: Decade-X
+      display-name: DECADE-X
       member-id:
-        label: Decade-X-ID
+        label: DECADE-X-ID
         pattern: "DX-[0-9]{8}"
         example: DX-00000001
         # Declared up front by every participant, external ones included — like a Catena-X BPN: the
-        # Decade-X TSP honors the id it is given (it would assign one to a participant declaring none).
+        # DECADE-X TSP honors the id it is given (it would assign one to a participant declaring none).
         assigned-to-external: false
-      # Decade-X's own (seeded by the umbrella's decadex-profile): cx-neptune's DCP scopes ask for the
-      # Catena-X credentials, which a Decade-X participant does not hold. A DID document still
+      # DECADE-X's own (seeded by the umbrella's decadex-profile): cx-neptune's DCP scopes ask for the
+      # Catena-X credentials, which a DECADE-X participant does not hold. A DID document still
       # advertises cx-neptune (one platform-wide profile), so this is dialled explicitly.
       dsp-profile: decade-x
       policy-context: https://w3id.org/decadex/policy/context.jsonld
@@ -244,7 +244,7 @@ verification:
           "declarations": { "informationAccurate": true, "authorisedToAct": true, "evidenceMayBeRequested": true }
         }
       verification-participant:
-        name: "Verification Participant (Decade-X)"
+        name: "Verification Participant (DECADE-X)"
         short-name: verification-participant-dx
         member-id: DX-99999999
         unique-id: DXVERIFY0001
@@ -264,7 +264,7 @@ verification:
               issuer-name: Verification Environment CA
               issuer-id: DX-00000000
               site-id: DX-00000000-MAIN
-            # The same subjects as Catena-X's, but every one a Decade-X participant actually produces:
+            # The same subjects as Catena-X's, but every one a DECADE-X participant actually produces:
             # the onboarding events are the dx-onboarding-api's own (type org.decade-x.onboarding.*),
             # which is what the compliance tracker follows the participant by; the credential
             # delivery is its DecadeXMembershipCredential's.

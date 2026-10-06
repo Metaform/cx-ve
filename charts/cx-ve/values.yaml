@@ -40,7 +40,7 @@ global:
 # compliance-tracker loop on `invalid role name "nats-cfm-agents"` (hidden by a 2>/dev/null in the
 # templates) and the cx-onboarding-api nats-auth-seed loops waiting for the users.conf Secret.
 #
-# #4 (and #8, its Decade-X twin) is easy to miss: it is NOT gated by #3 (#7). It is a plain value rendered through
+# #4 (and #8, its DECADE-X twin) is easy to miss: it is NOT gated by #3 (#7). It is a plain value rendered through
 # `toYaml .Values.config` into the app's application.yaml, so leaving it set makes the app attempt
 # NKey auth against a seed file no init container writes any more. "" is the documented
 # connect-unauthenticated value (NatsProperties.hasNkeyAuth() is false for blank).
@@ -205,7 +205,7 @@ cx-onboarding-api:
   #   nats:
   #     nkey-seed-path: ""
 
-# ---- Decade-X onboarding API -------------------------------------------------------------------
+# ---- DECADE-X onboarding API -------------------------------------------------------------------
 # The TSP onboarding intake. There is no TSP operator yet: requests are approved automatically —
 # those of participants hosted here, and for now those of external ones too
 # (dx-onboarding-api.config.dx-onboarding.review). On approval it registers the participant as a
@@ -217,13 +217,13 @@ dx-onboarding-api:
   image:
     pullPolicy: IfNotPresent
 
-# ---- Decade-X profile ---------------------------------------------------------------------------
-# Decade-X's dataspace seeding (charts/decadex-profile), the catenax-profile's counterpart: the
+# ---- DECADE-X profile ---------------------------------------------------------------------------
+# DECADE-X's dataspace seeding (charts/decadex-profile), the catenax-profile's counterpart: the
 # DecadeXMembershipCredential's definition on the platform's issuer, and the EDC dataspace profile
-# Decade-X participants run DSP under (`decade-x`, trusting the platform's issuer, with a DCP scope
+# DECADE-X participants run DSP under (`decade-x`, trusting the platform's issuer, with a DCP scope
 # asking for the credential). Goes together with dx-onboarding-api.enabled; its credential
 # definition id must match the dx-onboarding-api's issuer-service.credential-definition-ids, and its
-# dspProfile the hub's and the verification UI's Decade-X DSP profile.
+# dspProfile the hub's and the verification UI's DECADE-X DSP profile.
 decadex-profile:
   enabled: true
   dspProfile: decade-x

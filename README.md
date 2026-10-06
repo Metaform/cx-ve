@@ -2,7 +2,7 @@
 
 A dataspace-agnostic Verification Environment (VE): a system under test is verified for a
 **use case** (e.g. CCM — company certificate management) in a **dataspace** (Catena-X, and
-Decade-X through a stub onboarding API). Each dataspace brings its own onboarding API, registration payloads,
+DECADE-X through a stub onboarding API). Each dataspace brings its own onboarding API, registration payloads,
 member-id format (the BPN in Catena-X), policies and DSP profile; the Membership Hub talks to all
 of them, and the Verification UI lets the user pick the dataspace and then the use case before a
 run.
@@ -12,12 +12,12 @@ Monorepo containing:
 | Path | Contents |
 |---|---|
 | `cx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — the **Catena-X** onboarding API: CX-0006 partner registration incl. credential-holder registration at the IssuerService; self-contained build |
-| `dx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — the **Decade-X** onboarding API: the TSP onboarding intake (multipart onboarding requests with documents, status read-back); in memory; no TSP operator yet, so requests are approved automatically (participants hosted by the VE, and for now external ones too); an approval registers the participant as credential holder and has the platform's issuer offer it the `DecadeXMembershipCredential`, assigning an external participant's Decade-X-ID; self-contained build |
+| `dx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — the **DECADE-X** onboarding API: the TSP onboarding intake (multipart onboarding requests with documents, status read-back); in memory; no TSP operator yet, so requests are approved automatically (participants hosted by the VE, and for now external ones too); an approval registers the participant as credential holder and has the platform's issuer offer it the `DecadeXMembershipCredential`, assigning an external participant's DECADE-X-ID; self-contained build |
 | `membership-hub/` | Spring Boot application (Java 17, Gradle) — the Membership Hub: drives the full member journey in each dataspace it serves (EDC resource provisioning via the CFM Tenant Manager, then registration via the dataspace's onboarding API); self-contained build |
 | `verification-ui/` | Spring Boot BFF + Angular dashboard — dataspace and use-case selection, verification runs ([README](verification-ui/README.md)) |
 | `compliance-tracker/` | CFM lifecycle agent (Go) consuming lifecycle CloudEvents off NATS — self-contained module |
 | `charts/cx-onboarding-api/` | Helm chart for the Catena-X onboarding API application |
-| `charts/dx-onboarding-api/` | Helm chart for the Decade-X onboarding API stub (umbrella switch `dx-onboarding-api.enabled`, like `cx-onboarding-api.enabled`) |
+| `charts/dx-onboarding-api/` | Helm chart for the DECADE-X onboarding API stub (umbrella switch `dx-onboarding-api.enabled`, like `cx-onboarding-api.enabled`) |
 | `charts/membership-hub/` | Helm chart for the Membership Hub application |
 | `charts/cx-ve/` | Umbrella chart: the whole VE (platform, Catena-X profile, onboarding APIs, Membership Hub, Verification UI, Certo + agent) as one release |
 | `scripts/` | Utility and automation scripts |
@@ -138,7 +138,7 @@ The script performs the following steps:
 2. Installs Traefik (`traefik-values.yaml`) and the Gateway API CRDs.
 3. Pre-patches CoreDNS (`setup-did-dns.sh --pre`) so the gateway hostnames resolve in-cluster —
    the release's own seed hooks already dereference them during the install.
-4. Builds the Catena-X and Decade-X onboarding API, Membership Hub, Verification UI and
+4. Builds the Catena-X and DECADE-X onboarding API, Membership Hub, Verification UI and
    Compliance Tracker images from this checkout
    and loads them into the cluster, so the VE always runs the local code; every other image is
    pulled from its registry.

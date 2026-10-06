@@ -15,7 +15,7 @@
 # contract requires the data exchange governance framework agreement plus the usage purpose and usage
 # end definitions — the Catena-X profile's CEL expressions evaluate them against the consumer's
 # credentials, which, for the VE's verification participant, the VE's issuer signed and this stack
-# trusts. Decade-X has no policy vocabulary yet: its offers are unconstrained, as the VE's are — the
+# trusts. DECADE-X has no policy vocabulary yet: its offers are unconstrained, as the VE's are — the
 # access policy an empty Set (a rule without constraints is refused for `access`, which is bound to
 # no scope), the contract policy one `use` permission without constraints (a contract request needs
 # a rule; `use` is bound). Its DSP profile's DCP scope still requires the consumer to present its

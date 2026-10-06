@@ -103,7 +103,7 @@ public class ManagementApiClient {
      * seeds). The rightOperand is a placeholder there — the CEL expressions check fixed credential
      * claims and ignore it.
      *
-     * <p>Without constraints (a dataspace without a settled policy vocabulary, e.g. Decade-X) the
+     * <p>Without constraints (a dataspace without a settled policy vocabulary, e.g. DECADE-X) the
      * policy permits unconditionally, in the one shape the control plane takes for the action:
      * <ul>
      *   <li>{@code access} — an empty {@code Set}, no rules. A rule without constraints has its

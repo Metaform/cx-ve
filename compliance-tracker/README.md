@@ -65,7 +65,7 @@ catch-all, *any* configured subject overlaps it and makes NATS reject the consum
 `launcher.DefaultSubjects`.
 
 Two of the routed families are not EDC events. The `events.onboarding.*` subjects come from
-cx-ve's own onboarding APIs — the Catena-X one and the Decade-X one, which publish on the same
+cx-ve's own onboarding APIs — the Catena-X one and the DECADE-X one, which publish on the same
 subjects, each with its own `type` (`org.catena-x.onboarding.*` / `org.decade-x.onboarding.*`), so a
 participant of either dataspace is followed alike — and the `events.certificate.exchange.*` subjects
 from Certo (CX-0135 certificate exchange); both follow the reverse-DNS `type` convention rather than

@@ -5,7 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 /**
- * Stand-ins for the signed documents the Decade-X TSP requires with an onboarding request — the
+ * Stand-ins for the signed documents the DECADE-X TSP requires with an onboarding request — the
  * General Terms and Conditions, and one use case agreement per use case. Nobody signs anything in
  * the VE, so the hub submits a one-page PDF per document that merely says what it stands in for.
  * They are PLACEHOLDERS, not signed documents: a TSP operator reviewing the request sees exactly

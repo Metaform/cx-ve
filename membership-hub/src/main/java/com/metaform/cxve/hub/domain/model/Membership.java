@@ -58,7 +58,7 @@ public record Membership(
                 participantProfileId, participantContextId, failureReason, version);
     }
 
-    /** Records the member id the dataspace's onboarding assigned (Decade-X's TSP, to an external member declaring no Decade-X-ID). */
+    /** Records the member id the dataspace's onboarding assigned (DECADE-X's TSP, to an external member declaring no DECADE-X-ID). */
     public Membership withMemberId(String assignedMemberId) {
         return new Membership(externalId, dataspace, name, did, assignedMemberId, state, onboardingProcessId, tenantId,
                 participantProfileId, participantContextId, failureReason, version);

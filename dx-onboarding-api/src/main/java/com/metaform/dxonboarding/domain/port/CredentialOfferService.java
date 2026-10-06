@@ -3,7 +3,7 @@ package com.metaform.dxonboarding.domain.port;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
 
 /**
- * Has the IssuerService offer a registered holder the Decade-X credentials: a DCP CredentialOffer
+ * Has the IssuerService offer a registered holder the DECADE-X credentials: a DCP CredentialOffer
  * pushed to the CredentialService its DID document advertises — so the participant's wallet must
  * exist and its DID must resolve by then. The participant then requests the credentials with its
  * own wallet.

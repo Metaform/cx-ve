@@ -102,9 +102,9 @@ catenax-profile:
     trustedIssuers:
       - "did:web:issuer.cxve.localhost:issuer"
 
-# ---- Decade-X profile seeding ------------------------------------------------------------------
-# A Decade-X stack's DSP profile (decade-x) and the DCP scope asking for the DecadeXMembershipCredential
-# — what the VE's Decade-X verification participant is dialled under and presents. Off for a
+# ---- DECADE-X profile seeding ------------------------------------------------------------------
+# A DECADE-X stack's DSP profile (decade-x) and the DCP scope asking for the DecadeXMembershipCredential
+# — what the VE's DECADE-X verification participant is dialled under and presents. Off for a
 # Catena-X stack; install.sh -d decade-x turns it on and sets the DIDs (host-derived).
 decadex-profile:
   enabled: false

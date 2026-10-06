@@ -13,7 +13,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * The Decade-X shape of a member request's {@code registration} object: the TSP's onboarding
+ * The DECADE-X shape of a member request's {@code registration} object: the TSP's onboarding
  * request ({@code OnboardingRequestWriteDto}), passed through as is — minus what the hub fills in
  * itself: {@code legalEntity.legalName} (the member's {@code name}), {@code legalEntity.preferredDid}
  * (its DID) and {@code applicantReference} (the hub's external id). Sending one of those is refused

@@ -18,12 +18,12 @@ import org.springframework.web.client.RestClient;
 /**
  * Registers the holder through the IssuerService's admin API, under the participant's DID as
  * holder id. Its {@code properties} are what the issuer's holder attestation turns into claims: the
- * DID ({@code id}) and the Decade-X-ID ({@code decadeXId}) — what the Decade-X membership
+ * DID ({@code id}) and the DECADE-X-ID ({@code decadeXId}) — what the DECADE-X membership
  * credential definition maps.
  *
  * <p>Holder ids are unique across the issuer, and a participant hosted elsewhere may join Catena-X
  * too: its DID can already be a holder, registered by the Catena-X onboarding. A 409 therefore
- * MERGES the Decade-X claims into the existing holder — keeping its name and every other dataspace's
+ * MERGES the DECADE-X claims into the existing holder — keeping its name and every other dataspace's
  * properties — instead of being taken as success, which would leave the holder without a
  * {@code decadeXId} and fail the credential's generation later, out of sight.
  *
@@ -55,7 +55,7 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
         var did = request.connectorId();
         var claims = Map.<String, Object>of(
                 "id", did,
-                "decadeXId", Objects.requireNonNull(request.legalEntityId(), "the request has no Decade-X-ID yet"));
+                "decadeXId", Objects.requireNonNull(request.legalEntityId(), "the request has no DECADE-X-ID yet"));
         var token = tokenProvider.getToken(properties.tokenResource(), SCOPE);
         try {
             restClient.post()
@@ -64,7 +64,7 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
                     .body(holder(did, request.data().legalEntity().legalName(), claims))
                     .retrieve()
                     .toBodilessEntity();
-            log.info("registered holder {} with Decade-X-ID {}", did, request.legalEntityId());
+            log.info("registered holder {} with DECADE-X-ID {}", did, request.legalEntityId());
         } catch (HttpClientErrorException.Conflict e) {
             mergeInto(did, claims, token);
         }
@@ -87,7 +87,7 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
                 .body(holder(did, existing.holderName(), merged))
                 .retrieve()
                 .toBodilessEntity();
-        log.info("holder {} already registered — added the Decade-X claims to it ({})", did, claims.get("decadeXId"));
+        log.info("holder {} already registered — added the DECADE-X claims to it ({})", did, claims.get("decadeXId"));
     }
 
     private static Map<String, Object> holder(String did, String name, Map<String, Object> claims) {

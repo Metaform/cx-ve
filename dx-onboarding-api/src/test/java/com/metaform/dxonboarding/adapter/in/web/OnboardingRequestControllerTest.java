@@ -53,7 +53,7 @@ class OnboardingRequestControllerTest {
     @MockitoBean
     private OnboardingRequestService service;
 
-    /** The submission of the Decade-X sample call: the request, the GTC and two UCAs. */
+    /** The submission of the DECADE-X sample call: the request, the GTC and two UCAs. */
     private static MockMultipartHttpServletRequestBuilder sampleSubmission() throws IOException {
         var json = new ClassPathResource("onboarding-request.json").getContentAsString(StandardCharsets.UTF_8);
         return multipart(PATH)

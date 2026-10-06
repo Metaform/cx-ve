@@ -17,21 +17,21 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
- * Carries out an approval — what makes an applicant a Decade-X member, the way the Catena-X
+ * Carries out an approval — what makes an applicant a DECADE-X member, the way the Catena-X
  * onboarding API does it for Catena-X:
  *
  * <ol>
- *   <li>the participant gets its Decade-X-ID: the one it declared with its request (a participant
+ *   <li>the participant gets its DECADE-X-ID: the one it declared with its request (a participant
  *       hosted by the VE always does — its deployment needs it — and an external one may, as a
  *       Catena-X participant declares its BPN), or else a newly assigned one;</li>
  *   <li>it is registered as a credential holder with the IssuerService, under its DID (its
- *       connector identity) and with its Decade-X-ID as claim;</li>
- *   <li>the IssuerService offers it the Decade-X credentials, pushed to its wallet.</li>
+ *       connector identity) and with its DECADE-X-ID as claim;</li>
+ *   <li>the IssuerService offers it the DECADE-X credentials, pushed to its wallet.</li>
  * </ol>
  *
- * <p>The request is APPROVAL_IN_PROGRESS — its Decade-X-ID already visible — while that runs, and
+ * <p>The request is APPROVAL_IN_PROGRESS — its DECADE-X-ID already visible — while that runs, and
  * APPROVED once the offer went out; a failing step leaves it APPROVAL_FAILED, which is final (there
- * is no operator to retry it). A Decade-X-ID another participant already holds rejects the request.
+ * is no operator to retry it). A DECADE-X-ID another participant already holds rejects the request.
  * Every outcome is announced ({@link OnboardingEventPublisher#onboardingCompleted}).
  */
 @Service
@@ -80,12 +80,12 @@ public class ApprovalService {
             return;
         }
         end(request.approved(clock.instant()));
-        log.info("onboarding request '{}' ({}) APPROVED: {} holds Decade-X-ID {} and was offered its credentials",
+        log.info("onboarding request '{}' ({}) APPROVED: {} holds DECADE-X-ID {} and was offered its credentials",
                 request.id(), request.businessId(), request.connectorId(), request.legalEntityId());
     }
 
     /**
-     * Moves a request awaiting review to APPROVAL_IN_PROGRESS under its Decade-X-ID — or rejects it
+     * Moves a request awaiting review to APPROVAL_IN_PROGRESS under its DECADE-X-ID — or rejects it
      * when another participant holds the id it supplied. Synchronized: choosing an id and taking it
      * must not interleave with another approval doing the same.
      */
@@ -101,7 +101,7 @@ public class ApprovalService {
             var holder = repository.findHolderOfLegalEntityId(supplied)
                     .filter(other -> !other.connectorId().equals(request.connectorId()));
             if (holder.isPresent()) {
-                var reason = "Decade-X-ID %s is already held by another participant".formatted(supplied);
+                var reason = "DECADE-X-ID %s is already held by another participant".formatted(supplied);
                 log.warn("onboarding request '{}' ({}) REJECTED: {} (request '{}')", request.id(), request.businessId(),
                         reason, holder.get().id());
                 end(request.rejected(clock.instant(), ReviewDecision.RejectReasonCode.INVALID_LEGAL_ENTITY,
@@ -114,7 +114,7 @@ public class ApprovalService {
         }
         var inProgress = request.approvalInProgress(decadeXId);
         repository.save(inProgress);
-        log.info("onboarding request '{}' ({}) approved — provisioning {} as Decade-X-ID {}", request.id(),
+        log.info("onboarding request '{}' ({}) approved — provisioning {} as DECADE-X-ID {}", request.id(),
                 request.businessId(), request.connectorId(), decadeXId);
         return Optional.of(inProgress);
     }

@@ -141,8 +141,8 @@ public class MembershipService {
                             .formatted(did, existing.externalId(), existing.dataspace(), existing.state()));
                 });
         if (memberId == null || memberId.isBlank()) {
-            // the dataspace assigns this member's id on registration (Decade-X's TSP, to an
-            // external member declaring no Decade-X-ID)
+            // the dataspace assigns this member's id on registration (DECADE-X's TSP, to an
+            // external member declaring no DECADE-X-ID)
             return;
         }
         repository.findByMemberId(dataspace, memberId).stream().filter(Membership::isLive).findFirst().ifPresent(existing -> {
@@ -274,8 +274,8 @@ public class MembershipService {
     }
 
     /**
-     * Records the member id the dataspace's onboarding assigned with its confirmation (Decade-X's TSP
-     * assigns a Decade-X-ID to an external member declaring none). A member id the record already
+     * Records the member id the dataspace's onboarding assigned with its confirmation (DECADE-X's TSP
+     * assigns a DECADE-X-ID to an external member declaring none). A member id the record already
      * holds stays: it is the one the member was provisioned under, and the onboarding echoes it back.
      */
     private static Membership adoptAssignedMemberId(Membership membership, String assignedMemberId) {

@@ -9,9 +9,9 @@ import { Dashboard } from './dashboard';
 const SELECTION_KEY = 'verification-ui.selection';
 
 const BPN: MemberIdFormat = { label: 'BPN', pattern: 'BPNL[0-9A-Z]{12}', example: 'BPNL000000000001' };
-const DECADE_X_ID: MemberIdFormat = { label: 'Decade-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001' };
+const DECADE_X_ID: MemberIdFormat = { label: 'DECADE-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001' };
 
-/** Catena-X and Decade-X as configured: CCM verifiable where the dataspace is, Traceability and Substance tracing nowhere. */
+/** Catena-X and DECADE-X as configured: CCM verifiable where the dataspace is, Traceability and Substance tracing nowhere. */
 function catalog({ catenaX = true, decadeX = false, decadeXAssignsIds = false } = {}): CatalogDataspace[] {
   return [
     {
@@ -22,7 +22,7 @@ function catalog({ catenaX = true, decadeX = false, decadeXAssignsIds = false } 
       ]
     },
     {
-      id: 'decade-x', displayName: 'Decade-X', available: decadeX,
+      id: 'decade-x', displayName: 'DECADE-X', available: decadeX,
       memberId: { ...DECADE_X_ID, assignedToExternal: decadeXAssignsIds },
       useCases: [
         { id: 'ccm', displayName: 'Company Certificate Management', available: decadeX },
@@ -140,7 +140,7 @@ describe('Dashboard', () => {
     it('lists what cannot be picked as disabled, saying why', fakeAsync(() => {
       create();
 
-      const decadeX = choice('dataspace', 'Decade-X');
+      const decadeX = choice('dataspace', 'DECADE-X');
       expect(decadeX.querySelector('input')!.disabled).toBeTrue();
       expect(decadeX.textContent).toContain('not available in this environment');
       const traceability = choice('useCase', 'Traceability');
@@ -158,7 +158,7 @@ describe('Dashboard', () => {
       expect(text('.vp-card')).toContain('pick one to see it');
       expect(api.vpStatus).not.toHaveBeenCalled();
 
-      choice('dataspace', 'Decade-X').querySelector('input')!.click();
+      choice('dataspace', 'DECADE-X').querySelector('input')!.click();
       settle();
 
       expect(dashboard.dataspaceId).toBe('decade-x');
@@ -272,7 +272,7 @@ describe('Dashboard', () => {
       dashboard.selectDataspace('decade-x');
       settle();
       expect(api.vpStatus).toHaveBeenCalledWith('decade-x');
-      expect(kv()['Decade-X-ID']).toBe('DX-99999999');
+      expect(kv()['DECADE-X-ID']).toBe('DX-99999999');
       finish();
     }));
 
@@ -368,7 +368,7 @@ describe('Dashboard', () => {
       expect(dashboard.derivingBpn).toBeFalse();
       expect(dashboard.effectiveMemberId).toBe('');
       expect(element('.derive')).toBeNull();
-      expect(text('label.field:has(input[name="memberId"]) .label')).toBe('Decade-X-IDrequired');
+      expect(text('label.field:has(input[name="memberId"]) .label')).toBe('DECADE-X-IDrequired');
       expect(element<HTMLInputElement>('input[name="memberId"]')!.placeholder).toBe('DX-00000001');
 
       dashboard.memberId = 'DX-00000001';
@@ -398,10 +398,10 @@ describe('Dashboard', () => {
 
       expect(dashboard.memberIdAssigned).toBeTrue();
       expect(dashboard.effectiveMemberId).toBe('');
-      expect(text('label.field:has(input[name="memberId"]) .label')).toBe('Decade-X-ID');
+      expect(text('label.field:has(input[name="memberId"]) .label')).toBe('DECADE-X-ID');
       expect(element<HTMLInputElement>('input[name="memberId"]')!.disabled).toBeTrue();
       expect(element<HTMLInputElement>('input[name="memberId"]')!.placeholder).toBe('assigned on onboarding');
-      expect(dashboard.memberIdHint).toBe('Assigned by Decade-X when the system is onboarded — nothing to enter.');
+      expect(dashboard.memberIdHint).toBe('Assigned by DECADE-X when the system is onboarded — nothing to enter.');
       expect(dashboard.canStart).toBeTrue();
 
       // a participant hosted here brings its own: its deployment needs it
@@ -409,11 +409,11 @@ describe('Dashboard', () => {
       dashboard.memberId = '';
       settle();
       expect(dashboard.memberIdAssigned).toBeFalse();
-      expect(dashboard.startBlocker).toBe('Enter the Decade-X-ID to start the run.');
+      expect(dashboard.startBlocker).toBe('Enter the DECADE-X-ID to start the run.');
       finish();
     }));
 
-    it('is asked of an external participant in Decade-X, which declares it like a BPN', fakeAsync(() => {
+    it('is asked of an external participant in DECADE-X, which declares it like a BPN', fakeAsync(() => {
       api.catalog.and.returnValue(of(catalog({ decadeX: true })));
       create();
       dashboard.selectDataspace('decade-x');
@@ -421,7 +421,7 @@ describe('Dashboard', () => {
       settle();
 
       expect(dashboard.memberIdAssigned).toBeFalse();
-      expect(dashboard.startBlocker).toBe('Enter the Decade-X-ID to start the run.');
+      expect(dashboard.startBlocker).toBe('Enter the DECADE-X-ID to start the run.');
       finish();
     }));
 

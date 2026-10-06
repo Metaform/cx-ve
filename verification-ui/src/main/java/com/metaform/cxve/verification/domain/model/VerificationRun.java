@@ -81,7 +81,7 @@ public class VerificationRun {
         return shortName;
     }
 
-    /** The participant's id within the run's dataspace — the BPN in Catena-X, the Decade-X-ID in Decade-X. */
+    /** The participant's id within the run's dataspace — the BPN in Catena-X, the DECADE-X-ID in DECADE-X. */
     public synchronized String memberId() {
         return memberId;
     }

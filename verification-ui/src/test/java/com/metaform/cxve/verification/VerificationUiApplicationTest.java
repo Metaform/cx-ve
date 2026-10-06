@@ -39,7 +39,7 @@ class VerificationUiApplicationTest {
         assertFalse(decadeX.useCase("substance-tracing").enabled());
         // a dataspace may leave its policies unset
         assertEquals(0, properties.dataspace("decade-x").accessConstraints().size());
-        // Decade-X's checklist: its own onboarding events and its credential's delivery
+        // DECADE-X's checklist: its own onboarding events and its credential's delivery
         assertEquals(Map.of("events.onboarding.started", 1, "events.onboarding.completed", 1,
                         "events.issuance.credential.delivered", 1),
                 properties.dataspace("decade-x").useCase("ccm").ccm().externalExpectedEvents());

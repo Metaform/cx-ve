@@ -120,7 +120,7 @@ class DataspaceCatalogTest {
         var props = TestFixtures.props(Map.of());
         var catenaX = props.dataspace("catena-x");
         var assigning = new VerificationProperties.DataspaceProfile("Assigning",
-                new VerificationProperties.MemberId("Decade-X-ID", "DX-[0-9]{8}", "DX-00000001", true),
+                new VerificationProperties.MemberId("DECADE-X-ID", "DX-[0-9]{8}", "DX-00000001", true),
                 catenaX.dspProfile(), catenaX.policyContext(), catenaX.accessConstraints(),
                 catenaX.contractConstraints(), catenaX.registrationTemplate(),
                 new VerificationProperties.ParticipantIdentity("VP", "vp-dx", "DX-99999999", "DXVERIFY0001"),

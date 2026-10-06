@@ -7,7 +7,7 @@ supports `--help`.
 
 Stands up the complete Verification Environment on a single kind cluster (default `cxve`, gateway hostname
 `cxve.localhost`) as ONE umbrella helm release (`charts/cx-ve`, release name `cx-ve`): Core Platform Distribution,
-Catena-X profile, the Catena-X and Decade-X onboarding APIs, Membership Hub, Verification UI, Certo and the
+Catena-X profile, the Catena-X and DECADE-X onboarding APIs, Membership Hub, Verification UI, Certo and the
 Certo agent. The apps of this repo (both onboarding APIs, Membership Hub, Verification UI, Compliance Tracker)
 are built from source and kind-loaded, so the VE runs the local code. Runs `setup-did-dns.sh --pre` before the release (its seed hooks need in-cluster DNS mid-install) and
 again in discovery mode after it.

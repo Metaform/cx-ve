@@ -20,7 +20,7 @@ const CATALOG: CatalogDataspace[] = [
       { id: 'traceability', displayName: 'Traceability', available: false }
     ]
   },
-  { id: 'decade-x', displayName: 'Decade-X', available: false, memberId: null, useCases: [] }
+  { id: 'decade-x', displayName: 'DECADE-X', available: false, memberId: null, useCases: [] }
 ];
 
 describe('catalog', () => {

@@ -56,7 +56,7 @@ class RunControllerTest {
 
     @Test
     void start_answersAMemberIdTheCatalogRefusesWith400() throws Exception {
-        // whether the member id is required is the dataspace's rule (Decade-X assigns an external
+        // whether the member id is required is the dataspace's rule (DECADE-X assigns an external
         // participant's), so the boundary hands it on and the catalog decides
         when(runService.start(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new DataspaceCatalog.InvalidRunRequestException("The participant's BPN is required"));

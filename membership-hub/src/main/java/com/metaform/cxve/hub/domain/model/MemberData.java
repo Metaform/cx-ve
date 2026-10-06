@@ -12,11 +12,11 @@ import java.util.Map;
  * address, unique ids, company roles, agreements and initial users of a CX-0009 registration).
  *
  * <p>{@code memberId} is the member's identifier WITHIN the dataspace — the BPN in Catena-X, the
- * Decade-X-ID in Decade-X. Whether it is given up front is the dataspace's rule, checked by its
+ * DECADE-X-ID in DECADE-X. Whether it is given up front is the dataspace's rule, checked by its
  * {@code DataspaceOnboarding}: a member hosted HERE always brings one, because provisioning needs it
  * (the {@code cfm.issuer} VPA properties feed it to the certo activity) before any registration
- * could assign one; Catena-X requires the BPN for every member; an EXTERNAL Decade-X member may
- * leave its Decade-X-ID out, the TSP then assigns one on approval, which the hub records.
+ * could assign one; Catena-X requires the BPN for every member; an EXTERNAL DECADE-X member may
+ * leave its DECADE-X-ID out, the TSP then assigns one on approval, which the hub records.
  *
  * <p>{@code did} decides whether this environment provisions anything. SUPPLY IT and the member
  * is taken to run elsewhere — its connector, wallet and DID document already exist, and the hub

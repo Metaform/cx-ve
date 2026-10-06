@@ -1,9 +1,9 @@
-## Decade-X's EDC dataspace profile — the counterpart of the catenax-profile's edc-seed: the DSP
-## profile Decade-X participants are deployed with and dial each other under. Its DCP scope asks
+## DECADE-X's EDC dataspace profile — the counterpart of the catenax-profile's edc-seed: the DSP
+## profile DECADE-X participants are deployed with and dial each other under. Its DCP scope asks
 ## every counterparty for its DecadeXMembershipCredential, the way Catena-X's cx-neptune asks for
-## the three Catena-X credentials — which is why Decade-X cannot share cx-neptune: a Decade-X
+## the three Catena-X credentials — which is why DECADE-X cannot share cx-neptune: a DECADE-X
 ## participant holds none of those, and a presentation missing a requested credential is refused.
-## No policy vocabulary (CEL expressions) yet: Decade-X offers carry no constraints.
+## No policy vocabulary (CEL expressions) yet: DECADE-X offers carry no constraints.
 {{- if .Values.seedJobs.edcSeed.enabled }}
 {{- $management := printf "http://%s:8081/api/mgmt/v5" (include "decadex.fqdn" (dict "svc" .Values.services.controlPlane "ctx" .)) }}
 apiVersion: batch/v1
@@ -14,7 +14,7 @@ metadata:
     app: decadex-edc-seed
   annotations:
     "helm.sh/hook": post-install,post-upgrade
-    # Weight 150: after the catenax-profile's EDC seed (130) and the Decade-X issuer seed (140).
+    # Weight 150: after the catenax-profile's EDC seed (130) and the DECADE-X issuer seed (140).
     "helm.sh/hook-weight": "150"
     "helm.sh/hook-delete-policy": {{ .Values.seedJobs.hookDeletePolicy | quote }}
 spec:

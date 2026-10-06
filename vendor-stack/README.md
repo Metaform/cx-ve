@@ -6,8 +6,8 @@ participant, reachable only over DSP, DCP and CCM, exactly as
 
 It is built from the VE's own components — the Core Platform Distribution, the Catena-X profile
 seeding, Certo and the Certo CFM agent, at the versions `charts/cx-ve` pins — and runs in its
-**own kind cluster**. There is one stack per dataspace: **Catena-X** (the default) or **Decade-X**
-(`-d decade-x` on every script, see [Decade-X](#decade-x)); the two run side by side. So it proves the VE's side of the wire end to end, not interoperability with
+**own kind cluster**. There is one stack per dataspace: **Catena-X** (the default) or **DECADE-X**
+(`-d decade-x` on every script, see [DECADE-X](#decade-x)); the two run side by side. So it proves the VE's side of the wire end to end, not interoperability with
 a foreign implementation: that is the next step, with a different vendor's connector and wallet in
 this stack's place.
 
@@ -18,13 +18,13 @@ Tracker) run here. What a vendor does with its own tooling is scripted in [`scri
 
 | | VE | Vendor stack |
 |---|---|---|
-| kind cluster | `cxve` (`~/.kube/cxve.config`) | `vendor` (`~/.kube/vendor.config`) — Decade-X: `dx-vendor` |
+| kind cluster | `cxve` (`~/.kube/cxve.config`) | `vendor` (`~/.kube/vendor.config`) — DECADE-X: `dx-vendor` |
 | release | `cx-ve` | `vendor-stack` |
-| gateway | `http://cxve.localhost` (port 80) | `http://vendor.localhost:8080` — Decade-X: `http://dx-vendor.localhost:8081` |
-| participant DID | `did:web:identity.cxve.localhost:verification-participant` (Decade-X: `…:verification-participant-dx`) | `did:web:identity.vendor.localhost%3A8080:vendor-participant` — Decade-X: `did:web:identity.dx-vendor.localhost%3A8081:vendor-participant` |
+| gateway | `http://cxve.localhost` (port 80) | `http://vendor.localhost:8080` — DECADE-X: `http://dx-vendor.localhost:8081` |
+| participant DID | `did:web:identity.cxve.localhost:verification-participant` (DECADE-X: `…:verification-participant-dx`) | `did:web:identity.vendor.localhost%3A8080:vendor-participant` — DECADE-X: `did:web:identity.dx-vendor.localhost%3A8081:vendor-participant` |
 | issuer DID | `did:web:issuer.cxve.localhost:issuer` | `did:web:issuer.<host>%3A<port>:issuer` (issues nothing) |
 | trusts | its own issuer | its own issuer **and the VE's** |
-| DSP profile | `cx-neptune` and `decade-x` | `cx-neptune` — Decade-X: `decade-x` |
+| DSP profile | `cx-neptune` and `decade-x` | `cx-neptune` — DECADE-X: `decade-x` |
 
 **Why the port is in the DIDs.** The VE's cluster holds port 80 on the host, so this stack's
 gateway is on 8080 — and the platform advertises it (`global.external.port`) in every URL and DID.
@@ -215,17 +215,17 @@ kind delete cluster -n vendor   # the vendor stack
 kind delete cluster -n cxve     # the VE
 ```
 
-## Decade-X
+## DECADE-X
 
-The same steps verify a Decade-X participant, with `-d decade-x` on every script. Its stack is its
+The same steps verify a DECADE-X participant, with `-d decade-x` on every script. Its stack is its
 own cluster (`dx-vendor`, gateway `http://dx-vendor.localhost:8081`), next to a Catena-X one:
 
 ```shell
 ./vendor-stack/install.sh -d decade-x
 ./vendor-stack/connect.sh -d decade-x
-./vendor-stack/scripts/create-participant.sh -d decade-x      # Decade-X-ID DX-00009001 (-m)
+./vendor-stack/scripts/create-participant.sh -d decade-x      # DECADE-X-ID DX-00009001 (-m)
 ./vendor-stack/scripts/seed-ccm-offer.sh -d decade-x
-# start the run: Decade-X / Company Certificate Management, the participant's DID and Decade-X-ID
+# start the run: DECADE-X / Company Certificate Management, the participant's DID and DECADE-X-ID
 curl -s -X POST http://cxve.localhost/ui/api/runs -H 'Content-Type: application/json' \
   -d '{"dataspace":"decade-x","useCase":"ccm","name":"Vendor Participant","memberId":"DX-00009001",
        "did":"did:web:identity.dx-vendor.localhost%3A8081:vendor-participant"}' | jq -r .id
@@ -236,12 +236,12 @@ curl -s -X POST http://cxve.localhost/ui/api/runs -H 'Content-Type: application/
 
 What differs from Catena-X:
 
-| | Catena-X | Decade-X |
+| | Catena-X | DECADE-X |
 |---|---|---|
-| member id | BPN, `-m`/`-b` (default `BPNLVENDOR000001`) | Decade-X-ID, `-m` (default `DX-00009001`) — declared up front like a BPN; the VE's TSP honors it |
+| member id | BPN, `-m`/`-b` (default `BPNLVENDOR000001`) | DECADE-X-ID, `-m` (default `DX-00009001`) — declared up front like a BPN; the VE's TSP honors it |
 | credentials from the VE | `MembershipCredential`, `BpnCredential`, `DataExchangeGovernanceCredential` | `DecadeXMembershipCredential` (claims: the DID, `decadeXId`) |
-| DSP profile | `cx-neptune` | `decade-x` — its DCP scope asks for the `DecadeXMembershipCredential`; Decade-X cannot share `cx-neptune`, whose scopes ask for the Catena-X credentials |
-| offer policies | Catena-X constraints (membership, framework agreement, …) | none yet — no Decade-X policy vocabulary exists |
+| DSP profile | `cx-neptune` | `decade-x` — its DCP scope asks for the `DecadeXMembershipCredential`; DECADE-X cannot share `cx-neptune`, whose scopes ask for the Catena-X credentials |
+| offer policies | Catena-X constraints (membership, framework agreement, …) | none yet — no DECADE-X policy vocabulary exists |
 | VE counterparty | `…:verification-participant`, BPN `BPNLVERIFY000001` | `…:verification-participant-dx`, `DX-99999999` |
 
 A DID document advertises ONE DSP profile per platform. The VE advertises `cx-neptune` for every
@@ -269,7 +269,7 @@ credentials and who issued them.
 ## Caveats
 
 - **Always install from scratch.** `helm upgrade` on the release duplicates the Catena-X dataspace
-  profile (its seed is not idempotent) and breaks participant provisioning — in a Decade-X stack
+  profile (its seed is not idempotent) and breaks participant provisioning — in a DECADE-X stack
   too, which carries the Catena-X profile seeding for provisioning.
 - **Ids are per participant.** EDC object ids are unique across all participant contexts of a
   control plane, so the scripts derive every id from the short name — several vendor participants
@@ -278,7 +278,7 @@ credentials and who issued them.
   CoreDNS; docker restarts can reassign them.
 - **The VE-side DNS entries are managed by `setup-did-dns.sh --sut`**, tagged with the vendor
   cluster's name (`--sut-name`): `connect.sh` replaces only its own stack's entries, so a Catena-X
-  and a Decade-X stack can both be connected.
+  and a DECADE-X stack can both be connected.
 - **HTTP only**, like the VE (see docs/sut-verification.md).
 - **Core platform ≥ 0.0.29 on both sides.** Earlier versions wrote the issuer's in-cluster status
   list URL into every credential; across clusters that resolves to the wrong issuer, and every

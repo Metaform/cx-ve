@@ -75,9 +75,9 @@ config:
             # override it for a non-default host).
             jwk-set-uri: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
             issuer-uri: http://cxve.localhost/auth/osp
-  # The IssuerService an approved participant is registered with and offered its Decade-X
+  # The IssuerService an approved participant is registered with and offered its DECADE-X
   # credentials through (in-cluster admin port). token-resource must agree with the jwtlet seed
-  # mapping above; the credential definition is the umbrella's Decade-X issuer seed's.
+  # mapping above; the credential definition is the umbrella's DECADE-X issuer seed's.
   issuer-service:
     url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
     issuer-context-id: issuer

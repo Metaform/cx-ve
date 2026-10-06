@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# Builds the Decade-X (stub) onboarding API from source. Alternative to the buildpacks image
+# Builds the DECADE-X (stub) onboarding API from source. Alternative to the buildpacks image
 # (./gradlew bootBuildImage); build from this directory with:  docker build -t dx-onboarding-api .
 
 # ---- Build the Spring Boot jar from source ----

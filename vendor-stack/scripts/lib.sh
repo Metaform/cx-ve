@@ -48,9 +48,9 @@ use_dataspace() { # <catena-x|decade-x>
       ;;
     decade-x)
       cluster=dx-vendor; host=dx-vendor.localhost; port=8081
-      # Decade-X's own profile: cx-neptune's DCP scopes ask for the Catena-X credentials
+      # DECADE-X's own profile: cx-neptune's DCP scopes ask for the Catena-X credentials
       DSP_PROFILE=decade-x
-      MEMBER_ID_LABEL=Decade-X-ID
+      MEMBER_ID_LABEL=DECADE-X-ID
       DEFAULT_MEMBER_ID=DX-00009001
       MEMBER_CREDENTIAL=DecadeXMembershipCredential
       VP_SHORT_NAME=verification-participant-dx

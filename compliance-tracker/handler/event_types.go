@@ -13,14 +13,14 @@ import "encoding/json"
 // "events." + the event's Event.name() value, which is what the Subject* constants below spell out.
 //
 // The onboarding family instead comes from cx-ve's own onboarding APIs: the Catena-X one
-// (com.metaform.cxve.adapter.out.nats.NatsOnboardingEventPublisher) and the Decade-X one
+// (com.metaform.cxve.adapter.out.nats.NatsOnboardingEventPublisher) and the DECADE-X one
 // (com.metaform.dxonboarding.adapter.out.nats.NatsOnboardingEventPublisher), on the same subjects.
 // Their `type` is a reverse-DNS name per CX-0000 §2.3 ("org.catena-x.onboarding.<name>.v1",
 // "org.decade-x.onboarding.<name>.v1") rather than a class name, and their `subject` carries the
 // onboarding process id. The Catena-X envelope also repeats the BPN and DID as the `sourcebpn` and
-// `participantdid` extensions (the Decade-X one only the DID), not modelled here:
+// `participantdid` extensions (the DECADE-X one only the DID), not modelled here:
 // lifecycleagent.CloudEvent drops top-level members it does not declare, and the payload carries
-// the fields anyway. A Decade-X payload has no `bpn` (its member id travels as `decadeXId`, which
+// the fields anyway. A DECADE-X payload has no `bpn` (its member id travels as `decadeXId`, which
 // is not a correlation key), so Bpn stays empty for its participants.
 //
 // The certificate exchange family comes from Certo, the CX-0135 (CCM) certificate exchange

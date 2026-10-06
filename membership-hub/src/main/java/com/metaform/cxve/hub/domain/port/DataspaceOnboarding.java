@@ -10,7 +10,7 @@ import java.util.Map;
  * member registered lives behind this port: the shape of the {@link MemberData#registration()}
  * object, the onboarding API's endpoints, payloads and authentication, and how it reports a
  * registration's outcome: through status callbacks in its own wire format (Catena-X), or as a
- * status the hub polls ({@link #pollsStatus()}, Decade-X). The hub's own choreography (deploy
+ * status the hub polls ({@link #pollsStatus()}, DECADE-X). The hub's own choreography (deploy
  * first, register second, the reported outcome as the terminal signal) is the same for every
  * dataspace.
  *

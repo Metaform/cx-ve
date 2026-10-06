@@ -3,8 +3,8 @@
 # Stands up the vendor stack — a system under test for the Verification Environment (VE) built
 # from the VE's own components — on its OWN kind cluster: ONE helm release (vendor-stack/chart)
 # with the Core Platform Distribution, the Catena-X profile seeding, Certo and the Certo CFM agent —
-# and, for a Decade-X stack, the Decade-X profile seeding (its DSP profile and DCP scope). One stack
-# per dataspace: a Catena-X and a Decade-X stack run side by side, on their own clusters and ports.
+# and, for a DECADE-X stack, the DECADE-X profile seeding (its DSP profile and DCP scope). One stack
+# per dataspace: a Catena-X and a DECADE-X stack run side by side, on their own clusters and ports.
 # Run from anywhere; paths are resolved relative to this script.
 #
 # The stack is a COUNTERPARTY of the VE, not part of it: the VE reaches it only over DSP, DCP and
@@ -113,7 +113,7 @@ HOST_OVERRIDES=(
   --set "catenax-profile.issuer.trustedIssuers={${VE_ISSUER_DID}}"
   --set "certo.gateway.hostnames={${HOST}}"
 )
-# A Decade-X stack's participant runs DSP under Decade-X's own profile — advertised in its DID
+# A DECADE-X stack's participant runs DSP under DECADE-X's own profile — advertised in its DID
 # documents, seeded with the VE's issuer trusted.
 if [[ "$DATASPACE" == decade-x ]]; then
   HOST_OVERRIDES+=(
@@ -160,7 +160,7 @@ kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-s
 helm dependency update "$CHART"
 
 # Hook order in the release: platform seeds (10/20) -> catenax-profile (110-130) -> decadex-profile
-# (150, a Decade-X stack only) -> certo jwtlet mappings (210) -> certo activity + orchestration (220).
+# (150, a DECADE-X stack only) -> certo jwtlet mappings (210) -> certo activity + orchestration (220).
 helm upgrade --install "$RELEASE" "$CHART" \
   --namespace "$NAMESPACE" --create-namespace \
   "${HOST_OVERRIDES[@]}" \

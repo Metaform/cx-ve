@@ -26,7 +26,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /**
- * The Decade-X half of a member request: the {@code registration} object is the TSP's onboarding
+ * The DECADE-X half of a member request: the {@code registration} object is the TSP's onboarding
  * request minus what the hub owns, it is submitted as a multipart request with placeholder
  * documents under the member's DID as connector identity, and the outcome is polled.
  */
@@ -75,7 +75,7 @@ class DecadeXOnboardingTest {
         return new MemberData("decade-x", "Acme Corp", "acme", "DX-00000001", null, registration);
     }
 
-    /** A member running elsewhere: it brings its DID, and the TSP assigns its Decade-X-ID. */
+    /** A member running elsewhere: it brings its DID, and the TSP assigns its DECADE-X-ID. */
     private static MemberData external() {
         return new MemberData("decade-x", "SUT GmbH", "sut", null, "did:web:sut.example.com", registration());
     }
@@ -144,7 +144,7 @@ class DecadeXOnboardingTest {
         assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme",
                 "BPNL0000000000XY", null, registration())))
                 .isInstanceOf(InvalidRegistrationException.class)
-                .hasMessageContaining("Decade-X-ID");
+                .hasMessageContaining("DECADE-X-ID");
     }
 
     @Test
@@ -156,7 +156,7 @@ class DecadeXOnboardingTest {
         assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme",
                 "BPNL0000000000XY", "did:web:sut.example.com", registration())))
                 .isInstanceOf(InvalidRegistrationException.class)
-                .hasMessageContaining("Decade-X-ID");
+                .hasMessageContaining("DECADE-X-ID");
     }
 
     @Test
@@ -187,7 +187,7 @@ class DecadeXOnboardingTest {
     void issuerProperties_carryTheDecadeXId() {
         assertThat(onboarding.issuerProperties(DID, member(registration())))
                 .containsEntry("id", DID)
-                .containsEntry("memberOf", "Decade-X")
+                .containsEntry("memberOf", "DECADE-X")
                 .containsEntry("decadeXId", "DX-00000001")
                 .containsEntry("bpn", "DX-00000001");
     }
@@ -204,7 +204,7 @@ class DecadeXOnboardingTest {
                     assertThat(body).contains("name=\"request\"", "\"legalName\":\"Acme Corp\"",
                             "\"preferredDid\":\"" + DID + "\"", "\"applicantReference\":\"ext-1\"",
                             "\"registrationCountry\":\"DE\"",
-                            // hosted here: the Decade-X-ID its deployment was provisioned with
+                            // hosted here: the DECADE-X-ID its deployment was provisioned with
                             "\"legalEntityId\":\"DX-00000001\"");
                     assertThat(body).contains("name=\"gtcDocument\"; filename=\"gtc-placeholder.pdf\"",
                             "name=\"ucaDocument[export-control]\"", "name=\"ucaDocument[critical-supply-chain]\"",
@@ -259,7 +259,7 @@ class DecadeXOnboardingTest {
         expectStatus("req-3", """
                 {"id": "req-3", "status": "UNDER_REVIEW", "legalEntity": {"legalName": "Acme Corp"}}""");
 
-        // approved: holder registered and offered its credentials, under the Decade-X-ID it now holds
+        // approved: holder registered and offered its credentials, under the DECADE-X-ID it now holds
         assertThat(onboarding.pollStatus(submitted("req-1")))
                 .isEqualTo(new RegistrationOutcome("ext-1", RegistrationOutcome.Status.CONFIRMED, null, "DX-00000042"));
         assertThat(onboarding.pollStatus(submitted("req-2"))).isEqualTo(new RegistrationOutcome("ext-1",

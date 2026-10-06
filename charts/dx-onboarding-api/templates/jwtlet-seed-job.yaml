@@ -14,7 +14,7 @@ metadata:
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     # Weight 205: in the umbrella release all subcharts share one hook space — the platform's
-    # seeds run at 10/20, the catenax-profile ones at 110-130, the Decade-X issuer seed at 140, the
+    # seeds run at 10/20, the catenax-profile ones at 110-130, the DECADE-X issuer seed at 140, the
     # cx-onboarding-api mapping at 200, the certo seeds at 210/220 and the hub's at 230. This job
     # only needs jwtlet up; the slot next to the cx-onboarding-api's keeps the two onboarding APIs
     # together.

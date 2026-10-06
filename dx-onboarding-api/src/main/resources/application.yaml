@@ -1,4 +1,4 @@
-# Runtime configuration for the Decade-X onboarding API (the TSP onboarding intake). Values here are the defaults baked
+# Runtime configuration for the DECADE-X onboarding API (the TSP onboarding intake). Values here are the defaults baked
 # into the image; every key can be overridden through environment variables or a mounted yaml file
 # (SPRING_CONFIG_ADDITIONALLOCATION).
 
@@ -22,14 +22,14 @@ spring:
           issuer-uri: http://cxve.localhost/auth/osp                                      # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUERURI
 
 # The IssuerService an approved participant is registered with as credential holder, and offered
-# its Decade-X credentials through — as the Catena-X onboarding API does. The admin API is called
+# its DECADE-X credentials through — as the Catena-X onboarding API does. The admin API is called
 # with a token exchanged under the token-resource jwtlet mapping, which must grant
 # issuer-admin-api:admin (the chart's jwtlet seed registers it for this service's account).
 issuer-service:
   url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin   # ISSUERSERVICE_URL
   issuer-context-id: issuer                                     # ISSUERSERVICE_ISSUERCONTEXTID
   token-resource: sudo                                          # ISSUERSERVICE_TOKENRESOURCE
-  # Must exist at the issuer — the umbrella chart's Decade-X issuer seed creates it; an unknown id
+  # Must exist at the issuer — the umbrella chart's DECADE-X issuer seed creates it; an unknown id
   # fails the whole offer.
   credential-definition-ids: decadex-membership-credential-def  # ISSUERSERVICE_CREDENTIALDEFINITIONIDS
 

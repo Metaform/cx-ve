@@ -6,9 +6,9 @@
 #
 #   1. resolves the verification participant's DID document for its DSP endpoint — under the
 #      stack's DSP profile: a DID document advertises one profile per platform (the VE's:
-#      cx-neptune), so for Decade-X the endpoint's profile segment is replaced with decade-x;
+#      cx-neptune), so for DECADE-X the endpoint's profile segment is replaced with decade-x;
 #   2. waits until the vendor participant holds its member credential from the VE (Catena-X:
-#      MembershipCredential, Decade-X: DecadeXMembershipCredential) — every DSP message of the
+#      MembershipCredential, DECADE-X: DecadeXMembershipCredential) — every DSP message of the
 #      profile presents it — then requests the catalog until the inbox offer shows up: the dataset
 #      declaring the CX-0135 consumer API (dct:subject
 #      cx-taxo:CompanyCertificateManagementConsumerApi, cx-common:version 3.0), whatever its id;
@@ -28,8 +28,8 @@
 #
 #   -d, --dataspace     catena-x (default) or decade-x — the dataspace of the stack
 #   --vp-did            the VE's verification participant of the dataspace (default:
-#                       did:web:identity.cxve.localhost:verification-participant, -dx in Decade-X)
-#   --vp-member-id      its member id (default: BPNLVERIFY000001, DX-99999999 in Decade-X;
+#                       did:web:identity.cxve.localhost:verification-participant, -dx in DECADE-X)
+#   --vp-member-id      its member id (default: BPNLVERIFY000001, DX-99999999 in DECADE-X;
 #                       --vp-bpn is an alias)
 #   --pdf               certificate document (default: the Verification UI's sample document)
 #   -s, --short-name    the vendor participant (default: vendor-participant)
@@ -72,7 +72,7 @@ VP_DID="${VP_DID_ARG:-$VP_DID}"
 VP_MEMBER_ID="${VP_MEMBER_ID_ARG:-$VP_MEMBER_ID}"
 case "$VENDOR_DATASPACE" in
   catena-x) SITE_ID=BPNA00000000MAIN0; ISSUER_ID=BPNL00000000ISSUER ;;
-  # Decade-X-style ids, as the VE's own Decade-X sample certificate carries them
+  # DECADE-X-style ids, as the VE's own DECADE-X sample certificate carries them
   decade-x) SITE_ID=DX-00000000-MAIN; ISSUER_ID=DX-00000000 ;;
 esac
 

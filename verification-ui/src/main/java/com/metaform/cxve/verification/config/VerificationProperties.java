@@ -135,7 +135,7 @@ public record VerificationProperties(
      *                           participant's member id — a run then takes none up front and adopts
      *                           the one the hub records; a participant hosted here always brings its
      *                           own, its deployment needs it. Off for every dataspace today: Catena-X
-     *                           and Decade-X participants declare their BPN / Decade-X-ID.
+     *                           and DECADE-X participants declare their BPN / DECADE-X-ID.
      */
     public record MemberId(String label, String pattern, String example, boolean assignedToExternal) {
     }

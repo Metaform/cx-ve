@@ -1,5 +1,5 @@
-# The Decade-X DSP profile: the EDC DataspaceProfile Decade-X's DSP messages run under. Its name is
-# the last segment of a Decade-X participant's DSP address (/api/dsp/<pcid>/<name>) and the
+# The DECADE-X DSP profile: the EDC DataspaceProfile DECADE-X's DSP messages run under. Its name is
+# the last segment of a DECADE-X participant's DSP address (/api/dsp/<pcid>/<name>) and the
 # `protocol` of its catalog, negotiation and transfer requests. Every participant dialling one of
 # the other's must use the same name: the VE (membership-hub dataspaces.decade-x.dataspace-profiles,
 # verification-ui verification.dataspaces.decade-x.dsp-profile) and a vendor stack.
@@ -17,14 +17,14 @@ issuer:
   participantContextId: issuer
 
 # The DecadeXMembershipCredential, as the issuer defines it. Claims: credentialSubject.id (the DID)
-# and credentialSubject.decadeXId (the Decade-X-ID) — from the holder properties the
+# and credentialSubject.decadeXId (the DECADE-X-ID) — from the holder properties the
 # dx-onboarding-api registers. The dx-onboarding-api's issuer-service.credential-definition-ids must
 # name `id`.
 credentialDefinition:
   id: decadex-membership-credential-def
   credentialType: DecadeXMembershipCredential
   attestationId: decadex-holder-attestation-def
-  # a placeholder, like the catenax-profile's: no Decade-X credential schema exists yet
+  # a placeholder, like the catenax-profile's: no DECADE-X credential schema exists yet
   jsonSchemaUrl: https://example.com/schema/decadex-membership-credential.json
   # one week, like the Catena-X credentials
   validity: "604800"
@@ -49,6 +49,6 @@ seedJobs:
   # (the VE); a vendor stack's issuer issues nothing.
   issuerCredentials:
     enabled: true
-  # The EDC dataspace profile and its DCP scope — on every platform with Decade-X participants.
+  # The EDC dataspace profile and its DCP scope — on every platform with DECADE-X participants.
   edcSeed:
     enabled: true

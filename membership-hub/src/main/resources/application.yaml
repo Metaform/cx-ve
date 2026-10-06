@@ -79,14 +79,14 @@ dataspaces:
       credential-type: BpnCredential
       claim: bpn
       flow-claim: bpn
-  # Decade-X, through the VE's dx-onboarding-api — the TSP onboarding intake. It has no status
+  # DECADE-X, through the VE's dx-onboarding-api — the TSP onboarding intake. It has no status
   # callbacks, so the hub polls each request's status (participant.registration.poll-interval). An
   # approval registers the member as credential holder and has the platform's issuer offer it the
-  # DecadeXMembershipCredential; it also hands an external member that declared no Decade-X-ID the
+  # DecadeXMembershipCredential; it also hands an external member that declared no DECADE-X-ID the
   # one the TSP assigned.
   decade-x:
     enabled: true                                               # DATASPACES_DECADEX_ENABLED
-    display-name: Decade-X
+    display-name: DECADE-X
     onboarding:
       url: http://cxve.localhost/dx-onboarding                  # DATASPACES_DECADEX_ONBOARDING_URL
       auth:
@@ -94,8 +94,8 @@ dataspaces:
         client-id: membership-hub
         client-secret: ""                                       # DATASPACES_DECADEX_ONBOARDING_AUTH_CLIENTSECRET
         scope: ""
-    # Decade-X's own DSP profile (seeded by the umbrella's decadex-profile): cx-neptune's DCP scopes
-    # ask for the Catena-X credentials, which a Decade-X participant does not hold.
+    # DECADE-X's own DSP profile (seeded by the umbrella's decadex-profile): cx-neptune's DCP scopes
+    # ask for the Catena-X credentials, which a DECADE-X participant does not hold.
     dataspace-profiles:
       - decade-x
     member-id-claim:
@@ -138,7 +138,7 @@ participant:
     timeout: 10m                                                # PARTICIPANT_PROVISIONING_TIMEOUT
     poll-interval: 5s                                           # PARTICIPANT_PROVISIONING_POLLINTERVAL
   # How often the hub reads the status of submitted registrations from an onboarding API that has
-  # no status callbacks (Decade-X's TSP). Callback-driven dataspaces (Catena-X) are not polled.
+  # no status callbacks (DECADE-X's TSP). Callback-driven dataspaces (Catena-X) are not polled.
   registration:
     poll-interval: 15s                                          # PARTICIPANT_REGISTRATION_POLLINTERVAL
   # Transfer-type mapping configured on the member's data plane (Siglet) at provisioning time,

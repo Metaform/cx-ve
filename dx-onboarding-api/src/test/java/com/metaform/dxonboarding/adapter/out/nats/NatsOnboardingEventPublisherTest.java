@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The envelope the compliance tracker reads: the same subjects as Catena-X's onboarding events (it
- * follows a participant from events.onboarding.started), but Decade-X's own type and fields —
+ * follows a participant from events.onboarding.started), but DECADE-X's own type and fields —
  * nothing of Catena-X's.
  */
 class NatsOnboardingEventPublisherTest {

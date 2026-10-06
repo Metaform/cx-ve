@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param issuerContextId         the issuer's participant context, which holds the credential definitions
  * @param tokenResource           the jwtlet mapping the workload token is exchanged under — it must
  *                                grant {@code issuer-admin-api:admin}
- * @param credentialDefinitionIds the credential definitions a Decade-X member is offered
+ * @param credentialDefinitionIds the credential definitions a DECADE-X member is offered
  */
 @ConfigurationProperties(prefix = "issuer-service")
 public record IssuerServiceProperties(String url, String issuerContextId, String tokenResource,

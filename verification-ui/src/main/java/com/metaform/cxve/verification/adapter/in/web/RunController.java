@@ -36,7 +36,7 @@ public class RunController {
     /**
      * A run of a {@code useCase} (e.g. {@code ccm}) in a {@code dataspace} (e.g. {@code catena-x}),
      * both as the catalog lists them. The {@code memberId} — the participant's id in that
-     * dataspace, the BPN in Catena-X, the Decade-X-ID in Decade-X — is mandatory unless the
+     * dataspace, the BPN in Catena-X, the DECADE-X-ID in DECADE-X — is mandatory unless the
      * dataspace assigns it to an external participant (none does today); the catalog enforces
      * that, so a run never reaches the flow with an identifier this environment invented for it.
      * {@code name} and {@code shortName} stay optional and are defaulted (see

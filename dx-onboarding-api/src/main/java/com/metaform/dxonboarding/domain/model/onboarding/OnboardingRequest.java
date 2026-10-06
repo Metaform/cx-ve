@@ -11,7 +11,7 @@ import java.util.Map;
  * @param connectorId                 the identity of the connector that submitted it, as the
  *                                    connector's data plane stamped it; only that connector sees it
  * @param fingerprint                 the submitted content, which recognizes a retry
- * @param legalEntityId               the participant's Decade-X-ID — the TSP's id of the legal
+ * @param legalEntityId               the participant's DECADE-X-ID — the TSP's id of the legal
  *                                    entity; null until approval assigns it
  * @param registrationExtractDocument null when none was submitted
  * @param powerOfAttorneyDocument     null when none was submitted
@@ -38,14 +38,14 @@ public record OnboardingRequest(
     }
 
     /**
-     * Approved, and being provisioned under the given Decade-X-ID: the participant is registered
+     * Approved, and being provisioned under the given DECADE-X-ID: the participant is registered
      * as a credential holder and offered its credentials. Not decided until that completed.
      */
     public OnboardingRequest approvalInProgress(String decadeXId) {
         return with(OnboardingStatus.APPROVAL_IN_PROGRESS, decadeXId, null);
     }
 
-    /** Approved and provisioned: the participant holds its Decade-X-ID and was offered its credentials. */
+    /** Approved and provisioned: the participant holds its DECADE-X-ID and was offered its credentials. */
     public OnboardingRequest approved(Instant decidedAt) {
         return with(OnboardingStatus.APPROVED, legalEntityId, new ReviewDecision(decidedAt, null, null, null));
     }
@@ -65,7 +65,7 @@ public record OnboardingRequest(
         return with(OnboardingStatus.REJECTED, legalEntityId, new ReviewDecision(decidedAt, code, comment, resubmissionAllowed));
     }
 
-    /** Whether this request holds its Decade-X-ID: approved, or being provisioned as such. */
+    /** Whether this request holds its DECADE-X-ID: approved, or being provisioned as such. */
     public boolean holdsLegalEntityId() {
         return legalEntityId != null
                 && (status == OnboardingStatus.APPROVAL_IN_PROGRESS || status == OnboardingStatus.APPROVED);

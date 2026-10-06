@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * An approval makes the applicant a Decade-X member: it gets its Decade-X-ID (a participant hosted
+ * An approval makes the applicant a DECADE-X member: it gets its DECADE-X-ID (a participant hosted
  * here keeps the one it supplied, every other one is assigned one), is registered as credential
  * holder, and is offered its credentials — in that order, with the request's status telling how far
  * it got.
@@ -89,7 +89,7 @@ class ApprovalServiceTest {
 
         approval.approve(request.id());
 
-        // registered while APPROVAL_IN_PROGRESS — its Decade-X-ID already visible — and offered after
+        // registered while APPROVAL_IN_PROGRESS — its DECADE-X-ID already visible — and offered after
         assertThat(calls).containsExactly("holder:%s:DX-99999999:APPROVAL_IN_PROGRESS".formatted(HOSTED), "offer:" + HOSTED);
         var approved = stored(request);
         assertThat(approved.status()).isEqualTo(OnboardingStatus.APPROVED);

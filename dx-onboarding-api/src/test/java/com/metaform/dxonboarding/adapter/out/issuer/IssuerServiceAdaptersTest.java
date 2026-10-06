@@ -78,7 +78,7 @@ class IssuerServiceAdaptersTest {
                          "properties": {"id": "%s", "bpn": "BPNL0000000000XY", "memberOf": "Catena-X",
                                         "contractVersion": "1.0"},
                          "lastModifiedAt": 0}""".formatted(DID, DID, DID), MediaType.APPLICATION_JSON));
-        // the Catena-X claims and name stay: the Decade-X ones are added
+        // the Catena-X claims and name stay: the DECADE-X ones are added
         server.expect(requestTo(API + "/v1/participants/issuer/holders"))
                 .andExpect(method(HttpMethod.PUT))
                 .andExpect(content().json("""

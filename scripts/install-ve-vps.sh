@@ -15,7 +15,7 @@
 # did:web:issuer.<host>:issuer).
 #
 # Unlike install-ve.sh, nothing is built from source: every image — including the Catena-X and
-# Decade-X onboarding APIs, the Compliance Tracker, the Membership Hub and the Verification UI —
+# DECADE-X onboarding APIs, the Compliance Tracker, the Membership Hub and the Verification UI —
 # is pulled from its registry (the published images from .github/workflows/publish.yml).
 #
 # Traefik is installed from traefik-values.yaml, which already carries the VPS-relevant

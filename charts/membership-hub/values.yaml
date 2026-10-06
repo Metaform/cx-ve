@@ -161,12 +161,12 @@ config:
         credential-type: BpnCredential
         claim: bpn
         flow-claim: bpn
-    # Decade-X, through the dx-onboarding-api (the TSP onboarding intake): same IdP client. No
+    # DECADE-X, through the dx-onboarding-api (the TSP onboarding intake): same IdP client. No
     # callback — the TSP has none, so the hub polls each request's status
     # (participant.registration.poll-interval).
     decade-x:
       enabled: true
-      display-name: Decade-X
+      display-name: DECADE-X
       onboarding:
         url: http://cx-ve-dx-onboarding-api.edc-v.svc.cluster.local:8080
         auth:
@@ -175,14 +175,14 @@ config:
           client-secret: membership-hub-secret
           # the TSP requires an authenticated caller, no particular scope
           scope: ""
-      # Decade-X's own DSP profile (the umbrella's decadex-profile): cx-neptune's DCP scopes ask every
-      # counterparty for the Catena-X credentials, which a Decade-X participant does not hold. The
+      # DECADE-X's own DSP profile (the umbrella's decadex-profile): cx-neptune's DCP scopes ask every
+      # counterparty for the Catena-X credentials, which a DECADE-X participant does not hold. The
       # platform still ADVERTISES one profile in every DID document (cx-neptune), so a counterparty
-      # has to address a Decade-X participant's /decade-x endpoint explicitly.
+      # has to address a DECADE-X participant's /decade-x endpoint explicitly.
       dataspace-profiles:
         - decade-x
       # The dx-onboarding-api has the issuer offer it on approval; its decadeXId is the member's
-      # Decade-X-ID.
+      # DECADE-X-ID.
       member-id-claim:
         credential-type: DecadeXMembershipCredential
         claim: decadeXId
