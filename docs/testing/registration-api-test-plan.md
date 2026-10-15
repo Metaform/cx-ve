@@ -340,7 +340,7 @@ diagram and enums agree on `DECLINED`; the `applicationStatus` union is `anyOf`,
 `required` sets were added to the callback-config request, `UserDetailData`, and `CompanyUniqueIdData`; `requestBody`
 is marked required on §2.2.1 and the callback POST; the callback GET declares "Empty if not configured".
 
-Implementation note (cx-ve): the onboarding-api deliberately deviates in one place — the §2.2.1 `200` returns the
+Implementation note (cx-ve): the cx-onboarding-api deliberately deviates in one place — the §2.2.1 `200` returns the
 onboarding-process id as its body (the spec declares an empty response; the id is what OSP clients correlate on, and
 the tolerant reader permits it). The optional §2.2.3 file upload endpoint is not offered (conformant: this CSP-B
 requires no files); `consents[].fileIds` are accepted but nothing dereferences them.

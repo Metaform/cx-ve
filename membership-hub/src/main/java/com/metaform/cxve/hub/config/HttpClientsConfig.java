@@ -5,38 +5,18 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
-/** The hub's outbound HTTP clients, one bean per downstream base URL. */
+/**
+ * The hub's outbound HTTP clients, one bean per downstream base URL. The dataspaces' onboarding
+ * APIs are not here: each {@code DataspaceOnboarding} builds its own from {@code dataspaces.<id>}.
+ */
 @Configuration
 public class HttpClientsConfig {
-
-    @Value("${onboarding-api.url:http://cxve.localhost/onboarding}")
-    private String onboardingApiUrl;
-
-    @Value("${onboarding-api.auth.token-url:http://cxve.localhost/auth/osp/oauth2/token}")
-    private String ospTokenUrl;
 
     @Value("${tenant-manager.url:http://cxve.localhost/api/tm}")
     private String tenantManagerUrl;
 
     @Value("${token.exchange.url:http://cxve.localhost/api/auth}")
     private String tokenExchangeUrl;
-
-    // "...RestClient", not "onboardingApiClient": that name belongs to the @Service consuming
-    // this bean, and Spring refuses two definitions under one name.
-    @Bean
-    public RestClient onboardingApiRestClient() {
-        return RestClient.builder()
-                .baseUrl(onboardingApiUrl)
-                .build();
-    }
-
-    /** The OSP IdP's token endpoint (Ory Hydra), for the client-credentials grant. */
-    @Bean
-    public RestClient ospTokenClient() {
-        return RestClient.builder()
-                .baseUrl(ospTokenUrl)
-                .build();
-    }
 
     @Bean
     public RestClient tenantManagerClient() {

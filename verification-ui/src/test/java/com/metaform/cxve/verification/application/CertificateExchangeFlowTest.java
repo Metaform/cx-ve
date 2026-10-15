@@ -62,32 +62,33 @@ class CertificateExchangeFlowTest {
         var properties = TestFixtures.props(Map.of("events.onboarding.started", 1));
         var support = new RunFlowSupport(management, hub, new ChecklistEvaluator(), properties);
         flow = new CertificateExchangeFlow(hub, management, certo, participantService, support, properties);
-        run = new VerificationRun("r1", "Participant r1", "put-r1", "BPNLPUT000000001", "DEPUT0001",
-                null, RunStep.MANAGED);
+        run = new VerificationRun("r1", TestFixtures.DATASPACE, TestFixtures.USE_CASE, "Participant r1", "put-r1",
+                "BPNLPUT000000001", "DEPUT0001", null, RunStep.MANAGED);
     }
 
     /** Stubs the whole happy choreography; individual tests break the link they exercise. */
     private void happyStubs() {
-        when(participantService.ensure())
-                .thenReturn(new VerificationParticipant("vp-1", "VP", "BPNLVERIFY000001", "did:web:vp", "pctx-vp"));
-        when(hub.onboard("Participant r1", "put-r1", "BPNLPUT000000001", "DEPUT0001"))
+        when(participantService.ensure(TestFixtures.DATASPACE))
+                .thenReturn(new VerificationParticipant("vp-1", TestFixtures.DATASPACE, "VP", "BPNLVERIFY000001", "did:web:vp", "pctx-vp"));
+        when(hub.onboard(TestFixtures.DATASPACE, "Participant r1", "put-r1", "BPNLPUT000000001", "DEPUT0001", null))
                 .thenReturn(TestFixtures.membership("put-ext", "SUBMITTED", null, null, null));
         when(hub.awaitProvisioned("put-ext"))
                 .thenReturn(TestFixtures.membership("put-ext", "PROVISIONED", "did:web:put", "pctx-put", "proc-1"));
-        when(management.awaitCatalogOffer(anyString(), anyString(), anyString(), anyString(), any()))
+        when(management.awaitCatalogOffer(anyString(), anyString(), anyString(), eq(TestFixtures.DSP_PROFILE), anyString(), any()))
                 .thenReturn(new ManagementApiClient.CatalogOffer("dataset-1",
                         mapper.createObjectNode().put("@id", "offer-1"), mapper.createArrayNode()));
-        when(management.startNegotiation(anyString(), anyString(), anyString(), any()))
+        when(management.startNegotiation(anyString(), anyString(), anyString(), eq(TestFixtures.DSP_PROFILE), any()))
                 .thenReturn("neg-1");
         when(management.awaitState(contains("contractnegotiations"), any(), any()))
                 .thenReturn(mapper.createObjectNode().put("state", "FINALIZED").put("contractAgreementId", "agr-1"));
         when(management.awaitState(contains("transferprocesses"), any(), any()))
                 .thenReturn(mapper.createObjectNode().put("state", "STARTED"));
         // pull flow is established first, push flow second
-        when(management.startTransfer(anyString(), eq("agr-1"), anyString(), eq("https://w3id.org/dspace-sig/profile/http-pull")))
+        when(management.startTransfer(anyString(), eq("agr-1"), anyString(), eq(TestFixtures.DSP_PROFILE), eq("https://w3id.org/dspace-sig/profile/http-pull")))
                 .thenReturn("flow-pull", "flow-push");
         when(certo.addDocument(eq("pctx-put"), eq("application/pdf"), any())).thenReturn("doc-1");
-        when(certo.addCertificate(eq("pctx-put"), eq("BPNLPUT000000001"), eq("doc-1"), anyString()))
+        when(certo.addCertificate(eq("pctx-put"), eq("BPNLPUT000000001"), eq("doc-1"), anyString(),
+                eq(TestFixtures.CERTIFICATE)))
                 .thenReturn("cert-1");
         when(certo.publish("pctx-put", "cert-1", "BPNLVERIFY000001", "did:web:vp", "flow-push"))
                 .thenReturn("ex-1");

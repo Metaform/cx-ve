@@ -5,13 +5,13 @@ import com.metaform.cxve.verification.adapter.out.hub.MembershipHubClient;
 import com.metaform.cxve.verification.adapter.out.management.CcmApi;
 import com.metaform.cxve.verification.adapter.out.management.ManagementApiClient;
 import com.metaform.cxve.verification.config.VerificationProperties;
+import com.metaform.cxve.verification.config.VerificationProperties.DataspaceProfile;
 import com.metaform.cxve.verification.domain.model.RunStep;
 import com.metaform.cxve.verification.domain.model.VerificationRun;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import org.slf4j.Logger;
@@ -19,7 +19,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * The verification run: CX-0135 v3.0.0 Flow B (provider-initiated certificate push), the exact
+ * The CCM verification run: the CCM standard's (Catena-X: CX-0135 v3.0.0) Flow B
+ * (provider-initiated certificate push), the exact
  * sequence of the e2e suite's {@code certificateExchange()} — with the verification participant
  * as the permanent certificate CONSUMER and the freshly onboarded participant-under-test as the
  * certificate PROVIDER. Certo resolves every outbound CCM call from Siglet's flow cache, which
@@ -32,7 +33,9 @@ import org.springframework.stereotype.Component;
  *       run-scoped api asset — its transfer id is the {@code flowId} of retrieve + accept.</li>
  * </ul>
  * Every step is recorded on the run as it happens; the first failure ends the run, and the
- * verdict additionally requires the expected events in the compliance tracker's ledger.
+ * verdict additionally requires the expected events in the compliance tracker's ledger. What the
+ * dataspace decides — DSP profile, policies, CCM API vocabulary, member ids — comes from the run's
+ * dataspace profile.
  */
 @Component
 public class CertificateExchangeFlow {
@@ -61,16 +64,20 @@ public class CertificateExchangeFlow {
     }
 
     public void execute(VerificationRun run) {
-        log.info("run {} starting: participant \"{}\" ({}, {})", run.id(), run.name(), run.shortName(), run.bpn());
+        log.info("run {} starting: {} participant \"{}\" ({}, {})",
+                run.id(), run.dataspace(), run.name(), run.shortName(), run.memberId());
+        var profile = properties.dataspace(run.dataspace());
+        var ccm = profile.useCase(run.useCase()).ccm();
         try {
             var vp = support.step(run, RunStep.ENSURE_VERIFICATION_PARTICIPANT, () -> {
-                var participant = participantService.ensure();
+                var participant = participantService.ensure(run.dataspace());
                 run.verificationParticipant(participant);
                 return participant;
-            }, participant -> "%s (pcid %s)".formatted(participant.bpn(), participant.participantContextId()));
+            }, participant -> "%s (pcid %s)".formatted(participant.memberId(), participant.participantContextId()));
 
             var submitted = support.step(run, RunStep.ONBOARD_PARTICIPANT, () -> {
-                var membership = hub.onboard(run.name(), run.shortName(), run.bpn(), run.vatId());
+                var membership = hub.onboard(run.dataspace(), run.name(), run.shortName(), run.memberId(),
+                        run.uniqueId(), null);
                 run.onSubmitted(membership.externalId());
                 return membership;
             }, membership -> "externalId " + membership.externalId());
@@ -97,25 +104,27 @@ public class CertificateExchangeFlow {
 
             var providerAssetId = "ccm-api-" + run.id();
             support.step(run, RunStep.SEED_PROVIDER_OFFER, () -> {
-                seedCcmOffer(put.participantContextId(), providerAssetId, run.id());
+                seedCcmOffer(profile, put.participantContextId(), providerAssetId, run.id());
                 return "asset '%s' offered".formatted(providerAssetId);
             }, Function.identity());
 
             // "pull" flow: verification participant -> participant-under-test (retrieve + verdict)
             var flowIdPull = support.step(run, RunStep.ESTABLISH_PULL_FLOW,
-                    () -> establishCcmFlow(vp.participantContextId(), put.participantContextId(), put.did(), providerAssetId),
+                    () -> establishCcmFlow(profile, vp.participantContextId(), put.participantContextId(), put.did(),
+                            providerAssetId),
                     flowId -> "flowId " + flowId);
             // "push" flow: participant-under-test -> verification participant (publish notification)
             var flowIdPush = support.step(run, RunStep.ESTABLISH_PUSH_FLOW,
-                    () -> establishCcmFlow(put.participantContextId(), vp.participantContextId(), vp.did(), properties.inboxAssetId()),
+                    () -> establishCcmFlow(profile, put.participantContextId(), vp.participantContextId(), vp.did(),
+                            ccm.inboxAssetId()),
                     flowId -> "flowId " + flowId);
 
             var documentContent = certificateDocument();
             var published = support.step(run, RunStep.PUBLISH_CERTIFICATE, () -> {
                 var documentId = certo.addDocument(put.participantContextId(), "application/pdf", documentContent);
-                var certificateId = certo.addCertificate(put.participantContextId(), put.bpn(), documentId,
-                        "CXVE-VUI-9001-" + run.id());
-                var exchangeId = certo.publish(put.participantContextId(), certificateId, vp.bpn(), vp.did(), flowIdPush);
+                var certificateId = certo.addCertificate(put.participantContextId(), put.memberId(), documentId,
+                        "VE-VUI-9001-" + run.id(), ccm.certificate());
+                var exchangeId = certo.publish(put.participantContextId(), certificateId, vp.memberId(), vp.did(), flowIdPush);
                 return new Published(documentId, certificateId, exchangeId);
             }, result -> "exchange %s (certificate %s)".formatted(result.exchangeId(), result.certificateId()));
 
@@ -162,7 +171,7 @@ public class CertificateExchangeFlow {
             }, Function.identity());
 
             support.step(run, RunStep.EVALUATE_EVENTS,
-                    () -> support.evaluateEvents(run, properties.expectedEvents()), Function.identity());
+                    () -> support.evaluateEvents(run, ccm.expectedEvents()), Function.identity());
 
             run.succeed();
             log.info("run {} SUCCEEDED", run.id());
@@ -175,27 +184,26 @@ public class CertificateExchangeFlow {
     }
 
     /**
-     * One side's CCM offer: the asset fronting certo's protocol API, the access policy
-     * (Membership) and use policy (FrameworkAgreement + UsagePurpose + DataUsageEndDefinition),
+     * One side's CCM offer: the asset fronting certo's protocol API, the dataspace's access and use
+     * policies (Catena-X: Membership; FrameworkAgreement + UsagePurpose + DataUsageEndDefinition),
      * and the contract definition. Ids are run-scoped; creation is idempotent.
      */
-    private void seedCcmOffer(String pcid, String assetId, String uniqueId) {
+    private void seedCcmOffer(DataspaceProfile profile, String pcid, String assetId, String uniqueId) {
         var accessPolicyId = "vui-ccm-access-policy-" + uniqueId;
         var contractPolicyId = "vui-ccm-contract-policy-" + uniqueId;
-        management.upsertAsset(pcid, assetId, CcmApi.provider(properties.ccmApiVersion()));
-        management.createPolicyIdempotent(pcid, accessPolicyId, "access",
-                List.of(ManagementApiClient.MEMBERSHIP_CONSTRAINT));
-        management.createPolicyIdempotent(pcid, contractPolicyId, "use",
-                List.of(ManagementApiClient.FRAMEWORK_AGREEMENT_CONSTRAINT,
-                        ManagementApiClient.USAGE_PURPOSE_CONSTRAINT,
-                        ManagementApiClient.DATA_USAGE_DEFINITION_CONSTRAINT));
+        management.upsertAsset(pcid, assetId, CcmApi.provider(profile.useCase("ccm").ccm().api()));
+        management.createPolicyIdempotent(pcid, accessPolicyId, "access", profile.policyContext(),
+                profile.accessConstraints());
+        management.createPolicyIdempotent(pcid, contractPolicyId, "use", profile.policyContext(),
+                profile.contractConstraints());
         management.createContractDefinitionIdempotent(pcid, "vui-ccm-cd-" + uniqueId, accessPolicyId, contractPolicyId);
     }
 
     /** This side consuming the other's CCM asset, at the DSP address its context is served on. */
-    private String establishCcmFlow(String consumerPcid, String providerPcid, String providerDid, String assetId) {
-        return support.establishCcmFlow(consumerPcid, properties.dspAddressOf(providerPcid), providerDid, assetId,
-                properties.timeouts().catalog()).flowId();
+    private String establishCcmFlow(DataspaceProfile profile, String consumerPcid, String providerPcid,
+                                    String providerDid, String assetId) {
+        return support.establishCcmFlow(consumerPcid, properties.dspAddressOf(providerPcid, profile.dspProfile()),
+                providerDid, profile.dspProfile(), assetId, properties.timeouts().catalog()).flowId();
     }
 
     /** The sample certificate document packaged with the app (a small single-page PDF). */

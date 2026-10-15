@@ -2,8 +2,8 @@
 
 # Rebuilds everything the VE runs from this checkout and upgrades the running umbrella release in
 # place: builds the Onboarding API, Compliance Tracker and Membership Hub images, loads them into
-# the kind cluster, re-vendors the umbrella's chart dependencies (the onboarding-api and
-# membership-hub charts are pulled from ../onboarding-api / ../membership-hub via file://, so
+# the kind cluster, re-vendors the umbrella's chart dependencies (the cx-onboarding-api and
+# membership-hub charts are pulled from ../cx-onboarding-api / ../membership-hub via file://, so
 # local chart changes propagate) and runs `helm upgrade` with the same host overrides
 # install-ve.sh applies.
 #
@@ -74,9 +74,14 @@ fi
 HOST_OVERRIDES=(
   --set "global.host=${HOST}"
   --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
-  --set "onboarding-api.httpRoute.hostnames={${HOST}}"
-  --set-string "onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
-  --set-string "onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
+  --set "cx-onboarding-api.httpRoute.hostnames={${HOST}}"
+  --set-string "cx-onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
+  --set-string "cx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
+  --set "dx-onboarding-api.httpRoute.hostnames={${HOST}}"
+  # Like the cx-onboarding-api, the dx-onboarding-api validates tokens against the OSP IdP's iss.
+  --set-string "dx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
+  --set-string "dx-onboarding-api.config.dx-onboarding.review.hosted-did-prefix=did:web:identity.${HOST}:"
+  --set-string "decadex-profile.issuer.did=did:web:issuer.${HOST}:issuer"
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   --set "membership-hub.httpRoute.hostnames={${HOST}}"
   # The hub validates the Onboarding API's callback bearers against the OSP IdP's external issuer URL.
@@ -94,7 +99,8 @@ HOST_OVERRIDES=(
 # Image name -> build context. Both Dockerfiles COPY from their component directory (the same
 # contexts .github/workflows/publish.yml builds from).
 IMAGES=(
-  "ghcr.io/metaform/cx-ve/onboardingapi:latest onboarding-api"
+  "ghcr.io/metaform/cx-ve/cx-onboarding-api:latest cx-onboarding-api"
+  "ghcr.io/metaform/cx-ve/dx-onboarding-api:latest dx-onboarding-api"
   "ghcr.io/metaform/cx-ve/compliance-tracker:latest compliance-tracker"
   "ghcr.io/metaform/cx-ve/membership-hub:latest membership-hub"
   "ghcr.io/metaform/cx-ve/verification-ui:latest verification-ui"
@@ -102,7 +108,8 @@ IMAGES=(
 
 # Deployments running the images built above; restarted after the upgrade because a rebuilt
 # image under an unchanged tag does not change the pod spec, so helm will not roll them.
-DEPLOYMENTS=(cx-ve-onboarding-api cx-ve-compliance-tracker cx-ve-membership-hub cx-ve-verification-ui)
+DEPLOYMENTS=(cx-ve-cx-onboarding-api cx-ve-dx-onboarding-api cx-ve-compliance-tracker cx-ve-membership-hub
+  cx-ve-verification-ui)
 
 set -x
 

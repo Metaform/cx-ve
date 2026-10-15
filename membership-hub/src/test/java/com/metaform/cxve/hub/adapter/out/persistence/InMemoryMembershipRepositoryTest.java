@@ -4,6 +4,7 @@ import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.model.MembershipState;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.OptimisticLockingFailureException;
 
@@ -20,17 +21,12 @@ class InMemoryMembershipRepositoryTest {
     private final InMemoryMembershipRepository repository = new InMemoryMembershipRepository();
 
     private static MemberData payload() {
-        return new MemberData("Acme Corp", "Acme", "BPNL0000000000XY",
-                "Berlin", "Musterstrasse", "DE", "BE", null,
-                List.of(new MemberData.UniqueId("VAT_ID", "DE123456789")),
-                List.of("ACTIVE_PARTICIPANT"),
-                List.of(new MemberData.AgreementConsent("agreement-1", "ACTIVE")),
-                List.of());
+        return new MemberData("catena-x", "Acme Corp", "Acme", "BPNL0000000000XY", null, Map.of("city", "Berlin"));
     }
 
     @Test
     void save_bumpsTheVersionAndRejectsStaleSnapshots() {
-        repository.create(Membership.submitted("ext-1", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), payload());
+        repository.create(Membership.submitted("ext-1", "catena-x", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), payload());
         var snapshot = repository.findByExternalId("ext-1").orElseThrow();
         assertThat(snapshot.version()).isEqualTo(0L);
 

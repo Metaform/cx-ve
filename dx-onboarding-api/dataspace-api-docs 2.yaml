@@ -1,0 +1,535 @@
+openapi: 3.1.0
+info:
+  title: TSP onboarding intake (via the federated connector)
+  version: v0
+  description: "Onboarding intake of the TSP (Trust Service Provider), exposed to dataspace participants\
+    \ as an asset of\nthe federated connector. A participant does **not** call the TSP directly: it consumes\
+    \ the asset through\nthe connector's data plane.\n\n## How to call it\n1. Request the federated connector's\
+    \ catalog and find the TSP onboarding asset.\n2. Negotiate a contract for it, then start a `HttpData-PULL`\
+    \ transfer.\n3. Read the EDR (endpoint + token) of that transfer. The token is short-lived: refresh\
+    \ it through the\n   EDR's refresh endpoint.\n4. `POST` the multipart body below to the EDR endpoint\
+    \ (the data plane's public URL), with the EDR token\n   in the `Authorization` header.\n5. Follow\
+    \ the request with `GET <EDR endpoint>/{requestId}` (same token): it returns its status. A\n   request\
+    \ is only visible to the connector that submitted it.\n\n## What the TSP does with it\n- The request\
+    \ is **created and submitted in one step**; it then waits for review by a TSP operator.\n  Nothing\
+    \ is provisioned until an operator approves it.\n- The TSP records the calling connector's identity.\
+    \ It is added by the connector's data plane from the\n  contract agreement; the caller cannot set\
+    \ it.\n- The request is validated as a whole. An incomplete request is rejected and **nothing is stored**,\
+    \ so it\n  can simply be corrected and sent again.\n- Retries: there is no idempotency header to send\
+    \ (the data plane does not forward a consumer's\n  headers). Sending the **same content** again returns\
+    \ the original request instead of creating a\n  second one.\n- Reviewer-only fields are ignored if\
+    \ sent, and are not part of this contract.\n\n## Documents\nDocuments are sent as extra parts of the\
+    \ multipart body (see the request body below for what each one is).\n- Accepted formats: PDF, PNG\
+    \ or JPEG. The format is taken from each part's declared `Content-Type`, so\n  set it explicitly (for\
+    \ example `application/pdf`).\n- The TSP accepts up to 10 MB per file and 25 MB per request.\n- The\
+    \ signed GTC document is mandatory; a use case agreement document is mandatory for every entry of\n\
+    \  `ucas`. The other documents are optional.\n\n## Known limitations\n- The data plane reports any\
+    \ error from the TSP as an HTTP 500 whose message carries the TSP's status\n  code (for example `...\
+    \ 422 - .`); the TSP's validation details are not relayed.\n- Document uploads have so far only been\
+    \ exercised end to end with small, text-based test files.\n\n---\nCopyright (c) 2026 Airbus. Licensed\
+    \ under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0).\n"
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+- url: '{dataPlanePublicUrl}'
+  description: Public URL of the federated connector's data plane, as given by the EDR.
+  variables:
+    dataPlanePublicUrl:
+      default: https://int.discovery-edc.decade-x.org/api/public
+paths:
+  /:
+    post:
+      summary: Submit an onboarding request
+      description: Creates and submits an onboarding request in one step. See the API description for
+        how to reach this operation through the federated connector.
+      operationId: createDataspaceOnboardingRequest
+      parameters: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                request:
+                  $ref: '#/components/schemas/OnboardingRequestWriteDto'
+                  description: 'The onboarding request itself, as a JSON part (`Content-Type: application/json`).'
+                gtcDocument:
+                  type: string
+                  format: binary
+                  description: '**Required.** The General Terms and Conditions (GTC) document, signed
+                    by the applicant, for the version named in `request.gtc` (`versionId` / `versionNumber`).
+                    PDF, PNG or JPEG.'
+                registrationExtractDocument:
+                  type: string
+                  format: binary
+                  description: Optional. Extract from the company register (or equivalent official proof
+                    of registration) backing the registration numbers given in `request.legalEntity.registrationNumbers`.
+                    It is made available to the TSP operator who reviews the request. PDF, PNG or JPEG.
+                powerOfAttorneyDocument:
+                  type: string
+                  format: binary
+                  description: Optional. Power of attorney showing that the legal representative (`request.legalPerson`)
+                    is authorised to act for the company. Give its expiry date in `request.legalPerson.powerOfAttorneyValidUntil`.
+                    PDF, PNG or JPEG.
+              required:
+              - request
+              - gtcDocument
+              patternProperties:
+                ^ucaDocument\[.+\]$:
+                  type: string
+                  format: binary
+                  description: '**Required for each entry of `request.ucas`.** The signed Use Case Agreement
+                    (UCA) document of that use case, in a part named `ucaDocument[<useCaseId>]` where
+                    `<useCaseId>` is the entry''s `useCaseId`. PDF, PNG or JPEG.'
+            encoding:
+              request:
+                contentType: application/json
+              gtcDocument:
+                contentType: application/pdf, image/png, image/jpeg
+              registrationExtractDocument:
+                contentType: application/pdf, image/png, image/jpeg
+              powerOfAttorneyDocument:
+                contentType: application/pdf, image/png, image/jpeg
+        required: true
+      responses:
+        '200':
+          description: The request was created and submitted; it now awaits review by a TSP operator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataspaceOnboardingRequestResponseDto'
+        '500':
+          description: Reported by the data plane for any error returned by the TSP (for example an incomplete
+            request, which the TSP rejects with 422 and stores nothing). The message carries the TSP's
+            status code; the validation details are not relayed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errors:
+                    type: array
+                    items:
+                      type: string
+              example:
+                errors:
+                - 'Received code transferring HTTP data: 422 - .'
+      tags:
+      - Onboarding
+      security:
+      - edrToken: []
+  /{requestId}:
+    get:
+      tags:
+      - Onboarding
+      summary: Read the status of an onboarding request
+      description: Returns a request previously submitted by the calling connector, as submitted, with
+        where it stands. `status` moves from `SUBMITTED` through the review to `APPROVED` or `REJECTED`;
+        the other values are intermediate steps of the review and of the provisioning that follows an
+        approval. When the request is rejected, `decision` says why (`rejectReasonCode`, `rejectComment`,
+        `resubmissionAllowed`). Reviewer-internal data is never returned. A request submitted by another
+        connector is reported exactly like an unknown id.
+      operationId: getDataspaceOnboardingRequest
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The `id` returned when the request was submitted.
+      responses:
+        '200':
+          description: The status of the request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataspaceOnboardingRequestDto'
+        '500':
+          description: 'Reported by the data plane for any error returned by the TSP. An unknown request,
+            or one submitted by another connector, is a TSP 404: the message carries `404`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errors:
+                    type: array
+                    items:
+                      type: string
+              example:
+                errors:
+                - 'Received code transferring HTTP data: 404 - .'
+      security:
+      - edrToken: []
+components:
+  securitySchemes:
+    edrToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: The EDR token of the transfer, sent as is in the Authorization header.
+  schemas:
+    AddressDto:
+      type: object
+      properties:
+        street:
+          type: string
+        postalCode:
+          type: string
+        locality:
+          type: string
+        countryCode:
+          type: string
+        countryName:
+          type: string
+    BusinessSiteRequestDto:
+      type: object
+      properties:
+        siteId:
+          type: string
+        siteName:
+          type: string
+        siteNameAlias:
+          type: string
+        mainAddress:
+          $ref: '#/components/schemas/AddressDto'
+        secondaryAddress:
+          $ref: '#/components/schemas/AddressDto'
+        registrationNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistrationNumberDto'
+    BusinessSiteResponseDto:
+      type: object
+      properties:
+        siteId:
+          type: string
+        siteName:
+          type: string
+        siteNameAlias:
+          type: string
+        mainAddress:
+          $ref: '#/components/schemas/AddressDto'
+        secondaryAddress:
+          $ref: '#/components/schemas/AddressDto'
+        registrationNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistrationNumberDto'
+        ownedBy:
+          type: string
+        creationDate:
+          type: string
+          format: date-time
+        updatingDate:
+          type: string
+          format: date-time
+    Consent:
+      type: object
+      properties:
+        versionId:
+          type: string
+          format: uuid
+        versionNumber:
+          type: string
+        accepted:
+          type: boolean
+        acceptedAt:
+          type: string
+          format: date-time
+        document:
+          $ref: '#/components/schemas/DocumentRefDto'
+    ConsentDeclarationRequestDto:
+      type: object
+      properties:
+        versionId:
+          type: string
+          format: uuid
+        versionNumber:
+          type: string
+        accepted:
+          type: boolean
+    DataspaceOnboardingRequestDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+        status:
+          type: string
+          enum:
+          - DRAFT
+          - SUBMITTED
+          - UNDER_REVIEW
+          - ON_HOLD
+          - APPROVAL_IN_PROGRESS
+          - APPROVAL_FAILED
+          - APPROVED
+          - REJECTED
+        connectorId:
+          type: string
+          description: The identity recorded for the calling connector, as stamped by the connector's
+            data plane.
+        submittedAt:
+          type: string
+          format: date-time
+        legalEntity:
+          $ref: '#/components/schemas/LegalEntityResponseDto'
+        legalPerson:
+          $ref: '#/components/schemas/LegalPersonDto'
+        businessSites:
+          type: array
+          items:
+            $ref: '#/components/schemas/BusinessSiteResponseDto'
+        gtc:
+          $ref: '#/components/schemas/Consent'
+        ucas:
+          type: array
+          items:
+            $ref: '#/components/schemas/UcaAcceptance'
+        declarations:
+          $ref: '#/components/schemas/DeclarationsDto'
+        applicantReference:
+          type: string
+        registrationExtractDocument:
+          $ref: '#/components/schemas/DocumentRefDto'
+        powerOfAttorneyDocument:
+          $ref: '#/components/schemas/DocumentRefDto'
+        decision:
+          $ref: '#/components/schemas/Decision'
+      description: An onboarding request as submitted, with its status. `decision` is absent until a decision
+        is taken.
+    DataspaceOnboardingRequestResponseDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+        status:
+          type: string
+          enum:
+          - DRAFT
+          - SUBMITTED
+          - UNDER_REVIEW
+          - ON_HOLD
+          - APPROVAL_IN_PROGRESS
+          - APPROVAL_FAILED
+          - APPROVED
+          - REJECTED
+        connectorId:
+          type: string
+          description: The identity recorded for the calling connector, as stamped by the connector's
+            data plane.
+        submittedAt:
+          type: string
+          format: date-time
+      description: Acknowledgement of a submitted onboarding request.
+    Decision:
+      type: object
+      properties:
+        decidedAt:
+          type: string
+          format: date-time
+        rejectReasonCode:
+          type: string
+          enum:
+          - INCOMPLETE
+          - INVALID_LEGAL_ENTITY
+          - IDENTITY_VERIFICATION_FAILURE
+          - COMPLIANCE_ISSUE
+          - OTHER
+        rejectComment:
+          type: string
+        resubmissionAllowed:
+          type: boolean
+    DeclarationsDto:
+      type: object
+      properties:
+        informationAccurate:
+          type: boolean
+        authorisedToAct:
+          type: boolean
+        evidenceMayBeRequested:
+          type: boolean
+    DocumentRefDto:
+      type: object
+      properties:
+        documentId:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        contentType:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        uploadedAt:
+          type: string
+          format: date-time
+    LegalEntityRequestDto:
+      type: object
+      properties:
+        preferredDid:
+          type: string
+        legalName:
+          type: string
+        registrationCountry:
+          type: string
+        companyType:
+          type: string
+          enum:
+          - PRIVATE_LIMITED_COMPANY
+          - LIMITED_LIABILITY_COMPANY
+          - EUROPEAN_COMPANY
+          - COOPERATIVE
+          - PUBLIC_AUTHORITY
+          - OTHER
+        companyTypeOther:
+          type: string
+        accreditationNumber:
+          type: string
+        website:
+          type: string
+        registrationNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistrationNumberDto'
+        legalAddress:
+          $ref: '#/components/schemas/AddressDto'
+    LegalEntityResponseDto:
+      type: object
+      properties:
+        legalEntityId:
+          type: string
+        preferredDid:
+          type: string
+        legalName:
+          type: string
+        registrationCountry:
+          type: string
+        companyType:
+          type: string
+          enum:
+          - PRIVATE_LIMITED_COMPANY
+          - LIMITED_LIABILITY_COMPANY
+          - EUROPEAN_COMPANY
+          - COOPERATIVE
+          - PUBLIC_AUTHORITY
+          - OTHER
+        companyTypeOther:
+          type: string
+        accreditationNumber:
+          type: string
+        website:
+          type: string
+        registrationNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistrationNumberDto'
+        legalAddress:
+          $ref: '#/components/schemas/AddressDto'
+    LegalPersonDto:
+      type: object
+      properties:
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+        phoneNumber:
+          type: string
+        headquartersAddress:
+          $ref: '#/components/schemas/AddressDto'
+        powerOfAttorneyValidUntil:
+          type: string
+          format: date
+    OnboardingRequestWriteDto:
+      type: object
+      properties:
+        legalEntity:
+          $ref: '#/components/schemas/LegalEntityRequestDto'
+        legalPerson:
+          $ref: '#/components/schemas/LegalPersonDto'
+        businessSites:
+          type: array
+          items:
+            $ref: '#/components/schemas/BusinessSiteRequestDto'
+        gtc:
+          $ref: '#/components/schemas/ConsentDeclarationRequestDto'
+        ucas:
+          type: array
+          items:
+            $ref: '#/components/schemas/UcaAcceptanceRequestDto'
+        declarations:
+          $ref: '#/components/schemas/DeclarationsDto'
+        applicantReference:
+          type: string
+    RegistrationNumberDto:
+      type: object
+      properties:
+        scheme:
+          type: string
+          enum:
+          - taxID
+          - vatID
+          - leiCode
+          - duns
+          - eori
+          - euid
+          - bvd
+          - cageCode
+        value:
+          type: string
+          minLength: 1
+      required:
+      - scheme
+      - value
+    UcaAcceptance:
+      type: object
+      properties:
+        useCaseId:
+          type: string
+        useCaseName:
+          type: string
+        versionId:
+          type: string
+          format: uuid
+        versionNumber:
+          type: string
+        accepted:
+          type: boolean
+        acceptedAt:
+          type: string
+          format: date-time
+        document:
+          $ref: '#/components/schemas/DocumentRefDto'
+    UcaAcceptanceRequestDto:
+      type: object
+      properties:
+        useCaseId:
+          type: string
+          minLength: 1
+        useCaseName:
+          type: string
+        versionId:
+          type: string
+          format: uuid
+        versionNumber:
+          type: string
+        accepted:
+          type: boolean
+        verified:
+          type: boolean
+        verificationNotes:
+          type: string
+      required:
+      - useCaseId

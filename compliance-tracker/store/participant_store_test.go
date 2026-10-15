@@ -97,9 +97,9 @@ func TestParticipant_Link_ReachesTheLiveRegistrationNotDeadRows(t *testing.T) {
 }
 
 func TestParticipant_Link_ReachesACompletedRegistration(t *testing.T) {
-	// The production ordering: the registration completes synchronously within the submission,
-	// so the completed event (which carries no participant context) closes the row BEFORE the
-	// DID document publication delivers the link. A COMPLETED registration owns its identity
+	// A registration that completes before its participant's DID document is published: the
+	// completed event (which carries no participant context) closes the row BEFORE the
+	// publication delivers the link. A COMPLETED registration owns its identity
 	// permanently, so the late link must still land — otherwise every pcid-correlated event of a
 	// normally-onboarded participant stays unattributed forever.
 	sut := newPostgresParticipantStore(testDB)
@@ -113,6 +113,65 @@ func TestParticipant_Link_ReachesACompletedRegistration(t *testing.T) {
 	linked := readParticipant(t, "proc-link-done")
 	assert.Equal(t, "COMPLETED", linked.state)
 	assert.Equal(t, "pctx-late", linked.pctx.String)
+}
+
+// recordEvent writes a ledger event with the given subject, occurrence time and keys.
+func recordEvent(t *testing.T, source, id, subject string, at time.Time, keys CorrelationKeys) {
+	t.Helper()
+	require.NoError(t, newPostgresEventStore(testDB).Record(context.Background(), &EventRecord{
+		Source: source, EventID: id, Subject: subject, Type: "test",
+		OccurredAt: at, Envelope: []byte(`{}`), Keys: keys,
+	}))
+}
+
+func TestParticipant_Open_LinksTheContextOfADidDocumentPublishedBeforehand(t *testing.T) {
+	// A member the platform hosts is deployed BEFORE it is registered: its participant context
+	// and DID document exist before the onboarding starts, so LinkParticipantContext found no row
+	// to link. Open links it, and starts the window with the context's first event — the
+	// participant's own provisioning is part of its history.
+	sut := newPostgresParticipantStore(testDB)
+	recordEvent(t, "ih", "pc-created", "events.participantcontext.created", t0.Add(-10*time.Second),
+		CorrelationKeys{ParticipantContextID: "pctx-hosted"})
+	recordEvent(t, "ih", "did-published", didDocumentPublishedSubject, t0.Add(-5*time.Second),
+		CorrelationKeys{ParticipantContextID: "pctx-hosted", HolderDid: "did:web:hosted"})
+
+	require.NoError(t, sut.Open(context.Background(), participant("proc-hosted", "did:web:hosted")))
+
+	opened := readParticipant(t, "proc-hosted")
+	assert.Equal(t, "pctx-hosted", opened.pctx.String)
+	assert.True(t, opened.startedAt.Equal(t0.Add(-10*time.Second)), "window starts at %s", opened.startedAt)
+	assert.Equal(t, "RUNNING", opened.state)
+}
+
+func TestParticipant_Open_TakesTheContextOfTheDidsLatestPublication(t *testing.T) {
+	// An earlier deployment under the same DID — a previous life of the identity — is not this
+	// participant's: neither its context nor its events.
+	sut := newPostgresParticipantStore(testDB)
+	recordEvent(t, "ih", "old-created", "events.participantcontext.created", t0.Add(-2*time.Hour),
+		CorrelationKeys{ParticipantContextID: "pctx-old"})
+	recordEvent(t, "ih", "old-published", didDocumentPublishedSubject, t0.Add(-2*time.Hour),
+		CorrelationKeys{ParticipantContextID: "pctx-old", HolderDid: "did:web:redeployed"})
+	recordEvent(t, "ih", "new-created", "events.participantcontext.created", t0.Add(-30*time.Second),
+		CorrelationKeys{ParticipantContextID: "pctx-new"})
+	recordEvent(t, "ih", "new-published", didDocumentPublishedSubject, t0.Add(-20*time.Second),
+		CorrelationKeys{ParticipantContextID: "pctx-new", HolderDid: "did:web:redeployed"})
+
+	require.NoError(t, sut.Open(context.Background(), participant("proc-redeployed", "did:web:redeployed")))
+
+	opened := readParticipant(t, "proc-redeployed")
+	assert.Equal(t, "pctx-new", opened.pctx.String)
+	assert.True(t, opened.startedAt.Equal(t0.Add(-30*time.Second)), "window starts at %s", opened.startedAt)
+}
+
+func TestParticipant_Open_WithoutAPublicationLeavesTheWindowAlone(t *testing.T) {
+	// An external participant: its DID document is published by its own platform, not here.
+	sut := newPostgresParticipantStore(testDB)
+
+	require.NoError(t, sut.Open(context.Background(), participant("proc-external", "did:web:external")))
+
+	opened := readParticipant(t, "proc-external")
+	assert.False(t, opened.pctx.Valid)
+	assert.True(t, opened.startedAt.Equal(t0))
 }
 
 func TestParticipant_Close_WithoutAnOpen_RecordsWhatItKnows(t *testing.T) {
@@ -190,6 +249,25 @@ func TestParticipantEventView_AttributesIdentityEventsWithinTheWindow(t *testing
 	assert.Equal(t, []string{"proc-view-win"}, attributions(t, "view-win", "by-pctx"))
 	assert.Empty(t, attributions(t, "view-win", "too-early"))
 	assert.Empty(t, attributions(t, "view-win", "keyless"))
+}
+
+func TestParticipantEventView_AHostedMembersProvisioningBelongsToItsHistory(t *testing.T) {
+	// Deployed first, registered second: the identity events precede the onboarding start, and
+	// everything after it carries only the participant context — all of it is the participant's.
+	sut := newPostgresParticipantStore(testDB)
+	recordEvent(t, "view-hosted", "pc-created", "events.participantcontext.created", t0.Add(-6*time.Second),
+		CorrelationKeys{ParticipantContextID: "pctx-view-hosted"})
+	recordEvent(t, "view-hosted", "keypair", "events.keypair.added", t0.Add(-6*time.Second),
+		CorrelationKeys{ParticipantContextID: "pctx-view-hosted"})
+	recordEvent(t, "view-hosted", "published", didDocumentPublishedSubject, t0.Add(-5*time.Second),
+		CorrelationKeys{ParticipantContextID: "pctx-view-hosted", HolderDid: "did:web:view-hosted"})
+	require.NoError(t, sut.Open(context.Background(), participant("proc-view-hosted", "did:web:view-hosted")))
+	recordEvent(t, "view-hosted", "negotiation", "events.contract.negotiation.finalized", t0.Add(time.Minute),
+		CorrelationKeys{ParticipantContextID: "pctx-view-hosted"})
+
+	for _, id := range []string{"pc-created", "keypair", "published", "negotiation"} {
+		assert.Equal(t, []string{"proc-view-hosted"}, attributions(t, "view-hosted", id), id)
+	}
 }
 
 func TestParticipantEventView_ACompletedParticipantOwnsItsIdentityForever(t *testing.T) {

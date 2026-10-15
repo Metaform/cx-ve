@@ -65,8 +65,10 @@ catch-all, *any* configured subject overlaps it and makes NATS reject the consum
 `launcher.DefaultSubjects`.
 
 Two of the routed families are not EDC events. The `events.onboarding.*` subjects come from
-cx-ve's own Onboarding API and the `events.certificate.exchange.*` subjects from Certo (CX-0135
-certificate exchange); both follow the CX-0000 §2.3 reverse-DNS `type` convention rather than
+cx-ve's own onboarding APIs — the Catena-X one and the DECADE-X one, which publish on the same
+subjects, each with its own `type` (`org.catena-x.onboarding.*` / `org.decade-x.onboarding.*`), so a
+participant of either dataspace is followed alike — and the `events.certificate.exchange.*` subjects
+from Certo (CX-0135 certificate exchange); both follow the reverse-DNS `type` convention rather than
 EDC's Java-class-name one — see the header of `handler/event_types.go`, which documents all three
 producers. A certificate exchange event carries the publishing side's own participant context
 (its correlation key) plus the counterparty's BPN and DID, which deliberately do NOT become keys:
@@ -99,9 +101,15 @@ onboarding process id is the row's primary key as the participant's provenance:
 
 | Event | What it teaches the registry |
 |---|---|
-| `events.onboarding.started` | registers the participant: `process_id ↔ did` (and `↔ bpn` when submitted) |
+| `events.onboarding.started` | registers the participant: `process_id ↔ did` (and `↔ bpn` when submitted); a DID document already published for the DID links its participant context right away |
 | `events.diddocument.published` | links `did ↔ participant_context_id` — the one event carrying both |
 | `events.onboarding.completed` | confirms the final identities, closes the registration with its terminal state |
+
+A member this platform hosts is deployed BEFORE it is registered (the Membership Hub provisions
+it, then submits the registration), so its participant context, keys and DID document precede
+`events.onboarding.started`. Registering it links the participant context of the DID's latest
+publication, and starts the participant's window at that context's first event: its own
+provisioning is part of its history. An earlier deployment under the same DID stays out.
 
 Events are attributed to participants at **read time** by the `participant_event` view, so the
 ledger stays immutable and identity knowledge learned late applies to history automatically.
@@ -126,7 +134,8 @@ On top of it, the `participant_eventlog` view is the rollup: ONE row per partici
 BPN, DID and participant context id alongside the whole history as a time-ordered JSONB array of
 compact event summaries (`occurred_at`, `subject`, `type`, `source`, `event_id`; the full
 envelope is one join away in the `event` table via source + event id). A participant appears from
-the moment its onboarding starts, with an empty history.
+the moment its onboarding starts — with an empty history, or, for a member this platform hosts,
+with its provisioning.
 
 ```sql
 -- one participant's whole story, by any of its identities

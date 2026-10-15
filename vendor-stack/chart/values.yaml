@@ -44,7 +44,8 @@ core-platform-distribution:
       trustedIssuers: []
       dataspaceProfiles:
         # A counterparty finds this stack's DSP endpoint ONLY through the DID document, so it must
-        # advertise the profile the connector actually serves.
+        # advertise the profile the connector actually serves — the stack's dataspace's
+        # (install.sh -d decade-x sets decade-x).
         advertisedProfile: cx-neptune
     identityhub:
       scopes:
@@ -100,6 +101,23 @@ catenax-profile:
     # every DSP request from the VE fails credential verification here.
     trustedIssuers:
       - "did:web:issuer.cxve.localhost:issuer"
+
+# ---- DECADE-X profile seeding ------------------------------------------------------------------
+# A DECADE-X stack's DSP profile (decade-x) and the DCP scope asking for the DecadeXMembershipCredential
+# — what the VE's DECADE-X verification participant is dialled under and presents. Off for a
+# Catena-X stack; install.sh -d decade-x turns it on and sets the DIDs (host-derived).
+decadex-profile:
+  enabled: false
+  issuer:
+    # this stack's own issuer, and the VE's — which signed the DecadeXMembershipCredentials both
+    # sides present
+    did: "did:web:issuer.dx-vendor.localhost%3A8081:issuer"
+    trustedIssuers:
+      - "did:web:issuer.cxve.localhost:issuer"
+  seedJobs:
+    # the stack's own issuer issues nothing (see templates/certo-activity-seed-job.yaml)
+    issuerCredentials:
+      enabled: false
 
 # ---- Certo (CX-0135 certificate exchange) ----------------------------------------------------
 certo:

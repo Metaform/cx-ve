@@ -39,6 +39,110 @@
   margin: 10px 0 0;
 }
 
+/* --- dataspace & use case: two steps, each a radio group of cards --- */
+.pick {
+  border: none;
+  margin: 0 0 16px;
+  padding: 0;
+  min-width: 0;
+}
+
+.pick:last-child {
+  margin-bottom: 0;
+}
+
+.pick legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.step-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  border: 1.5px solid var(--verify);
+  border-radius: 50%;
+  color: var(--verify-deep);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.choices {
+  display: grid;
+  gap: 8px;
+}
+
+.choices.dataspaces {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 1px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.choice input {
+  grid-row: span 2;
+  margin: 0;
+  accent-color: var(--verify);
+}
+
+.choice-name {
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.choice-note {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--ink-soft);
+}
+
+.choice:hover:not(.selected):not(.unavailable) {
+  border-color: var(--ink-soft);
+}
+
+.choice.selected {
+  border-color: var(--verify);
+  background: var(--verify-soft);
+  box-shadow: inset 0 0 0 1px var(--verify);
+}
+
+.choice.selected .choice-note {
+  color: var(--verify-deep);
+}
+
+/* Listed so an operator sees what exists and why it cannot be picked — not hidden. */
+.choice.unavailable {
+  cursor: default;
+  border-style: dashed;
+  background: var(--paper);
+}
+
+.choice.unavailable .choice-name {
+  color: var(--ink-soft);
+}
+
 /* --- verification participant card --- */
 .vp-foot {
   display: flex;
@@ -49,6 +153,37 @@
 }
 
 /* --- run form --- */
+.field .req {
+  margin-left: 6px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--verify-deep);
+}
+
+/* A member id the dataspace's format rejects — the hint below the field says what it expects. */
+.field input.invalid {
+  border-color: var(--fail);
+}
+
+.field .hint.invalid {
+  color: var(--fail);
+}
+
+/* Holds the button's spacing when the derive row is absent (it is rendered only for a
+   participant onboarded into Catena-X — elsewhere there is no BPN to derive). */
+.btn.submit {
+  margin-top: 4px;
+}
+
+/* Why the submit is dead — Enter in a text field submits too, and silently doing nothing is
+   worse than a greyed button. */
+.blocked {
+  margin: 8px 0 0;
+  text-align: center;
+}
+
 .derive {
   display: flex;
   align-items: center;
@@ -113,8 +248,12 @@
 
 .run-name .sub {
   font-weight: 400;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink-soft);
+}
+
+.run-name .sub .mono {
+  font-size: 11px;
 }
 
 .run-step {

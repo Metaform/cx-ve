@@ -7,7 +7,9 @@ import com.metaform.cxve.verification.application.VerificationException;
 import com.metaform.cxve.verification.config.VerificationProperties;
 import com.metaform.cxve.verification.domain.model.Membership;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +21,9 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.StringNode;
 
 /**
  * Client for the Membership Hub — onboarding and the eventlog read API. Ported from the e2e
@@ -49,46 +54,34 @@ public class MembershipHubClient {
     }
 
     /**
-     * Submits the member and returns the created membership record — the hub mints the externalId
-     * and answers as soon as the first leg is under way: PROVISIONING for a member it hosts (it
-     * deploys the resources before registering them), SUBMITTED for one that brought its own DID.
-     * The rest lands asynchronously — poll {@link #awaitProvisioned}. A membership already dead on
-     * arrival fails here, as does a DID or BPN a live membership already holds (409).
+     * Submits the member into the dataspace and returns the created membership record — the hub
+     * mints the externalId and answers as soon as the first leg is under way: PROVISIONING for a
+     * member it hosts (it deploys the resources before registering them), SUBMITTED for one that
+     * brought its own DID. The rest lands asynchronously — poll {@link #awaitProvisioned}. A
+     * membership already dead on arrival fails here, as does a DID or member id a live membership
+     * already holds (409).
+     *
+     * <p>Declaring its own {@code externalDid} (nullable) is what tells the hub not to provision
+     * anything for the participant — a membership without one gets a DID minted under this
+     * environment's authority and its resources deployed here BEFORE it is registered. Either way
+     * the registration ends with the issuer offering the participant its credentials.
+     *
+     * <p>The dataspace-specific {@code registration} object is the dataspace profile's template,
+     * with the participant's identity filled in.
      */
-    public Membership onboard(String name, String shortName, String bpn, String vatId) {
-        return onboard(name, shortName, bpn, vatId, null);
-    }
-
-    /**
-     * As above, but for a participant whose resources already run elsewhere: declaring its own
-     * {@code did} is what tells the hub not to provision anything for it — a membership without
-     * one gets a DID minted under this environment's authority and its resources deployed here
-     * BEFORE it is registered. Either way the registration ends with the issuer offering the
-     * participant its credentials.
-     */
-    public Membership onboard(String name, String shortName, String bpn, String vatId, String externalDid) {
-        var identity = externalDid == null ? "" : """
-                ,
-                  "did": "%s\"""".formatted(externalDid);
-        var body = """
-                {
-                  "name": "%s",
-                  "shortName": "%s",
-                  "bpn": "%s",
-                  "city": "Munich",
-                  "streetName": "Otto-Hahn-Ring",
-                  "countryAlpha2Code": "DE",
-                  "region": "BY",
-                  "uniqueIds": [ { "type": "VAT_ID", "value": "%s" } ],
-                  "companyRoles": [ "ACTIVE_PARTICIPANT" ],
-                  "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
-                  "userDetails": [ {
-                    "providerId": "vui-user-%s",
-                    "firstName": "Verification", "lastName": "Runner",
-                    "email": "vui-%s@example.com"
-                  } ]%s
-                }""".formatted(name, shortName, bpn, vatId, vatId, vatId, identity);
-        var response = RestCalls.post(hubRestClient, "/api/members", null, body);
+    public Membership onboard(String dataspace, String name, String shortName, String memberId, String uniqueId,
+                              String externalDid) {
+        var body = mapper.createObjectNode();
+        body.put("dataspace", dataspace);
+        body.put("name", name);
+        body.put("shortName", shortName);
+        body.put("memberId", memberId);
+        if (externalDid != null) {
+            body.put("did", externalDid);
+        }
+        body.set("registration", registration(properties.dataspace(dataspace).registrationTemplate(), Map.of(
+                "name", name, "shortName", shortName, "memberId", memberId, "uniqueId", uniqueId)));
+        var response = RestCalls.post(hubRestClient, "/api/members", null, body.toString());
         if (response.status() != 201) {
             throw new VerificationException("membership submission for '%s' failed with HTTP %d: %s"
                     .formatted(name, response.status(), response.body()));
@@ -108,27 +101,53 @@ public class MembershipHubClient {
         return parseMembership(response.body());
     }
 
-    /** The memberships registered under a BPN — the hub's rediscovery endpoint. */
-    public List<Membership> findByBpn(String bpn) {
-        return findBy("bpn", bpn);
+    /** The dataspace's memberships registered under a member id — the hub's rediscovery endpoint. */
+    public List<Membership> findByMemberId(String dataspace, String memberId) {
+        return findBy("memberId", memberId, dataspace);
     }
 
     /**
-     * The memberships registered under a DID. This is how a repeat run against the same external
-     * participant finds what it already has: the Onboarding API refuses to register a DID that is
-     * already registered, so onboarding it again would be declined rather than repeated.
+     * The dataspace's memberships registered under a DID. This is how a repeat run against the
+     * same external participant finds what it already has: an onboarding API refuses to register a
+     * DID that is already registered, so onboarding it again would be declined rather than repeated.
      */
-    public List<Membership> findByDid(String did) {
-        return findBy("did", did);
+    public List<Membership> findByDid(String dataspace, String did) {
+        return findBy("did", did, dataspace);
     }
 
-    private List<Membership> findBy(String filter, String value) {
-        // The value goes in as a URI variable, NOT pre-encoded into the path: the client encodes
-        // what it expands, so encoding it here too would escape a did:web's own '%' twice.
-        var response = RestCalls.get(hubRestClient, "/api/members?" + filter + "={value}", null, value);
+    /**
+     * The ids of the dataspaces the hub onboards members into. Empty when the hub cannot be
+     * reached — nothing can be verified then anyway.
+     */
+    public List<String> servedDataspaces() {
+        HttpResult response;
+        try {
+            response = RestCalls.get(hubRestClient, "/api/dataspaces", null);
+        } catch (ResourceAccessException e) {
+            log.warn("hub unreachable while listing its dataspaces: {}", e.getMessage());
+            return List.of();
+        }
+        if (!response.is2xx()) {
+            log.warn("listing the hub's dataspaces failed with HTTP {}: {}", response.status(), response.body());
+            return List.of();
+        }
+        try {
+            var ids = new ArrayList<String>();
+            mapper.readTree(response.body()).forEach(dataspace -> ids.add(dataspace.path("id").asText()));
+            return List.copyOf(ids);
+        } catch (JacksonException e) {
+            throw new VerificationException("unparseable dataspace list from the hub: " + response.body(), e);
+        }
+    }
+
+    private List<Membership> findBy(String filter, String value, String dataspace) {
+        // The values go in as URI variables, NOT pre-encoded into the path: the client encodes
+        // what it expands, so encoding them here too would escape a did:web's own '%' twice.
+        var response = RestCalls.get(hubRestClient, "/api/members?dataspace={dataspace}&" + filter + "={value}",
+                null, dataspace, value);
         if (response.status() != 200) {
-            throw new VerificationException("membership lookup by %s %s failed with HTTP %d: %s"
-                    .formatted(filter, value, response.status(), response.body()));
+            throw new VerificationException("membership lookup by %s %s in %s failed with HTTP %d: %s"
+                    .formatted(filter, value, dataspace, response.status(), response.body()));
         }
         try {
             return mapper.readValue(response.body(), new TypeReference<List<Membership>>() { });
@@ -219,6 +238,42 @@ public class MembershipHubClient {
         } catch (JacksonException e) {
             throw new VerificationException("unparseable eventlog rollup from the hub: " + response.body(), e);
         }
+    }
+
+    /**
+     * The registration template with the participant's identity filled in. Placeholders are
+     * replaced inside the parsed JSON's text values, so a value can never break out of its string.
+     */
+    private JsonNode registration(String template, Map<String, String> values) {
+        if (template == null || template.isBlank()) {
+            return mapper.createObjectNode();
+        }
+        try {
+            return fill(mapper.readTree(template), values);
+        } catch (JacksonException e) {
+            throw new VerificationException("the dataspace's registration template is not valid JSON: " + template, e);
+        }
+    }
+
+    private static JsonNode fill(JsonNode node, Map<String, String> values) {
+        if (node instanceof ObjectNode object) {
+            object.propertyNames().forEach(name -> object.set(name, fill(object.get(name), values)));
+            return object;
+        }
+        if (node instanceof ArrayNode array) {
+            for (var i = 0; i < array.size(); i++) {
+                array.set(i, fill(array.get(i), values));
+            }
+            return array;
+        }
+        if (node.isString()) {
+            var text = node.asString();
+            for (var value : values.entrySet()) {
+                text = text.replace("{{" + value.getKey() + "}}", value.getValue());
+            }
+            return StringNode.valueOf(text);
+        }
+        return node;
     }
 
     private Membership parseMembership(String body) {

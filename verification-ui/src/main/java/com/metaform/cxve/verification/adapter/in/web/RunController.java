@@ -1,7 +1,10 @@
 package com.metaform.cxve.verification.adapter.in.web;
 
+import com.metaform.cxve.verification.application.DataspaceCatalog;
 import com.metaform.cxve.verification.application.RunService;
 import com.metaform.cxve.verification.domain.model.VerificationRun;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.NoSuchElementException;
 import org.springframework.http.HttpStatus;
@@ -31,19 +34,25 @@ public class RunController {
     }
 
     /**
-     * All fields are optional — absent ones are derived (see {@link RunService#start}). The
-     * {@code did} is the one with a consequence beyond naming: supplying it declares that the
-     * participant is a third-party system already running under that identity, and selects the
-     * run that only drives this environment's own half of the exchange.
+     * A run of a {@code useCase} (e.g. {@code ccm}) in a {@code dataspace} (e.g. {@code catena-x}),
+     * both as the catalog lists them. The {@code memberId} — the participant's id in that
+     * dataspace, the BPN in Catena-X, the DECADE-X-ID in DECADE-X — is MANDATORY: enforced here at
+     * the boundary, so a run never reaches the flow with an identifier this environment invented
+     * for it. {@code name} and {@code shortName} stay optional and are defaulted (see
+     * {@link RunService#start}). The {@code did} is the one with a consequence beyond naming:
+     * supplying it declares that the participant is a third-party system already running under
+     * that identity, and selects the run that only drives this environment's own half of the
+     * exchange.
      */
-    public record StartRunRequest(String name, String shortName, String bpn, String did) {
+    public record StartRunRequest(@NotBlank String dataspace, @NotBlank String useCase, String name,
+                                  String shortName, @NotBlank String memberId, String did) {
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public VerificationRun.Snapshot start(@RequestBody(required = false) StartRunRequest request) {
-        var body = request == null ? new StartRunRequest(null, null, null, null) : request;
-        return runService.start(body.name(), body.shortName(), body.bpn(), body.did());
+    public VerificationRun.Snapshot start(@Valid @RequestBody StartRunRequest request) {
+        return runService.start(request.dataspace(), request.useCase(), request.name(), request.shortName(),
+                request.memberId(), request.did());
     }
 
     @GetMapping
@@ -60,6 +69,13 @@ public class RunController {
     @GetMapping("/{id}/events")
     public JsonNode events(@PathVariable String id) {
         return runService.events(id);
+    }
+
+    /** A dataspace, use case or member id the catalog refuses. */
+    @ExceptionHandler(DataspaceCatalog.InvalidRunRequestException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public String invalid(DataspaceCatalog.InvalidRunRequestException e) {
+        return e.getMessage();
     }
 
     @ExceptionHandler(NoSuchElementException.class)

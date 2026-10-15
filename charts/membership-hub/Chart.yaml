@@ -1,6 +1,6 @@
 apiVersion: v2
 name: membership-hub
-description: Catena-X Membership Hub — deploys a hosted member's EDC resources (CFM Tenant Manager), then registers it with the Onboarding API
+description: The Membership Hub — onboards members into the VE's dataspaces (registration via each dataspace's onboarding API, EDC resource provisioning via the CFM Tenant Manager)
 type: application
 version: 0.1.0
 appVersion: "latest"
