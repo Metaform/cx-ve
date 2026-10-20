@@ -175,8 +175,8 @@ driven from here.
 in Catena-X — mandatory: the VE issues the member credential for exactly that value, and it is
 agreed with the SUT's operator), and optionally the company name. DECADE-X differs: its member
 id, the DECADE-X-ID, is not declared but assigned by the `dx-onboarding-api` (the TSP) when it
-approves the SUT's onboarding request, and the issuer offers the `DecadeXMembershipCredential`
-for that id. The run form asks for none there, and the run shows it once the membership has it.
+approves the SUT's onboarding request, and the issuer offers the `DX_LegalEntity_VC` for that
+id (and the `DX_Site_VC` for the request's first business site). The run form asks for none there, and the run shows it once the membership has it.
 DECADE-X runs use DECADE-X's own DSP profile, `decade-x` (cx-neptune's DCP scopes ask for the
 Catena-X credentials), which the SUT must serve.
 

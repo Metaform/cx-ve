@@ -63,14 +63,15 @@ class IssuerServiceHolderRegistrationServiceTest {
     void aHolderAnotherDataspaceRegistered_getsTheCatenaXPropertiesMergedIn() {
         expectConflictThenExisting("""
                 {"holderId": "%s", "did": "%s", "holderName": "SUT GmbH (DECADE-X)", "anonymous": false,
-                 "properties": {"id": "%s", "decadeXId": "DX-00000042"}, "lastModifiedAt": 0}""");
+                 "properties": {"id": "%s", "dxLegalEntity": {"partnerID": "DX-00000042"}}, "lastModifiedAt": 0}""");
         // the DECADE-X claim and the name stay: without the Catena-X properties, the Catena-X
         // credentials would fail to generate
         server.expect(requestTo(HOLDERS))
                 .andExpect(method(HttpMethod.PUT))
                 .andExpect(content().json("""
                         {"did": "%s", "holderId": "%s", "name": "SUT GmbH (DECADE-X)",
-                         "properties": {"id": "%s", "decadeXId": "DX-00000042", "contractVersion": "1.0",
+                         "properties": {"id": "%s", "dxLegalEntity": {"partnerID": "DX-00000042"},
+                                        "contractVersion": "1.0",
                                         "memberOf": "Catena-X", "bpn": "BPNL0000000000XY"}}""".formatted(DID, DID, DID),
                         true))
                 .andRespond(withSuccess());

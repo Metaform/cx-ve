@@ -7,7 +7,6 @@ import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
 import com.metaform.dxonboarding.domain.port.HolderRegistrationService;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,14 +17,14 @@ import org.springframework.web.client.RestClient;
 /**
  * Registers the holder through the IssuerService's admin API, under the participant's DID as
  * holder id. Its {@code properties} are what the issuer's holder attestation turns into claims: the
- * DID ({@code id}) and the DECADE-X-ID ({@code decadeXId}) — what the DECADE-X membership
- * credential definition maps.
+ * DID ({@code id}) and the partners of the Legal Entity VC and Site VC ({@link DecadeXCredentialClaims}),
+ * which the DECADE-X credential definitions copy into the credentials.
  *
  * <p>Holder ids are unique across the issuer, and a participant hosted elsewhere may join Catena-X
  * too: its DID can already be a holder, registered by the Catena-X onboarding. A 409 therefore
  * MERGES the DECADE-X claims into the existing holder — keeping its name and every other dataspace's
- * properties — instead of being taken as success, which would leave the holder without a
- * {@code decadeXId} and fail the credential's generation later, out of sight.
+ * properties — instead of being taken as success, which would leave the holder without the
+ * DECADE-X claims and fail the credentials' generation later, out of sight.
  *
  * <p>Authorized like the Catena-X onboarding API: a workload token exchanged under the
  * {@code issuer-service.token-resource} mapping (the platform's {@code sudo}) for
@@ -53,9 +52,7 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
     @Override
     public void registerHolder(OnboardingRequest request) {
         var did = request.connectorId();
-        var claims = Map.<String, Object>of(
-                "id", did,
-                "decadeXId", Objects.requireNonNull(request.legalEntityId(), "the request has no DECADE-X-ID yet"));
+        var claims = DecadeXCredentialClaims.of(request);
         var token = tokenProvider.getToken(properties.tokenResource(), SCOPE);
         try {
             restClient.post()
@@ -80,6 +77,8 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
             throw new IllegalStateException("The IssuerService reported holder %s as existing, but returned none".formatted(did));
         }
         var merged = new HashMap<String, Object>(existing.properties() == null ? Map.of() : existing.properties());
+        // a site claim from an earlier onboarding must not outlive a request without a site
+        merged.remove(DecadeXCredentialClaims.SITE);
         merged.putAll(claims);
         restClient.put()
                 .uri("/v1/participants/{issuerContextId}/holders", properties.issuerContextId())
@@ -87,7 +86,7 @@ public class IssuerServiceHolderRegistrationService implements HolderRegistratio
                 .body(holder(did, existing.holderName(), merged))
                 .retrieve()
                 .toBodilessEntity();
-        log.info("holder {} already registered — added the DECADE-X claims to it ({})", did, claims.get("decadeXId"));
+        log.info("holder {} already registered — added the DECADE-X claims to it", did);
     }
 
     private static Map<String, Object> holder(String did, String name, Map<String, Object> claims) {

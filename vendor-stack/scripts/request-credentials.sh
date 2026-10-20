@@ -17,7 +17,9 @@
 #                                                 [-s|--short-name <name>] [-h|--help]
 #
 #   -d, --dataspace  catena-x (default) or decade-x — which credentials to request: the three
-#                    Catena-X ones, or the DecadeXMembershipCredential
+#                    Catena-X ones, or the DX_LegalEntity_VC and DX_Site_VC (the VE offers the
+#                    Site VC only when the onboarding declared a business site, which the VE run
+#                    form's registration does)
 #   --issuer-did     the VE's issuer (default: did:web:issuer.cxve.localhost:issuer)
 #
 # Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), TIMEOUT
@@ -60,7 +62,8 @@ case "$VENDOR_DATASPACE" in
       {"id": "gov-credential-def",        "type": "DataExchangeGovernanceCredential", "format": "VC1_0_JWT"}]' ;;
   decade-x)
     CREDENTIALS='[
-      {"id": "decadex-membership-credential-def", "type": "DecadeXMembershipCredential", "format": "VC1_0_JWT"}]' ;;
+      {"id": "dx-legal-entity-credential-def", "type": "dx:DX_LegalEntity_VC", "format": "VC2_0_JOSE"},
+      {"id": "dx-site-credential-def",         "type": "dx:DX_Site_VC",         "format": "VC2_0_JOSE"}]' ;;
 esac
 REQUEST=$(jq -n --arg issuer "$ISSUER_DID" --argjson credentials "$CREDENTIALS" \
   '{issuerDid: $issuer, credentials: $credentials}')

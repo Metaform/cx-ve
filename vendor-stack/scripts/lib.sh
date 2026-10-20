@@ -54,7 +54,7 @@ use_dataspace() { # <catena-x|decade-x>
       DSP_PROFILE=decade-x
       MEMBER_ID_LABEL=DECADE-X-ID
       DEFAULT_MEMBER_ID=DX-00009001
-      MEMBER_CREDENTIAL=DecadeXMembershipCredential
+      MEMBER_CREDENTIAL=dx:DX_LegalEntity_VC
       VP_SHORT_NAME=verification-participant-dx
       VP_MEMBER_ID=""
       ;;
@@ -101,7 +101,7 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 use_dataspace "${VENDOR_DATASPACE:-catena-x}"
 
 # The member credential the wallet holds, as JSON (type list and claims), or empty — what the VE
-# issued it in the stack's dataspace (MembershipCredential / DecadeXMembershipCredential).
+# issued it in the stack's dataspace (MembershipCredential / dx:DX_LegalEntity_VC).
 member_credential_of() { # <participant context id>
   identity GET "/participants/$1/credentials"
   [[ "$HTTP_STATUS" == 200 ]] || return 0

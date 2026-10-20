@@ -50,7 +50,8 @@ left behind heal on a redelivered callback.
 which (for Catena-X) means the onboarding API registered the credential holder AND had the
 IssuerService offer the membership credentials, which the member's own wallet then requests over
 DCP. A DECADE-X approval means the same: the TSP registered the holder and had the issuer offer
-the `DecadeXMembershipCredential` (claims: the DID and the DECADE-X-ID). Having no operator, the
+the `DX_LegalEntity_VC` (its partner: the legal entity, under its DECADE-X-ID) and, for a member
+that declared a business site, the `DX_Site_VC` (its partner: the first site). Having no operator, the
 VE's TSP approves requests automatically: those of participants hosted here, and for now those of
 external participants too (`dx-onboarding.review` in dx-onboarding-api).
 

@@ -19,7 +19,7 @@
 # access policy an empty Set (a rule without constraints is refused for `access`, which is bound to
 # no scope), the contract policy one `use` permission without constraints (a contract request needs
 # a rule; `use` is bound). Its DSP profile's DCP scope still requires the consumer to present its
-# DecadeXMembershipCredential.
+# DX_LegalEntity_VC.
 #
 # Idempotent: policies and contract definition are kept when they exist; the asset is written
 # through, so its API properties are always current.

@@ -77,12 +77,14 @@ config:
             issuer-uri: http://cxve.localhost/auth/osp
   # The IssuerService an approved participant is registered with and offered its DECADE-X
   # credentials through (in-cluster admin port). token-resource must agree with the jwtlet seed
-  # mapping above; the credential definition is the umbrella's DECADE-X issuer seed's.
+  # mapping above; the credential definitions are the umbrella's DECADE-X issuer seed's.
   issuer-service:
     url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
     issuer-context-id: issuer
     token-resource: sudo
-    credential-definition-ids: decadex-membership-credential-def
+    credential-definitions:
+      legal-entity: dx-legal-entity-credential-def
+      site: dx-site-credential-def
   # The onboarding lifecycle events, which the compliance tracker follows a participant by.
   # nkey-seed-path is where the natsAuth init container writes the seed; "" connects
   # unauthenticated (with natsAuth.enabled off).

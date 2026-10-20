@@ -8,7 +8,7 @@
 #      stack's DSP profile: a DID document advertises one profile per platform (the VE's:
 #      cx-neptune), so for DECADE-X the endpoint's profile segment is replaced with decade-x;
 #   2. waits until the vendor participant holds its member credential from the VE (Catena-X:
-#      MembershipCredential, DECADE-X: DecadeXMembershipCredential) — every DSP message of the
+#      MembershipCredential, DECADE-X: dx:DX_LegalEntity_VC) — every DSP message of the
 #      profile presents it — then requests the catalog until the inbox offer shows up: the dataset
 #      declaring the CX-0135 consumer API (dct:subject
 #      cx-taxo:CompanyCertificateManagementConsumerApi, cx-common:version 3.0), whatever its id;
@@ -198,8 +198,8 @@ log "push flow $FLOW_ID STARTED"
 case "$VENDOR_DATASPACE" in
   decade-x)
     HOLDER=$(member_credential_of "$PCID" \
-      | jq -r '(.credentialSubject | if type == "array" then .[0] else . end).decadeXId // empty')
-    [[ -n "$HOLDER" ]] || die "the vendor participant's $MEMBER_CREDENTIAL carries no decadeXId"
+      | jq -r '(.credentialSubject | if type == "array" then .[0] else . end).partner.partnerID // empty')
+    [[ -n "$HOLDER" ]] || die "the vendor participant's $MEMBER_CREDENTIAL carries no partner.partnerID"
     ;;
   *)
     PROFILE=$(participant_profile_of "$DID") || exit 1

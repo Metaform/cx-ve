@@ -211,7 +211,7 @@ cx-onboarding-api:
 # The TSP onboarding intake. There is no TSP operator yet: requests are approved automatically —
 # those of participants hosted here, and for now those of external ones too
 # (dx-onboarding-api.config.dx-onboarding.review). On approval it registers the participant as a
-# credential holder and has the platform's issuer offer it the DecadeXMembershipCredential (see
+# credential holder and has the platform's issuer offer it the DX_LegalEntity_VC and DX_Site_VC (see
 # decadex-profile below), as the cx-onboarding-api does for Catena-X. Goes together with the hub's
 # membership-hub.config.dataspaces.decade-x.enabled, like the Catena-X switch above.
 dx-onboarding-api:
@@ -221,10 +221,10 @@ dx-onboarding-api:
 
 # ---- DECADE-X profile ---------------------------------------------------------------------------
 # DECADE-X's dataspace seeding (charts/decadex-profile), the catenax-profile's counterpart: the
-# DecadeXMembershipCredential's definition on the platform's issuer, and the EDC dataspace profile
-# DECADE-X participants run DSP under (`decade-x`, trusting the platform's issuer, with a DCP scope
-# asking for the credential). Goes together with dx-onboarding-api.enabled; its credential
-# definition id must match the dx-onboarding-api's issuer-service.credential-definition-ids, and its
+# DX_LegalEntity_VC's and DX_Site_VC's definitions on the platform's issuer, and the EDC dataspace
+# profile DECADE-X participants run DSP under (`decade-x`, trusting the platform's issuer, with a DCP
+# scope asking for the Legal Entity VC). Goes together with dx-onboarding-api.enabled; its credential
+# definition ids must match the dx-onboarding-api's issuer-service.credential-definitions, and its
 # dspProfile the hub's and the verification UI's DECADE-X DSP profile.
 decadex-profile:
   enabled: true

@@ -206,7 +206,7 @@ verification:
           enabled: false
     # DECADE-X, onboarded through the dx-onboarding-api, the TSP onboarding intake (the hub's
     # dataspaces.decade-x): an approval has the platform's issuer offer the participant the
-    # DecadeXMembershipCredential, which its wallet then requests; the onboarding events it
+    # DX_LegalEntity_VC and DX_Site_VC, which its wallet then requests; the onboarding events it
     # publishes are what the compliance tracker follows the participant by. Still partly a PLACEHOLDER: the
     # policy vocabulary is unsettled (the offers this environment seeds carry no constraints, so
     # nothing asks for the credential yet), and the CCM vocabulary assumes Certo's Catena-X API
@@ -229,7 +229,9 @@ verification:
       policy-context: https://w3id.org/decadex/policy/context.jsonld
       # The TSP's onboarding request data, minus what the hub fills in itself (legal name, DID,
       # applicantReference); the hub also adds the placeholder GTC and UCA documents. The use case
-      # agreed to is product-conformity, the TSP's closest to CCM, for now.
+      # agreed to is product-conformity, the TSP's closest to CCM, for now. The business site is
+      # what the participant's DX_Site_VC is issued for (without one it gets the Legal Entity VC
+      # only); it names no siteId, so its partner id is derived from the DECADE-X-ID.
       registration-template: |
         {
           "legalEntity": {
@@ -239,6 +241,10 @@ verification:
             "legalAddress": { "street": "Otto-Hahn-Ring 6", "postalCode": "81739", "locality": "Munich",
                               "countryCode": "DE", "countryName": "Germany" }
           },
+          "businessSites": [ { "siteName": "Verification Site",
+                               "mainAddress": { "street": "Otto-Hahn-Ring 6", "postalCode": "81739",
+                                                "locality": "Munich", "countryCode": "DE",
+                                                "countryName": "Germany" } } ],
           "legalPerson": { "fullName": "Verification Operator", "email": "vui-{{uniqueId}}@example.com",
                            "role": "Operator" },
           "gtc": { "versionNumber": "1.0" },
@@ -269,7 +275,7 @@ verification:
             # The same subjects as Catena-X's, but every one a DECADE-X participant actually produces:
             # the onboarding events are the dx-onboarding-api's own (type org.decade-x.onboarding.*),
             # which is what the compliance tracker follows the participant by; the credential
-            # delivery is its DecadeXMembershipCredential's.
+            # delivery is its DX_LegalEntity_VC's and DX_Site_VC's (one issuance, one delivery).
             expected-events:
               "[events.onboarding.started]": 1
               "[events.onboarding.completed]": 1

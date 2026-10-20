@@ -4,7 +4,7 @@ The VE's stand-in for the DECADE-X TSP's onboarding intake, implementing
 [`dataspace-api-docs.yaml`](dataspace-api-docs.yaml): an applicant creates a **draft**, adds its
 documents one by one, and **submits** it for review. Once the TSP approves the participant, this
 service registers it as a credential holder with the IssuerService and has the issuer offer it the
-`DecadeXMembershipCredential` — nothing else: the participant's EDC resources (its participant
+`DX_LegalEntity_VC` and `DX_Site_VC` — nothing else: the participant's EDC resources (its participant
 context on IdentityHub, its control plane, its DID) exist before it onboards.
 
 ```mermaid

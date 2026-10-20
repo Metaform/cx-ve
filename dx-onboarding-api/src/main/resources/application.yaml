@@ -30,9 +30,12 @@ issuer-service:
   url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin   # ISSUERSERVICE_URL
   issuer-context-id: issuer                                     # ISSUERSERVICE_ISSUERCONTEXTID
   token-resource: sudo                                          # ISSUERSERVICE_TOKENRESOURCE
-  # Must exist at the issuer — the umbrella chart's DECADE-X issuer seed creates it; an unknown id
-  # fails the whole offer.
-  credential-definition-ids: decadex-membership-credential-def  # ISSUERSERVICE_CREDENTIALDEFINITIONIDS
+  # Must exist at the issuer — the umbrella chart's DECADE-X issuer seed creates them; an unknown id
+  # fails the whole offer. Every member is offered the Legal Entity VC; the Site VC only a member
+  # that declared a business site (it is issued for the first one).
+  credential-definitions:
+    legal-entity: dx-legal-entity-credential-def                # ISSUERSERVICE_CREDENTIALDEFINITIONS_LEGALENTITY
+    site: dx-site-credential-def                                # ISSUERSERVICE_CREDENTIALDEFINITIONS_SITE
 
 # The onboarding lifecycle events (events.onboarding.started / .completed), published onto the
 # platform's edc-events JetStream stream — what the compliance tracker follows a participant by.

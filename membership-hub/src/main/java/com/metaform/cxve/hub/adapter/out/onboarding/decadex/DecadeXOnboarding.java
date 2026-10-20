@@ -49,9 +49,10 @@ import org.springframework.web.client.RestClientResponseException;
  * <p>The TSP has no status callbacks: the hub {@linkplain #pollsStatus() polls} the request's
  * status instead. {@code APPROVED} maps to the hub's CONFIRMED — like Catena-X's confirmation, it
  * means the TSP registered the participant as credential holder and had the issuer offer it the
- * DecadeXMembershipCredential — and carries the participant's DECADE-X-ID; {@code REJECTED} and
- * {@code APPROVAL_FAILED} (the provisioning after an approval failed, which nothing retries) map to
- * DECLINED, and every other status — a draft, the steps of the review — to PENDING.
+ * DECADE-X credentials (DX_LegalEntity_VC, DX_Site_VC) — and carries the participant's DECADE-X-ID;
+ * {@code REJECTED} and {@code APPROVAL_FAILED} (the provisioning after an approval failed, which
+ * nothing retries) map to DECLINED, and every other status — a draft, the steps of the review — to
+ * PENDING.
  *
  * <p>The TSP assigns every DECADE-X-ID on approval, and the confirmation hands it to the hub, so a
  * member declares none. A member hosted HERE needs one before that: its deployment reads it (certo

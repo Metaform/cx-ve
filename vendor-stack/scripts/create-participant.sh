@@ -31,7 +31,7 @@
 #                      that credential. DECADE-X assigns the DECADE-X-ID itself when it approves the
 #                      onboarding, and the run form takes none; the id given here (default
 #                      DX-00009001) only provisions the Certo tenant, and push-certificate.sh uses the
-#                      assigned one from the DecadeXMembershipCredential.
+#                      assigned one from the DX_LegalEntity_VC.
 #
 # Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), TIMEOUT
 # (seconds, default 600)
@@ -109,7 +109,7 @@ else
     decade-x)
       ISSUER_PROPERTIES=$(jq -n --arg did "$DID" --arg id "$MEMBER_ID" \
         '{id: $did, memberOf: "DECADE-X", decadeXId: $id, bpn: $id}')
-      FLOW_CLAIM="flow.claims.vc.withType('DecadeXMembershipCredential').claim('decadeXId')"
+      FLOW_CLAIM="flow.claims.vc.withType('dx:DX_LegalEntity_VC').claim('partner.partnerID')"
       ;;
   esac
   PROFILE=$(jq -n --arg did "$DID" --argjson issuer "$ISSUER_PROPERTIES" --arg claim "$FLOW_CLAIM" \

@@ -12,8 +12,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * {@code SUBMITTED} — the requests of participants hosted by the VE are approved, and for now those
  * of external participants too ({@code dx-onboarding.review}). An approval makes the applicant a
  * member the way the Catena-X onboarding API does: it gets its DECADE-X-ID, is registered as a
- * credential holder with the platform's IssuerService, and is offered the
- * DecadeXMembershipCredential ({@link com.metaform.dxonboarding.application.ApprovalService}).
+ * credential holder with the platform's IssuerService, and is offered the DX_LegalEntity_VC and
+ * DX_Site_VC ({@link com.metaform.dxonboarding.application.ApprovalService}).
  */
 @SpringBootApplication
 public class DxOnboardingApplication {

@@ -82,7 +82,7 @@ dataspaces:
   # DECADE-X, through the VE's dx-onboarding-api — the TSP onboarding intake. It has no status
   # callbacks, so the hub polls each request's status (participant.registration.poll-interval). An
   # approval registers the member as credential holder and has the platform's issuer offer it the
-  # DecadeXMembershipCredential; it also hands the member the DECADE-X-ID the TSP assigned (a member
+  # DX_LegalEntity_VC and DX_Site_VC; it also hands the member the DECADE-X-ID the TSP assigned (a member
   # hosted here keeps the one the hub generated for its deployment). The url is the TSP onboarding
   # data endpoint: the onboarding requests themselves, which the hub calls relative paths under.
   decade-x:
@@ -99,9 +99,10 @@ dataspaces:
     # ask for the Catena-X credentials, which a DECADE-X participant does not hold.
     dataspace-profiles:
       - decade-x
+    # the DECADE-X-ID is the Legal Entity VC's partner id (a dotted path into the claims)
     member-id-claim:
-      credential-type: DecadeXMembershipCredential
-      claim: decadeXId
+      credential-type: "dx:DX_LegalEntity_VC"
+      claim: partner.partnerID
       flow-claim: bpn
 
 # The CFM Tenant Manager, where the member's EDC resources are provisioned. token-resource is the

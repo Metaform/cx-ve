@@ -25,8 +25,10 @@ import org.springframework.stereotype.Service;
  *       deployed with one, out-of-band, which its request carries and which it keeps (no other
  *       request can carry one: {@link DefaultOnboardingRequestService} ignores it);</li>
  *   <li>it is registered as a credential holder with the IssuerService, under its DID (its
- *       connector identity) and with its DECADE-X-ID as claim;</li>
- *   <li>the IssuerService offers it the DECADE-X credentials, pushed to its wallet.</li>
+ *       connector identity) and with its legal entity, under its DECADE-X-ID, and business site as
+ *       claims;</li>
+ *   <li>the IssuerService offers it the DECADE-X credentials (the DX_LegalEntity_VC, and the
+ *       DX_Site_VC when it declared a site), pushed to its wallet.</li>
  * </ol>
  *
  * <p>The request is APPROVAL_IN_PROGRESS — its DECADE-X-ID already visible — while that runs, and

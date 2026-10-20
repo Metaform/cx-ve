@@ -7,8 +7,7 @@ dspProfile: decade-x
 
 issuer:
   # The issuer this platform runs — trusted under the profile. On the VE it also issues the
-  # DecadeXMembershipCredential (seedJobs.issuerCredentials). Host-derived: the install scripts
-  # override it.
+  # DECADE-X credentials (seedJobs.issuerCredentials). Host-derived: the install scripts override it.
   did: "did:web:issuer.cxve.localhost:issuer"
   # Further issuers trusted under the profile — on a vendor stack, the VE's issuer.
   trustedIssuers: []
@@ -16,18 +15,35 @@ issuer:
   # mapping the seeds exchange their token under.
   participantContextId: issuer
 
-# The DecadeXMembershipCredential, as the issuer defines it. Claims: credentialSubject.id (the DID)
-# and credentialSubject.decadeXId (the DECADE-X-ID) — from the holder properties the
-# dx-onboarding-api registers. The dx-onboarding-api's issuer-service.credential-definition-ids must
-# name `id`.
-credentialDefinition:
-  id: decadex-membership-credential-def
-  credentialType: DecadeXMembershipCredential
-  attestationId: decadex-holder-attestation-def
-  # a placeholder, like the catenax-profile's: no DECADE-X credential schema exists yet
-  jsonSchemaUrl: https://example.com/schema/decadex-membership-credential.json
-  # one week, like the Catena-X credentials
-  validity: "604800"
+# The DECADE-X credentials, as the issuer defines them (dx-onboarding-api/examples/credentials
+# shows what they look like): the DX_LegalEntity_VC, whose credentialSubject.partner is the member's
+# legal entity — its partnerID the DECADE-X-ID — and the DX_Site_VC, whose partner is the member's
+# first business site, owned by that legal entity. Both copy their partner whole from a holder
+# property the dx-onboarding-api registers (`holderProperty`), and credentialSubject.type
+# (dx:Wallet) from `dxSubjectType`. The dx-onboarding-api's
+# issuer-service.credential-definitions.legal-entity and .site must name the `id`s.
+#
+# The types keep the examples' compact `dx:` IRIs: matched literally — by the DCP scope, the wallet's
+# query and the flow-token claim mapping — they need no JSON-LD context defining `dx` at the top
+# level (the issuer can only add context URLs there; each partner carries its own context).
+credentialDefinitions:
+  legalEntity:
+    id: dx-legal-entity-credential-def
+    credentialType: "dx:DX_LegalEntity_VC"
+    holderProperty: dxLegalEntity
+    # a placeholder, like the catenax-profile's: no DECADE-X credential schema exists yet
+    jsonSchemaUrl: https://example.com/schema/dx-legal-entity-vc.json
+  site:
+    id: dx-site-credential-def
+    credentialType: "dx:DX_Site_VC"
+    holderProperty: dxSite
+    jsonSchemaUrl: https://example.com/schema/dx-site-vc.json
+# Common to both: the holder attestation turning the registered properties into claims, the
+# format — VC 2.0 (validFrom/validUntil) as the examples are, enveloped in a JOSE JWT — and the
+# validity, one week like the Catena-X credentials'.
+credentialAttestationId: decadex-holder-attestation-def
+credentialFormat: VC2_0_JOSE
+credentialValidity: "604800"
 
 # In-cluster endpoints of the platform the seeds run against (release namespace).
 services:

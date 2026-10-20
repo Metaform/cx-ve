@@ -182,11 +182,11 @@ config:
       # has to address a DECADE-X participant's /decade-x endpoint explicitly.
       dataspace-profiles:
         - decade-x
-      # The dx-onboarding-api has the issuer offer it on approval; its decadeXId is the member's
-      # DECADE-X-ID.
+      # The dx-onboarding-api has the issuer offer it on approval; its partner's partnerID is the
+      # member's DECADE-X-ID.
       member-id-claim:
-        credential-type: DecadeXMembershipCredential
-        claim: decadeXId
+        credential-type: "dx:DX_LegalEntity_VC"
+        claim: partner.partnerID
         flow-claim: bpn
   # The CFM Tenant Manager. token-resource must agree with a jwtlet.seed.mappings entry above.
   tenant-manager:
