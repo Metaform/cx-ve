@@ -21,7 +21,7 @@
       <div class="scope">{{ dataspaceName }} · {{ useCaseName }}</div>
       <div class="idline">
         <span class="idlabel">{{ memberIdLabel }}</span>
-        <span class="mono">{{ r.participant.memberId }}</span>
+        <span class="mono">{{ r.participant.memberId ?? 'not assigned yet' }}</span>
         @if (r.participant.did) {
           · <span class="mono">{{ r.participant.did }}</span>
         }

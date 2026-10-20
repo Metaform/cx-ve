@@ -94,6 +94,37 @@ class DataspaceCatalogTest {
     }
 
     @Test
+    void resolve_requiresAMemberIdWhereTheDataspaceDoesNotAssignIt() {
+        when(hub.servedDataspaces()).thenReturn(List.of("catena-x"));
+
+        assertThatThrownBy(() -> catalog().resolve("catena-x", "ccm", null))
+                .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class)
+                .hasMessageContaining("BPN is required");
+    }
+
+    /** DECADE-X assigns a member's id on onboarding: a run comes without one, and is refused with one. */
+    @Test
+    void resolve_takesNoMemberIdWhereTheDataspaceAssignsIt() {
+        when(hub.servedDataspaces()).thenReturn(List.of("decade-x"));
+        var catalog = new DataspaceCatalog(TestFixtures.assigningProps(), hub, List.of(ccm));
+
+        assertThat(catalog.resolve("decade-x", "ccm", null)).isSameAs(ccm);
+        assertThatThrownBy(() -> catalog.resolve("decade-x", "ccm", "DX-00000001"))
+                .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class)
+                .hasMessageContaining("DECADE-X assigns")
+                .hasMessageContaining("leave it empty");
+    }
+
+    @Test
+    void list_tellsTheUiWhetherTheDataspaceAssignsMemberIds() {
+        when(hub.servedDataspaces()).thenReturn(List.of("decade-x"));
+
+        var decadeX = new DataspaceCatalog(TestFixtures.assigningProps(), hub, List.of(ccm)).list().get(0);
+
+        assertThat(decadeX.memberId().assigned()).isTrue();
+    }
+
+    @Test
     void resolve_refusesADataspaceTheHubDoesNotServe() {
         when(hub.servedDataspaces()).thenReturn(List.of());
 

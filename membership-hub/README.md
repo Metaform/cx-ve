@@ -34,9 +34,9 @@ status callbacks carry) and the `participantContextId` provisioning assigns.
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/dataspaces` | The dataspaces members can be onboarded into (`id`, `displayName`) — the enabled entries of `dataspaces.*`. |
-| `POST /api/members` | Submit a member: `dataspace`, `name`, `shortName`, `memberId` (the id within the dataspace — the BPN in Catena-X, required; the DECADE-X-ID in DECADE-X, required for a member hosted here and optional for an external one — the TSP honors a declared id and assigns one on approval otherwise), optional `did`, and the dataspace-specific `registration` object (Catena-X: city, streetName, countryAlpha2Code, region, uniqueIds, companyRoles, agreements, userDetails; DECADE-X: the TSP's onboarding request — `legalEntity` (without `legalName`/`preferredDid`, which the hub fills from `name` and the DID, and without `legalEntityId`, which carries the declared `memberId`), `legalPerson`, `businessSites`, `gtc`, `ucas`, `declarations`; the hub adds `applicantReference` and placeholder GTC/UCA documents). Returns the membership record incl. its `externalId`. `400` for a dataspace the hub does not serve or a `registration` it refuses. |
+| `POST /api/members` | Submit a member: `dataspace`, `name`, `shortName`, `memberId` (the id within the dataspace — the BPN in Catena-X, required; refused in DECADE-X, where the TSP assigns the DECADE-X-ID on approval), optional `did`, and the dataspace-specific `registration` object (Catena-X: city, streetName, countryAlpha2Code, region, uniqueIds, companyRoles, agreements, userDetails; DECADE-X: the TSP's onboarding request data — `legalEntity` (without `legalName`/`preferredDid`, which the hub fills from `name` and the DID, and without `legalEntityId`), `legalPerson`, `businessSites`, `gtc` (`versionNumber`), `ucas` (`useCaseId`, one of the TSP's use cases, and `versionNumber`), `declarations`; the hub adds `applicantReference`, creates the draft, adds placeholder GTC/UCA documents and submits it). Returns the membership record incl. its `externalId`. `400` for a dataspace the hub does not serve or a `registration` it refuses — for an external DECADE-X member also one the TSP refuses, naming its reasons. |
 | `GET /api/members/{externalId}` | The correlated view. For a member with a deployed profile, resolves the stored profile id and reads its current state from the Tenant Manager. |
-| `GET /api/members?dataspace=&memberId=` / `?did=[&dataspace=]` | Rediscovery: the memberships under a member id (of one dataspace) or a DID. |
+| `GET /api/members?dataspace=&memberId=` / `?did=[&dataspace=]` / `?shortName=[&dataspace=]` | Rediscovery: the memberships under a member id (of one dataspace), a DID, or the short name of a member hosted here (the DID the hub minted for it). |
 | `POST /api/callbacks/{dataspace}/registration-status` | The status-callback endpoint registered with each dataspace's onboarding API, in that API's own wire format (`404` for a dataspace whose status is polled, e.g. DECADE-X). OAuth2-protected: the caller presents a client-credentials bearer from the OSP IdP, obtained with the client this app registers alongside its callback URL. Not meant for humans. |
 
 States: `PROVISIONING → PROVISIONED → SUBMITTED → CREDENTIALS_OFFERED`, with `REJECTED`/`FAILED`
@@ -57,11 +57,14 @@ external participants too (`dx-onboarding.review` in dx-onboarding-api).
 Whether a member's resources are provisioned here follows from the `did`: **supply one** and the
 member is taken to run elsewhere (nothing is deployed, and `PROVISIONING`/`PROVISIONED` are
 skipped); **omit it** and the hub mints one under `participant.did.template` and deploys the
-member's EDC resources before registering it. A member hosted here needs its member id on ingress
-either way, because provisioning (the certo activity) needs it before any registration could
-assign one. Catena-X requires it for every member, as its status callback does not carry an
-assigned one back. An external DECADE-X member may leave it out: the TSP then assigns its
-DECADE-X-ID on approval, and the hub records it with the confirmation.
+member's EDC resources before registering it. A member hosted here needs its member id before it
+is deployed, because provisioning (the certo activity) needs it before any registration could
+assign one. Catena-X requires it on ingress for every member, as its status callback does not
+carry an assigned one back. DECADE-X refuses it: the TSP assigns every DECADE-X-ID on approval,
+and the hub records it with the confirmation. For a DECADE-X member hosted here, the hub generates
+a random DECADE-X-ID no membership holds before deploying it, and sends it along with the
+registration (`legalEntity.legalEntityId`, a VE extension the VE's TSP honors for the participants
+it hosts), so its credential carries the id it was deployed with.
 
 `POST /api/members` refuses, with `409`, a member id a live membership of the same dataspace
 already holds, and a DID a live membership of the same dataspace holds — for a member hosted

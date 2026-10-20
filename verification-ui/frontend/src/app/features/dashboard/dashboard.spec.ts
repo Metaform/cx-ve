@@ -9,10 +9,15 @@ import { Dashboard } from './dashboard';
 const SELECTION_KEY = 'verification-ui.selection';
 
 const BPN: MemberIdFormat = { label: 'BPN', pattern: 'BPNL[0-9A-Z]{12}', example: 'BPNL000000000001' };
-const DECADE_X_ID: MemberIdFormat = { label: 'DECADE-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001' };
+const DECADE_X_ID: MemberIdFormat = {
+  label: 'DECADE-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001', assigned: true
+};
 
-/** Catena-X and DECADE-X as configured: CCM verifiable where the dataspace is, Traceability and Substance tracing nowhere. */
-function catalog({ catenaX = true, decadeX = false } = {}): CatalogDataspace[] {
+/**
+ * Catena-X and DECADE-X as configured: CCM verifiable where the dataspace is, Traceability and
+ * Substance tracing nowhere. DECADE-X assigns its member ids, unless `decadeXAssigns` says otherwise.
+ */
+function catalog({ catenaX = true, decadeX = false, decadeXAssigns = true } = {}): CatalogDataspace[] {
   return [
     {
       id: 'catena-x', displayName: 'Catena-X', available: catenaX, memberId: BPN,
@@ -23,7 +28,7 @@ function catalog({ catenaX = true, decadeX = false } = {}): CatalogDataspace[] {
     },
     {
       id: 'decade-x', displayName: 'DECADE-X', available: decadeX,
-      memberId: DECADE_X_ID,
+      memberId: { ...DECADE_X_ID, assigned: decadeXAssigns },
       useCases: [
         { id: 'ccm', displayName: 'Company Certificate Management', available: decadeX },
         { id: 'substance-tracing', displayName: 'Substance tracing', available: false }
@@ -359,7 +364,7 @@ describe('Dashboard', () => {
     }));
 
     it('is never derived outside Catena-X', fakeAsync(() => {
-      api.catalog.and.returnValue(of(catalog({ decadeX: true })));
+      api.catalog.and.returnValue(of(catalog({ decadeX: true, decadeXAssigns: false })));
       create();
       dashboard.selectDataspace('decade-x');
       dashboard.shortName = 'acme';
@@ -376,6 +381,23 @@ describe('Dashboard', () => {
       finish();
     }));
 
+    it('is not asked in DECADE-X, which assigns it on onboarding', fakeAsync(() => {
+      api.catalog.and.returnValue(of(catalog({ decadeX: true })));
+      create();
+      dashboard.selectDataspace('decade-x');
+      settle();
+
+      expect(dashboard.memberIdAssigned).toBeTrue();
+      expect(dashboard.derivingBpn).toBeFalse();
+      expect(element('input[name="memberId"]')).toBeNull();
+      expect(element('.derive')).toBeNull();
+      expect((fixture.nativeElement.textContent as string).replace(/\s+/g, ' '))
+        .toContain('DECADE-X assigns the DECADE-X-ID when the participant is onboarded');
+      expect(dashboard.startBlocker).toBeNull();
+      expect(dashboard.canStart).toBeTrue();
+      finish();
+    }));
+
     it('is never derived for an external participant', fakeAsync(() => {
       create();
       dashboard.did = 'did:web:sut.example.com';
@@ -386,14 +408,15 @@ describe('Dashboard', () => {
       finish();
     }));
 
-    it('is asked of an external participant in DECADE-X, which declares it like a BPN', fakeAsync(() => {
+    it('is not asked of an external participant in DECADE-X either', fakeAsync(() => {
       api.catalog.and.returnValue(of(catalog({ decadeX: true })));
       create();
       dashboard.selectDataspace('decade-x');
       dashboard.did = 'did:web:sut.example.com';
       settle();
 
-      expect(dashboard.startBlocker).toBe('Enter the DECADE-X-ID to start the run.');
+      expect(element('input[name="memberId"]')).toBeNull();
+      expect(dashboard.startBlocker).toBeNull();
       finish();
     }));
 
@@ -407,7 +430,7 @@ describe('Dashboard', () => {
     }));
 
     it('is not taken over by derivation when coming to Catena-X with one typed', fakeAsync(() => {
-      api.catalog.and.returnValue(of(catalog({ decadeX: true })));
+      api.catalog.and.returnValue(of(catalog({ decadeX: true, decadeXAssigns: false })));
       create();
       dashboard.selectDataspace('decade-x');
       dashboard.memberId = 'DX-00000001';
@@ -453,6 +476,21 @@ describe('Dashboard', () => {
       expect(api.startRun).toHaveBeenCalledOnceWith({
         dataspace: 'catena-x', useCase: 'ccm', memberId: 'BPNL000000000001', did: 'did:web:sut.example.com'
       });
+      finish();
+    }));
+
+    it('submits no member id in DECADE-X, which assigns it', fakeAsync(() => {
+      spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+      api.catalog.and.returnValue(of(catalog({ decadeX: true })));
+      api.startRun.and.returnValue(of({ id: 'r1' } as RunSnapshot));
+      create();
+      dashboard.selectDataspace('decade-x');
+      dashboard.memberId = 'typed in Catena-X';
+      dashboard.shortName = 'acme';
+
+      dashboard.startRun();
+
+      expect(api.startRun).toHaveBeenCalledOnceWith({ dataspace: 'decade-x', useCase: 'ccm', shortName: 'acme' });
       finish();
     }));
 

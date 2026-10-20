@@ -8,33 +8,46 @@ import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.model.RegistrationOutcome;
 import com.metaform.cxve.hub.domain.port.DataspaceOnboarding.InvalidRegistrationException;
 import jakarta.validation.Validation;
+import java.io.IOException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpRequest;
 import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.test.web.client.ResponseActions;
+import org.springframework.test.web.client.response.DefaultResponseCreator;
 import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServiceUnavailable;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 /**
  * The DECADE-X half of a member request: the {@code registration} object is the TSP's onboarding
- * request minus what the hub owns, it is submitted as a multipart request with placeholder
- * documents under the member's DID as connector identity, and the outcome is polled.
+ * request data minus what the hub owns; it is filed as a draft, given placeholder documents and
+ * submitted, each change under the draft's current version and the member's DID as connector
+ * identity; the TSP's refusals are read from its problems; and the outcome is polled.
  */
 @SuppressWarnings("unchecked")
 class DecadeXOnboardingTest {
 
-    private static final String API = "http://dx-onboarding.test";
-    private static final String DID = "did:web:acme";
+    private static final String API = "http://dx-onboarding.test/api/v1/onboarding-requests";
+    private static final String DID = "did:web:identity.cxve.localhost:acme";
+    private static final String SUT_DID = "did:web:sut.example.com";
 
     private final RestClient.Builder restClient = RestClient.builder();
     private final MockRestServiceServer server = MockRestServiceServer.bindTo(restClient).build();
@@ -60,24 +73,28 @@ class DecadeXOnboardingTest {
                 "legalAddress", address));
         registration.put("legalPerson", Map.of("fullName", "Erika Mustermann", "email", "erika@acme.example"));
         registration.put("businessSites", List.of(Map.of("siteName", "Headquarters", "mainAddress", address)));
-        registration.put("gtc", Map.of("versionId", "0b8e1f0e-5c0a-4a52-9a53-7a1d2c3b4e5f", "versionNumber", "1.0",
-                "accepted", true));
+        registration.put("gtc", Map.of("versionNumber", "1.0"));
         registration.put("ucas", List.of(
-                Map.of("useCaseId", "export-control", "useCaseName", "Export Control", "versionNumber", "v1.0",
-                        "accepted", true),
-                Map.of("useCaseId", "critical-supply-chain", "accepted", true)));
+                Map.of("useCaseId", "export-control", "useCaseName", "Export Control", "versionNumber", "v1.0"),
+                Map.of("useCaseId", "critical-supply-chain")));
         registration.put("declarations", Map.of("informationAccurate", true, "authorisedToAct", true,
                 "evidenceMayBeRequested", true));
         return registration;
     }
 
+    /** A member request as it arrives: no DECADE-X-ID, which the TSP assigns. */
     private static MemberData member(Map<String, Object> registration) {
-        return new MemberData("decade-x", "Acme Corp", "acme", "DX-00000001", null, registration);
+        return new MemberData("decade-x", "Acme Corp", "acme", null, null, registration);
+    }
+
+    /** A member hosted here, with the DECADE-X-ID the hub generated for its deployment. */
+    private static MemberData hosted() {
+        return new MemberData("decade-x", "Acme Corp", "acme", "DX-00000001", null, registration());
     }
 
     /** A member running elsewhere: it brings its DID, and the TSP assigns its DECADE-X-ID. */
     private static MemberData external() {
-        return new MemberData("decade-x", "SUT GmbH", "sut", null, "did:web:sut.example.com", registration());
+        return new MemberData("decade-x", "SUT GmbH", "sut", null, SUT_DID, registration());
     }
 
     private static Membership submitted(String processId) {
@@ -85,9 +102,12 @@ class DecadeXOnboardingTest {
                 .withOnboardingProcessId(processId);
     }
 
+    // --- validation ---
+
     @Test
-    void validate_acceptsTheTspOnboardingRequest() {
+    void validate_acceptsTheTspOnboardingRequestData() {
         onboarding.validate(member(registration()));
+        onboarding.validate(external());
     }
 
     @Test
@@ -106,65 +126,75 @@ class DecadeXOnboardingTest {
                 .isInstanceOf(InvalidRegistrationException.class)
                 .hasMessageContaining("applicantReference");
 
-        var legalEntity = new HashMap<String, Object>((Map<String, Object>) registration().get("legalEntity"));
-        legalEntity.put("legalName", "Other Corp");
         var withName = registration();
-        withName.put("legalEntity", legalEntity);
+        withName.put("legalEntity", with((Map<String, Object>) registration().get("legalEntity"), "legalName", "Other"));
         assertThatThrownBy(() -> onboarding.validate(member(withName)))
                 .isInstanceOf(InvalidRegistrationException.class)
                 .hasMessageContaining("legalName");
     }
 
     @Test
-    void validate_namesWhatIsMissingOrNotAccepted() {
+    void validate_refusesTheFieldsOfThePreviousApiVersion() {
+        var gtc = registration();
+        gtc.put("gtc", Map.of("versionId", "0b8e1f0e-5c0a-4a52-9a53-7a1d2c3b4e5f", "versionNumber", "1.0"));
+        assertThatThrownBy(() -> onboarding.validate(member(gtc)))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("versionId");
+
+        var uca = registration();
+        uca.put("ucas", List.of(Map.of("useCaseId", "export-control", "accepted", true)));
+        assertThatThrownBy(() -> onboarding.validate(member(uca)))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("accepted");
+    }
+
+    @Test
+    void validate_refusesAUseCaseTheTspDoesNotKnow() {
         var registration = registration();
-        registration.remove("legalPerson");
-        registration.put("gtc", Map.of("versionId", "0b8e1f0e-5c0a-4a52-9a53-7a1d2c3b4e5f", "versionNumber", "1.0",
-                "accepted", false));
-        registration.put("ucas", List.of(Map.of("useCaseId", "ccm", "accepted", true),
-                Map.of("useCaseId", "ccm", "accepted", false)));
-        registration.put("declarations", Map.of("informationAccurate", true, "authorisedToAct", false,
-                "evidenceMayBeRequested", true));
+        registration.put("ucas", List.of(Map.of("useCaseId", "ccm", "versionNumber", "1.0")));
 
         assertThatThrownBy(() -> onboarding.validate(member(registration)))
                 .isInstanceOf(InvalidRegistrationException.class)
-                .hasMessageContaining("registration.legalPerson")
-                .hasMessageContaining("registration.gtc.accepted")
-                .hasMessageContaining("registration.ucas[1].accepted")
-                .hasMessageContaining("registration.ucasDistinct")
-                .hasMessageContaining("registration.declarations.authorisedToAct");
+                .hasMessageContaining("ccm")
+                .hasMessageContaining("product-conformity");
     }
 
     @Test
-    void validate_aMemberHostedHere_bringsItsDecadeXId() {
-        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme", null, null,
-                registration())))
+    void validate_namesWhatIsMissingOrOutOfBounds() {
+        var registration = registration();
+        registration.remove("declarations");
+        registration.put("legalPerson", Map.of("fullName", "Erika Mustermann", "email", "erika@acme.example",
+                "phoneNumber", "+49 30 12345678901234567890123456"));
+        registration.put("gtc", Map.of("versionNumber", ""));
+        registration.put("ucas", List.of(Map.of("useCaseId", "export-control"),
+                Map.of("useCaseId", "export-control", "versionNumber", "v".repeat(33))));
+
+        assertThatThrownBy(() -> onboarding.validate(member(registration)))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("registration.declarations")
+                .hasMessageContaining("registration.legalPerson.phoneNumber")
+                .hasMessageContaining("registration.gtc.versionNumber")
+                .hasMessageContaining("registration.ucas[1].versionNumber")
+                .hasMessageContaining("registration.ucasDistinct");
+    }
+
+    @Test
+    void validate_refusesADeclaredDecadeXId_whichTheTspAssigns() {
+        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme", "DX-00000001",
+                null, registration())))
                 .isInstanceOf(InvalidRegistrationException.class)
                 .hasMessageContaining("memberId");
-        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme",
-                "BPNL0000000000XY", null, registration())))
+        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "SUT GmbH", "sut", "DX-00000007",
+                SUT_DID, registration())))
                 .isInstanceOf(InvalidRegistrationException.class)
-                .hasMessageContaining("DECADE-X-ID");
-    }
-
-    @Test
-    void validate_anExternalMember_declaresItsDecadeXId_orLeavesItToTheTsp() {
-        onboarding.validate(external());
-        onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme", "DX-00000001", "did:web:sut.example.com",
-                registration()));
-
-        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "Acme Corp", "acme",
-                "BPNL0000000000XY", "did:web:sut.example.com", registration())))
-                .isInstanceOf(InvalidRegistrationException.class)
-                .hasMessageContaining("DECADE-X-ID");
+                .hasMessageContaining("assigned by the TSP");
     }
 
     @Test
     void validate_refusesADecadeXIdInTheRegistrationObject() {
         var registration = registration();
-        var legalEntity = new HashMap<String, Object>((Map<String, Object>) registration.get("legalEntity"));
-        legalEntity.put("legalEntityId", "DX-00000001");
-        registration.put("legalEntity", legalEntity);
+        registration.put("legalEntity", with((Map<String, Object>) registration.get("legalEntity"),
+                "legalEntityId", "DX-00000001"));
 
         assertThatThrownBy(() -> onboarding.validate(member(registration)))
                 .isInstanceOf(InvalidRegistrationException.class)
@@ -172,81 +202,242 @@ class DecadeXOnboardingTest {
     }
 
     @Test
+    void validate_refusesANameLongerThanTheTspsLegalName() {
+        assertThatThrownBy(() -> onboarding.validate(new MemberData("decade-x", "A".repeat(256), "acme", null, null,
+                registration())))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("legalName");
+    }
+
+    @Test
     void validate_requiresTheOtherCompanyTypeToBeNamed() {
         var registration = registration();
-        var legalEntity = new HashMap<String, Object>((Map<String, Object>) registration.get("legalEntity"));
-        legalEntity.put("companyType", "OTHER");
-        registration.put("legalEntity", legalEntity);
+        registration.put("legalEntity", with((Map<String, Object>) registration.get("legalEntity"),
+                "companyType", "OTHER"));
 
         assertThatThrownBy(() -> onboarding.validate(member(registration)))
                 .isInstanceOf(InvalidRegistrationException.class)
                 .hasMessageContaining("registration.legalEntity.companyTypeOtherGiven");
     }
 
+    // --- the hosted member's DECADE-X-ID ---
+
+    @Test
+    void aHostedMember_getsARandomDecadeXId() {
+        var ids = IntStream.range(0, 20).mapToObj(i -> onboarding.memberIdForHostedMember().orElseThrow()).toList();
+
+        assertThat(ids).allMatch(id -> id.matches(DecadeXOnboarding.DECADE_X_ID));
+        assertThat(new HashSet<>(ids)).hasSizeGreaterThan(1);
+    }
+
     @Test
     void issuerProperties_carryTheDecadeXId() {
-        assertThat(onboarding.issuerProperties(DID, member(registration())))
+        assertThat(onboarding.issuerProperties(DID, hosted()))
                 .containsEntry("id", DID)
                 .containsEntry("memberOf", "DECADE-X")
                 .containsEntry("decadeXId", "DX-00000001")
                 .containsEntry("bpn", "DX-00000001");
     }
 
+    // --- draft, documents, submit ---
+
     @Test
-    void submitRegistration_sendsTheCompletedRequestWithPlaceholderDocuments() {
-        server.expect(requestTo(API + "/api/v1/onboarding-requests"))
-                .andExpect(method(HttpMethod.POST))
-                .andExpect(header("Authorization", "Bearer hub-token"))
-                .andExpect(header(DecadeXOnboarding.CONNECTOR_ID_HEADER, DID))
+    void submitRegistration_createsTheDraft_addsThePlaceholders_andSubmitsIt() {
+        expect(HttpMethod.POST, API, DID)
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer hub-token"))
+                .andExpect(header(DecadeXOnboarding.IDEMPOTENCY_KEY_HEADER, "dx-create-ext-1"))
+                .andExpect(headerDoesNotExist(HttpHeaders.IF_MATCH))
+                .andExpect(request -> {
+                    assertThat(request.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
+                    assertThat(body(request)).contains("\"legalName\":\"Acme Corp\"", "\"preferredDid\":\"" + DID + "\"",
+                                    "\"applicantReference\":\"ext-1\"", "\"registrationCountry\":\"DE\"",
+                                    "\"gtc\":{\"versionNumber\":\"1.0\"}", "\"useCaseId\":\"export-control\"",
+                                    // hosted here: the DECADE-X-ID its deployment was provisioned with
+                                    "\"legalEntityId\":\"DX-00000001\"")
+                            // the TSP names the use case itself
+                            .doesNotContain("useCaseName");
+                })
+                .andRespond(json(HttpStatus.CREATED, "1", draft("req-1", "DRAFT")));
+        expect(HttpMethod.GET, API + "/req-1/documents", DID)
+                .andRespond(json(HttpStatus.OK, "1", "{\"version\": \"1\", \"documents\": []}"));
+        expect(HttpMethod.POST, API + "/req-1/documents", DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"1\""))
                 .andExpect(request -> {
                     assertThat(request.getHeaders().getContentType().isCompatibleWith(MediaType.MULTIPART_FORM_DATA)).isTrue();
-                    var body = body(request);
-                    assertThat(body).contains("name=\"request\"", "\"legalName\":\"Acme Corp\"",
-                            "\"preferredDid\":\"" + DID + "\"", "\"applicantReference\":\"ext-1\"",
-                            "\"registrationCountry\":\"DE\"",
-                            // hosted here: the DECADE-X-ID its deployment was provisioned with
-                            "\"legalEntityId\":\"DX-00000001\"");
-                    assertThat(body).contains("name=\"gtcDocument\"; filename=\"gtc-placeholder.pdf\"",
-                            "name=\"ucaDocument[export-control]\"", "name=\"ucaDocument[critical-supply-chain]\"",
-                            "Content-Type: application/pdf", "%PDF-1.4");
+                    assertThat(body(request)).contains("name=\"type\"", "\r\ngtc\r\n",
+                                    "name=\"file\"; filename=\"gtc-placeholder.pdf\"", "Content-Type: application/pdf",
+                                    "%PDF-1.4")
+                            .doesNotContain("name=\"useCaseId\"");
                 })
-                .andRespond(withSuccess("""
-                        {"id": "6f1c1c1e-0000-4000-8000-000000000001", "businessId": "DX-OR-000001",
-                         "status": "SUBMITTED", "connectorId": "did:web:acme", "submittedAt": "2026-10-02T10:00:00Z"}""",
-                        MediaType.APPLICATION_JSON));
+                .andRespond(json(HttpStatus.CREATED, "2", document("gtc", null)));
+        expect(HttpMethod.POST, API + "/req-1/documents", DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"2\""))
+                .andExpect(request -> assertThat(body(request)).contains("\r\nuca\r\n", "name=\"useCaseId\"",
+                        "\r\nexport-control\r\n", "filename=\"uca-export-control-placeholder.pdf\""))
+                .andRespond(json(HttpStatus.CREATED, "3", document("uca", "export-control")));
+        expect(HttpMethod.POST, API + "/req-1/documents", DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"3\""))
+                .andExpect(request -> assertThat(body(request)).contains("\r\ncritical-supply-chain\r\n"))
+                .andRespond(json(HttpStatus.CREATED, "4", document("uca", "critical-supply-chain")));
+        expect(HttpMethod.POST, API + "/req-1/submit", DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"4\""))
+                .andExpect(header(DecadeXOnboarding.IDEMPOTENCY_KEY_HEADER, "dx-submit-ext-1"))
+                .andRespond(json(HttpStatus.OK, "5", draft("req-1", "SUBMITTED")));
 
-        assertThat(onboarding.submitRegistration("ext-1", DID, member(registration())))
-                .isEqualTo("6f1c1c1e-0000-4000-8000-000000000001");
+        assertThat(onboarding.submitRegistration("ext-1", DID, hosted())).isEqualTo("req-1");
         server.verify();
     }
 
     @Test
-    void submitRegistration_anExternalMember_sendsTheDecadeXIdItDeclared() {
-        server.expect(requestTo(API + "/api/v1/onboarding-requests"))
-                .andExpect(request -> assertThat(body(request)).contains("\"legalEntityId\":\"DX-00000007\""))
-                .andRespond(withSuccess("""
-                        {"id": "req-8", "businessId": "DX-OR-000008", "status": "SUBMITTED"}""",
-                        MediaType.APPLICATION_JSON));
-
-        var declared = new MemberData("decade-x", "SUT GmbH", "sut", "DX-00000007", "did:web:sut.example.com",
-                registration());
-        assertThat(onboarding.submitRegistration("ext-8", "did:web:sut.example.com", declared)).isEqualTo("req-8");
-        server.verify();
-    }
-
-    @Test
-    void submitRegistration_anExternalMember_withoutADecadeXId_sendsNone() {
-        server.expect(requestTo(API + "/api/v1/onboarding-requests"))
-                .andExpect(header(DecadeXOnboarding.CONNECTOR_ID_HEADER, "did:web:sut.example.com"))
+    void submitRegistration_anExternalMember_sendsNoDecadeXId() {
+        expect(HttpMethod.POST, API, SUT_DID)
                 .andExpect(request -> assertThat(body(request)).contains("\"legalName\":\"SUT GmbH\"")
                         .doesNotContain("legalEntityId"))
-                .andRespond(withSuccess("""
-                        {"id": "req-9", "businessId": "DX-OR-000009", "status": "SUBMITTED"}""",
-                        MediaType.APPLICATION_JSON));
+                .andRespond(json(HttpStatus.CREATED, "1", draft("req-9", "DRAFT")));
+        expect(HttpMethod.GET, API + "/req-9/documents", SUT_DID)
+                .andRespond(json(HttpStatus.OK, "1", "{\"version\": \"1\", \"documents\": []}"));
+        for (var version = 1; version <= 3; version++) {
+            expect(HttpMethod.POST, API + "/req-9/documents", SUT_DID)
+                    .andRespond(json(HttpStatus.CREATED, String.valueOf(version + 1), "{}"));
+        }
+        expect(HttpMethod.POST, API + "/req-9/submit", SUT_DID)
+                .andRespond(json(HttpStatus.OK, "5", draft("req-9", "SUBMITTED")));
 
-        assertThat(onboarding.submitRegistration("ext-9", "did:web:sut.example.com", external())).isEqualTo("req-9");
+        assertThat(onboarding.submitRegistration("ext-9", SUT_DID, external())).isEqualTo("req-9");
         server.verify();
     }
+
+    @Test
+    void submitRegistration_resumesTheDraftAnEarlierAttemptStarted() {
+        // the same key returns the first attempt's draft (200), with the GTC already on file
+        expect(HttpMethod.POST, API, DID)
+                .andRespond(json(HttpStatus.OK, "2", draft("req-1", "DRAFT")));
+        expect(HttpMethod.GET, API + "/req-1/documents", DID)
+                .andRespond(json(HttpStatus.OK, "2", "{\"version\": \"2\", \"documents\": [" + document("gtc", null) + "]}"));
+        expect(HttpMethod.POST, API + "/req-1/documents", DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"2\""))
+                .andExpect(request -> assertThat(body(request)).contains("\r\nexport-control\r\n"))
+                .andRespond(json(HttpStatus.CREATED, "3", "{}"));
+        expect(HttpMethod.POST, API + "/req-1/documents", DID)
+                .andExpect(request -> assertThat(body(request)).contains("\r\ncritical-supply-chain\r\n"))
+                .andRespond(json(HttpStatus.CREATED, "4", "{}"));
+        expect(HttpMethod.POST, API + "/req-1/submit", DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"4\""))
+                .andRespond(json(HttpStatus.OK, "5", draft("req-1", "SUBMITTED")));
+
+        assertThat(onboarding.submitRegistration("ext-1", DID, hosted())).isEqualTo("req-1");
+        server.verify();
+    }
+
+    @Test
+    void submitRegistration_aRequestAnEarlierAttemptSubmitted_isTakenAsItIs() {
+        expect(HttpMethod.POST, API, DID)
+                .andRespond(json(HttpStatus.OK, "5", draft("req-1", "UNDER_REVIEW")));
+
+        assertThat(onboarding.submitRegistration("ext-1", DID, hosted())).isEqualTo("req-1");
+        server.verify();
+    }
+
+    @Test
+    void submitRegistration_aSlotAlreadyTaken_isSkipped_andAVersionConflict_readsTheDraftAgain() {
+        expect(HttpMethod.POST, API, DID).andRespond(json(HttpStatus.CREATED, "1", draft("req-1", "DRAFT")));
+        expect(HttpMethod.GET, API + "/req-1/documents", DID)
+                .andRespond(json(HttpStatus.OK, "1", "{\"version\": \"1\", \"documents\": []}"));
+        // an upload whose response was lost went through after all
+        expect(HttpMethod.POST, API + "/req-1/documents", DID)
+                .andRespond(problem(HttpStatus.CONFLICT, "document-slot-taken", "\"documentId\": \"doc-gtc\""));
+        expect(HttpMethod.GET, API + "/req-1/documents", DID)
+                .andRespond(json(HttpStatus.OK, "2", "{\"version\": \"2\", \"documents\": [" + document("gtc", null) + "]}"));
+        expect(HttpMethod.POST, API + "/req-1/documents", DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"2\""))
+                .andRespond(problem(HttpStatus.CONFLICT, "version-conflict", null));
+        expect(HttpMethod.GET, API + "/req-1/documents", DID)
+                .andRespond(json(HttpStatus.OK, "3", "{\"version\": \"3\", \"documents\": [" + document("gtc", null) + "]}"));
+        expect(HttpMethod.POST, API + "/req-1/documents", DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"3\""))
+                .andExpect(request -> assertThat(body(request)).contains("\r\nexport-control\r\n"))
+                .andRespond(json(HttpStatus.CREATED, "4", "{}"));
+        expect(HttpMethod.POST, API + "/req-1/documents", DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"4\""))
+                .andRespond(json(HttpStatus.CREATED, "5", "{}"));
+        expect(HttpMethod.POST, API + "/req-1/submit", DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"5\""))
+                .andRespond(json(HttpStatus.OK, "6", draft("req-1", "SUBMITTED")));
+
+        assertThat(onboarding.submitRegistration("ext-1", DID, hosted())).isEqualTo("req-1");
+        server.verify();
+    }
+
+    @Test
+    void submitRegistration_triesOnceMore_whenTheTspCannotBeReached() {
+        expect(HttpMethod.POST, API, DID).andRespond(withServiceUnavailable());
+        expect(HttpMethod.POST, API, DID)
+                .andExpect(header(DecadeXOnboarding.IDEMPOTENCY_KEY_HEADER, "dx-create-ext-1"))
+                .andRespond(json(HttpStatus.CREATED, "1", draft("req-1", "DRAFT")));
+        expect(HttpMethod.GET, API + "/req-1/documents", DID).andRespond(withException(new IOException("reset")));
+        expect(HttpMethod.GET, API + "/req-1/documents", DID)
+                .andRespond(json(HttpStatus.OK, "1", "{\"version\": \"1\", \"documents\": []}"));
+        for (var version = 1; version <= 3; version++) {
+            expect(HttpMethod.POST, API + "/req-1/documents", DID)
+                    .andRespond(json(HttpStatus.CREATED, String.valueOf(version + 1), "{}"));
+        }
+        expect(HttpMethod.POST, API + "/req-1/submit", DID)
+                .andRespond(json(HttpStatus.OK, "5", draft("req-1", "SUBMITTED")));
+
+        assertThat(onboarding.submitRegistration("ext-1", DID, hosted())).isEqualTo("req-1");
+        server.verify();
+    }
+
+    @Test
+    void submitRegistration_aSubmitTheTspRefuses_isAnInvalidRegistration_andTheDraftIsDeleted() {
+        expect(HttpMethod.POST, API, SUT_DID).andRespond(json(HttpStatus.CREATED, "1", draft("req-9", "DRAFT")));
+        expect(HttpMethod.GET, API + "/req-9/documents", SUT_DID)
+                .andRespond(json(HttpStatus.OK, "1", "{\"version\": \"1\", \"documents\": []}"));
+        for (var version = 1; version <= 3; version++) {
+            expect(HttpMethod.POST, API + "/req-9/documents", SUT_DID)
+                    .andRespond(json(HttpStatus.CREATED, String.valueOf(version + 1), "{}"));
+        }
+        expect(HttpMethod.POST, API + "/req-9/submit", SUT_DID)
+                .andRespond(problem(HttpStatus.UNPROCESSABLE_CONTENT, "onboarding-request-submit-rejected", """
+                        "errors": [{"field": "legalEntity.preferredDid",
+                                    "message": "does not resolve: no DID document could be fetched"}]"""));
+        expect(HttpMethod.GET, API + "/req-9", SUT_DID).andRespond(json(HttpStatus.OK, "4", draft("req-9", "DRAFT")));
+        expect(HttpMethod.DELETE, API + "/req-9", SUT_DID)
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"4\""))
+                .andRespond(withStatus(HttpStatus.NO_CONTENT));
+
+        assertThatThrownBy(() -> onboarding.submitRegistration("ext-9", SUT_DID, external()))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("refused by the TSP")
+                .hasMessageContaining("legalEntity.preferredDid does not resolve: no DID document could be fetched");
+        server.verify();
+    }
+
+    @Test
+    void submitRegistration_aDraftTheTspRefuses_isAnInvalidRegistration() {
+        expect(HttpMethod.POST, API, SUT_DID)
+                .andRespond(problem(HttpStatus.BAD_REQUEST, "invalid-request", """
+                        "errors": [{"field": "legalPerson.email", "message": "not an email address"}]"""));
+
+        assertThatThrownBy(() -> onboarding.submitRegistration("ext-9", SUT_DID, external()))
+                .isInstanceOf(InvalidRegistrationException.class)
+                .hasMessageContaining("legalPerson.email not an email address");
+        server.verify();
+    }
+
+    @Test
+    void submitRegistration_aQuota_isTheTspsLimit_notAnInvalidRegistration() {
+        expect(HttpMethod.POST, API, SUT_DID).andRespond(problem(HttpStatus.UNPROCESSABLE_CONTENT,
+                "connector-draft-limit-reached", "\"detail\": \"The participant already has 10 drafts\""));
+
+        assertThatThrownBy(() -> onboarding.submitRegistration("ext-9", SUT_DID, external()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("create the onboarding request")
+                .hasMessageContaining("already has 10 drafts");
+        server.verify();
+    }
+
+    // --- status ---
 
     @Test
     void pollStatus_mapsTheTspStatus() {
@@ -258,6 +449,8 @@ class DecadeXOnboardingTest {
                               "resubmissionAllowed": true}}""");
         expectStatus("req-3", """
                 {"id": "req-3", "status": "UNDER_REVIEW", "legalEntity": {"legalName": "Acme Corp"}}""");
+        expectStatus("req-4", """
+                {"id": "req-4", "status": "DRAFT"}""");
 
         // approved: holder registered and offered its credentials, under the DECADE-X-ID it now holds
         assertThat(onboarding.pollStatus(submitted("req-1")))
@@ -265,6 +458,8 @@ class DecadeXOnboardingTest {
         assertThat(onboarding.pollStatus(submitted("req-2"))).isEqualTo(new RegistrationOutcome("ext-1",
                 RegistrationOutcome.Status.DECLINED, "INVALID_LEGAL_ENTITY: Unknown VAT ID"));
         assertThat(onboarding.pollStatus(submitted("req-3")))
+                .isEqualTo(new RegistrationOutcome("ext-1", RegistrationOutcome.Status.PENDING, null));
+        assertThat(onboarding.pollStatus(submitted("req-4")))
                 .isEqualTo(new RegistrationOutcome("ext-1", RegistrationOutcome.Status.PENDING, null));
         server.verify();
     }
@@ -288,14 +483,45 @@ class DecadeXOnboardingTest {
         assertThatThrownBy(() -> onboarding.readCallback(Map.of())).isInstanceOf(UnsupportedOperationException.class);
     }
 
-    private void expectStatus(String requestId, String response) {
-        server.expect(requestTo(API + "/api/v1/onboarding-requests/" + requestId))
-                .andExpect(method(HttpMethod.GET))
-                .andExpect(header(DecadeXOnboarding.CONNECTOR_ID_HEADER, DID))
-                .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+    private ResponseActions expect(HttpMethod method, String url, String connectorId) {
+        return server.expect(requestTo(url))
+                .andExpect(method(method))
+                .andExpect(header(DecadeXOnboarding.CONNECTOR_ID_HEADER, connectorId));
     }
 
-    private static String body(org.springframework.http.client.ClientHttpRequest request) {
+    private void expectStatus(String requestId, String response) {
+        expect(HttpMethod.GET, API + "/" + requestId, DID).andRespond(json(HttpStatus.OK, "1", response));
+    }
+
+    private static DefaultResponseCreator json(HttpStatus status, String version, String body) {
+        return withStatus(status).contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.ETAG, "\"" + version + "\"").body(body);
+    }
+
+    private static DefaultResponseCreator problem(HttpStatus status, String code, String members) {
+        return withStatus(status).contentType(MediaType.APPLICATION_PROBLEM_JSON).body("""
+                {"type": "urn:decade-x:tsp:problem:%s", "title": "Refused", "status": %d%s}"""
+                .formatted(code, status.value(), members == null ? "" : ", " + members));
+    }
+
+    private static String draft(String id, String status) {
+        return """
+                {"id": "%s", "version": "1", "businessId": "DX-OR-000001", "status": "%s"}""".formatted(id, status);
+    }
+
+    private static String document(String type, String useCaseId) {
+        return """
+                {"documentId": "doc-%s", "type": "%s"%s, "filename": "%s.pdf"}""".formatted(type, type,
+                useCaseId == null ? "" : ", \"useCaseId\": \"" + useCaseId + "\"", type);
+    }
+
+    private static Map<String, Object> with(Map<String, Object> map, String key, Object value) {
+        var copy = new HashMap<>(map);
+        copy.put(key, value);
+        return copy;
+    }
+
+    private static String body(ClientHttpRequest request) {
         return ((MockClientHttpRequest) request).getBodyAsString();
     }
 }

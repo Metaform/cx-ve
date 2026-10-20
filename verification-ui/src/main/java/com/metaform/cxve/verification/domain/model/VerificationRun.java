@@ -25,7 +25,8 @@ public class VerificationRun {
     private final String useCase;
     private final String name;
     private final String shortName;
-    private final String memberId;
+    /** Null until assigned, for a run in a dataspace that assigns its members' ids. */
+    private String memberId;
     private final String uniqueId;
     /** The declared DID of an externally hosted participant; null for one this environment hosts. */
     private final String declaredDid;
@@ -80,8 +81,11 @@ public class VerificationRun {
         return shortName;
     }
 
-    /** The participant's id within the run's dataspace — the BPN in Catena-X, the DECADE-X-ID in DECADE-X. */
-    public String memberId() {
+    /**
+     * The participant's id within the run's dataspace — the BPN in Catena-X, the DECADE-X-ID in
+     * DECADE-X. Null until its membership has one, in a dataspace that assigns it.
+     */
+    public synchronized String memberId() {
         return memberId;
     }
 
@@ -157,6 +161,16 @@ public class VerificationRun {
 
     public synchronized void onSubmitted(String externalId) {
         this.externalId = externalId;
+    }
+
+    /**
+     * The member id the participant's membership holds, for a run that started without one — in a
+     * dataspace that assigns its members' ids. Set once: a run that has its id keeps it.
+     */
+    public synchronized void adoptMemberId(String memberId) {
+        if (this.memberId == null) {
+            this.memberId = memberId;
+        }
     }
 
     public synchronized void onProvisioned(String did, String participantContextId, String onboardingProcessId) {

@@ -1,15 +1,10 @@
 package com.metaform.dxonboarding.adapter.out.issuer;
 
 import com.metaform.dxonboarding.config.IssuerServiceProperties;
-import com.metaform.dxonboarding.domain.model.onboarding.Address;
-import com.metaform.dxonboarding.domain.model.onboarding.CompanyType;
-import com.metaform.dxonboarding.domain.model.onboarding.LegalEntity;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
-import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequestData;
-import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStatus;
+import com.metaform.dxonboarding.domain.model.onboarding.Requests;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -44,11 +39,9 @@ class IssuerServiceAdaptersTest {
             restClient, (resource, scopes) -> "token-for-%s-%s".formatted(resource, scopes), properties);
 
     private static OnboardingRequest approved() {
-        var data = new OnboardingRequestData(new LegalEntity(DID, "Acme Corp", "DE",
-                CompanyType.LIMITED_LIABILITY_COMPANY, null, null, null, List.of(),
-                new Address("Street 1", null, "Berlin", "DE", null), null), null, null, null, null, null, null);
-        return new OnboardingRequest("req-1", "DX-OR-000001", DID, Instant.now(), OnboardingStatus.APPROVAL_IN_PROGRESS,
-                data, null, "DX-00000042", null, null, null, Map.of(), null);
+        return OnboardingRequest.draft("req-1", "DX-OR-000001", DID, Requests.data(DID), null, Instant.now())
+                .submitted(Instant.now(), null)
+                .approvalInProgress("DX-00000042");
     }
 
     @Test

@@ -16,17 +16,19 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Web-slice test of the member lookup: exactly one of the member-id and DID filters is required,
+ * Web-slice test of the member lookup: exactly one of the member-id, DID and short-name filters is required,
  * a member id only with its dataspace, unknown ids map to 404 — plus the request-shape rules the
  * onboarding flow cannot enforce for itself.
  */
@@ -90,6 +92,24 @@ class MembershipControllerTest {
     }
 
     @Test
+    void findByShortName_findsAMemberHostedHere() throws Exception {
+        // How the verification UI finds its DECADE-X participant again: it chose the short name,
+        // not the DECADE-X-ID, which the hub generated.
+        when(membershipService.findByShortName("dx-verifier")).thenReturn(List.of(
+                Membership.submitted("ext-3", "decade-x", "Verifier", "did:web:identity.cxve.localhost:dx-verifier",
+                        "DX-00000042")));
+
+        mvc.perform(get("/api/members").param("shortName", "dx-verifier").param("dataspace", "decade-x"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].externalId").value("ext-3"))
+                .andExpect(jsonPath("$[0].memberId").value("DX-00000042"));
+
+        mvc.perform(get("/api/members").param("shortName", "dx-verifier").param("dataspace", "catena-x"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
     void find_requiresExactlyOneFilter() throws Exception {
         mvc.perform(get("/api/members"))
                 .andExpect(status().isBadRequest());
@@ -99,6 +119,10 @@ class MembershipControllerTest {
                         .param("dataspace", "catena-x")
                         .param("memberId", "BPNLONE000000001")
                         .param("did", "did:web:sut.example.com"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/members")
+                        .param("did", "did:web:sut.example.com")
+                        .param("shortName", "sut"))
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(membershipService);
@@ -163,6 +187,22 @@ class MembershipControllerTest {
                                 { "dataspace": "decade-x", "name": "SUT GmbH", "shortName": "sut", "memberId": "DX-1" }
                                 """))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void onboard_aRegistrationTheTspRefuses_is400_withItsReasons() throws Exception {
+        // An external member is submitted inline: the TSP's verdict reaches the caller as is.
+        when(membershipService.onboard(any())).thenThrow(new DataspaceOnboarding.InvalidRegistrationException(
+                "Invalid decade-x registration, refused by the TSP: legalEntity.preferredDid does not resolve"));
+
+        mvc.perform(post("/api/members")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "dataspace": "decade-x", "name": "SUT GmbH", "shortName": "sut",
+                                  "did": "did:web:sut.example.com" }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().string(containsString("legalEntity.preferredDid does not resolve")));
     }
 
     @Test

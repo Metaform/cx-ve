@@ -163,12 +163,13 @@ config:
         flow-claim: bpn
     # DECADE-X, through the dx-onboarding-api (the TSP onboarding intake): same IdP client. No
     # callback — the TSP has none, so the hub polls each request's status
-    # (participant.registration.poll-interval).
+    # (participant.registration.poll-interval). The url is the TSP onboarding data endpoint: the
+    # onboarding requests themselves.
     decade-x:
       enabled: true
       display-name: DECADE-X
       onboarding:
-        url: http://cx-ve-dx-onboarding-api.edc-v.svc.cluster.local:8080
+        url: http://cx-ve-dx-onboarding-api.edc-v.svc.cluster.local:8080/api/v1/onboarding-requests
         auth:
           token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
           client-id: membership-hub

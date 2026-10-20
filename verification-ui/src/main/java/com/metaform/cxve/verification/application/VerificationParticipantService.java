@@ -19,7 +19,8 @@ import org.springframework.stereotype.Service;
  * member of exactly the dataspace it was onboarded into. The difference to the e2e suite, which
  * onboards its consumer fresh every run. {@link #ensure} is idempotent and survives restarts: the
  * participant is rediscovered in the hub by its dataspace and fixed member id (durable in the hub's
- * database), onboarded only when truly absent, and its permanent CCM inbox offer is re-seeded
+ * database) — or, in a dataspace that assigns member ids, by its fixed short name — onboarded only
+ * when truly absent, and its permanent CCM inbox offer is re-seeded
  * through idempotent creates on every ensure — so a half-finished earlier attempt heals rather
  * than fails.
  *
@@ -49,8 +50,8 @@ public class VerificationParticipantService {
     }
 
     /**
-     * The dataspace's verification participant, created on first use: rediscover by member id,
-     * onboard if absent, await PROVISIONED, await the certo tenant, seed the permanent inbox offer.
+     * The dataspace's verification participant, created on first use: rediscover by member id (or
+     * short name), onboard if absent, await PROVISIONED, await the certo tenant, seed the permanent inbox offer.
      * Synchronized — concurrent runs must not double-onboard; the first blocks (up to the
      * onboarding timeout, possibly minutes), the rest reuse its result.
      */
@@ -60,10 +61,10 @@ public class VerificationParticipantService {
             return current;
         }
         var identity = properties.dataspace(dataspace).verificationParticipant();
-        var membership = current != null ? hub.get(current.externalId()) : findLiveMembership(dataspace, identity.memberId());
+        var membership = current != null ? hub.get(current.externalId()) : findLiveMembership(dataspace, identity);
         if (membership == null) {
-            log.info("no {} verification participant with member id {} — onboarding \"{}\"",
-                    dataspace, identity.memberId(), identity.name());
+            log.info("no {} verification participant {} — onboarding \"{}\"",
+                    dataspace, rediscoveryKey(identity), identity.name());
             membership = hub.onboard(dataspace, identity.name(), identity.shortName(), identity.memberId(),
                     identity.uniqueId(), null);
         } else {
@@ -97,16 +98,31 @@ public class VerificationParticipantService {
         var current = cached.get(dataspace);
         var membership = current != null
                 ? hub.get(current.externalId())
-                : findLiveMembership(dataspace, properties.dataspace(dataspace).verificationParticipant().memberId());
+                : findLiveMembership(dataspace, properties.dataspace(dataspace).verificationParticipant());
         return new Status(dataspace, membership != null, membership, offerSeeded.contains(dataspace));
     }
 
-    private Membership findLiveMembership(String dataspace, String memberId) {
+    /**
+     * By its member id — or, where the dataspace assigns it (the hub generated it at the first
+     * onboarding), by its short name, which forms the DID the hub hosts it under.
+     */
+    private Membership findLiveMembership(String dataspace, VerificationProperties.ParticipantIdentity identity) {
+        var memberships = hasMemberId(identity)
+                ? hub.findByMemberId(dataspace, identity.memberId())
+                : hub.findByShortName(dataspace, identity.shortName());
         // dead attempts (REJECTED/FAILED/REGISTERING) do not retire the member id — skip them
-        return hub.findByMemberId(dataspace, memberId).stream()
+        return memberships.stream()
                 .filter(membership -> !membership.isDeadEnd())
                 .findFirst()
                 .orElse(null);
+    }
+
+    private static String rediscoveryKey(VerificationProperties.ParticipantIdentity identity) {
+        return hasMemberId(identity) ? "with member id " + identity.memberId() : "named " + identity.shortName();
+    }
+
+    private static boolean hasMemberId(VerificationProperties.ParticipantIdentity identity) {
+        return identity.memberId() != null && !identity.memberId().isBlank();
     }
 
     /**

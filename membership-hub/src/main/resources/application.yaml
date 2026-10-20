@@ -82,13 +82,14 @@ dataspaces:
   # DECADE-X, through the VE's dx-onboarding-api — the TSP onboarding intake. It has no status
   # callbacks, so the hub polls each request's status (participant.registration.poll-interval). An
   # approval registers the member as credential holder and has the platform's issuer offer it the
-  # DecadeXMembershipCredential; it also hands an external member that declared no DECADE-X-ID the
-  # one the TSP assigned.
+  # DecadeXMembershipCredential; it also hands the member the DECADE-X-ID the TSP assigned (a member
+  # hosted here keeps the one the hub generated for its deployment). The url is the TSP onboarding
+  # data endpoint: the onboarding requests themselves, which the hub calls relative paths under.
   decade-x:
     enabled: true                                               # DATASPACES_DECADEX_ENABLED
     display-name: DECADE-X
     onboarding:
-      url: http://cxve.localhost/dx-onboarding                  # DATASPACES_DECADEX_ONBOARDING_URL
+      url: http://cxve.localhost/dx-onboarding/api/v1/onboarding-requests  # DATASPACES_DECADEX_ONBOARDING_URL
       auth:
         token-url: http://cxve.localhost/auth/osp/oauth2/token
         client-id: membership-hub

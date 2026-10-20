@@ -67,7 +67,8 @@ public class MembershipHubClient {
      * the registration ends with the issuer offering the participant its credentials.
      *
      * <p>The dataspace-specific {@code registration} object is the dataspace profile's template,
-     * with the participant's identity filled in.
+     * with the participant's identity filled in. {@code memberId} is null in a dataspace that
+     * assigns its members' ids: the membership carries the one it gets.
      */
     public Membership onboard(String dataspace, String name, String shortName, String memberId, String uniqueId,
                               String externalDid) {
@@ -75,12 +76,15 @@ public class MembershipHubClient {
         body.put("dataspace", dataspace);
         body.put("name", name);
         body.put("shortName", shortName);
-        body.put("memberId", memberId);
+        if (memberId != null) {
+            body.put("memberId", memberId);
+        }
         if (externalDid != null) {
             body.put("did", externalDid);
         }
         body.set("registration", registration(properties.dataspace(dataspace).registrationTemplate(), Map.of(
-                "name", name, "shortName", shortName, "memberId", memberId, "uniqueId", uniqueId)));
+                "name", name, "shortName", shortName, "memberId", memberId == null ? "" : memberId,
+                "uniqueId", uniqueId)));
         var response = RestCalls.post(hubRestClient, "/api/members", null, body.toString());
         if (response.status() != 201) {
             throw new VerificationException("membership submission for '%s' failed with HTTP %d: %s"
@@ -104,6 +108,14 @@ public class MembershipHubClient {
     /** The dataspace's memberships registered under a member id — the hub's rediscovery endpoint. */
     public List<Membership> findByMemberId(String dataspace, String memberId) {
         return findBy("memberId", memberId, dataspace);
+    }
+
+    /**
+     * The dataspace's memberships of the participant the hub hosts under a short name — how a
+     * hosted participant whose member id was assigned rather than chosen is found again.
+     */
+    public List<Membership> findByShortName(String dataspace, String shortName) {
+        return findBy("shortName", shortName, dataspace);
     }
 
     /**

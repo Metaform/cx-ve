@@ -8,6 +8,7 @@ import com.metaform.cxve.hub.domain.port.DataspaceOnboarding;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.stream.Stream;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,22 +55,27 @@ public class MembershipController {
     }
 
     /**
-     * The memberships registered under a member id (of one dataspace) or a DID (optionally
-     * narrowed to one dataspace) — a list, because rejected/failed attempts retire neither.
-     * Exactly one of {@code memberId} and {@code did} must be given (there is deliberately no
-     * unpaged list-everything), a member id only together with its {@code dataspace}, and unlike
-     * {@link #get} this is a plain read without a Tenant Manager refresh.
+     * The memberships registered under a member id (of one dataspace), a DID, or the short name of
+     * a member hosted here (each optionally narrowed to one dataspace) — a list, because
+     * rejected/failed attempts retire neither. Exactly one of {@code memberId}, {@code did} and
+     * {@code shortName} must be given (there is deliberately no unpaged list-everything), a member
+     * id only together with its {@code dataspace}, and unlike {@link #get} this is a plain read
+     * without a Tenant Manager refresh.
      *
      * <p>The DID filter is what lets a caller find the membership an externally hosted member
      * already has: its DID is the identity its operator supplies, and re-onboarding it would be
-     * declined by the onboarding API as a duplicate registration rather than repeated.
+     * declined by the onboarding API as a duplicate registration rather than repeated. The short
+     * name filter does the same for a member hosted here whose member id the caller did not choose
+     * (a DECADE-X member's is generated): the hub resolves it to the DID it minted for the member.
      */
     @GetMapping
     public List<Membership> find(@RequestParam(required = false) String dataspace,
                                  @RequestParam(required = false) String memberId,
-                                 @RequestParam(required = false) String did) {
-        if (isBlank(memberId) == isBlank(did)) {
-            throw new IllegalArgumentException("Exactly one of the 'memberId' and 'did' filters must be given");
+                                 @RequestParam(required = false) String did,
+                                 @RequestParam(required = false) String shortName) {
+        var filters = Stream.of(memberId, did, shortName).filter(filter -> !isBlank(filter)).count();
+        if (filters != 1) {
+            throw new IllegalArgumentException("Exactly one of the 'memberId', 'did' and 'shortName' filters must be given");
         }
         if (!isBlank(memberId)) {
             if (isBlank(dataspace)) {
@@ -77,7 +83,7 @@ public class MembershipController {
             }
             return membershipService.findByMemberId(dataspace, memberId);
         }
-        var memberships = membershipService.findByDid(did);
+        var memberships = isBlank(did) ? membershipService.findByShortName(shortName) : membershipService.findByDid(did);
         return isBlank(dataspace) ? memberships
                 : memberships.stream().filter(m -> dataspace.equals(m.dataspace())).toList();
     }

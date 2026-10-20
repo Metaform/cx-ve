@@ -9,7 +9,8 @@ import java.util.Map;
 
 /**
  * Shared builders for the application-layer tests: tight timeouts and one dataspace — Catena-X,
- * with the CCM use case and its fixed verification participant.
+ * with the CCM use case and its fixed verification participant. {@link #assigningProps} has a
+ * dataspace that assigns its members' ids instead, as DECADE-X does.
  */
 final class TestFixtures {
 
@@ -26,17 +27,17 @@ final class TestFixtures {
             "https://w3id.org/catenax/ontology/common#version", "cx-common", "3.0");
     static final VerificationProperties.SampleCertificate CERTIFICATE =
             new VerificationProperties.SampleCertificate("Test CA", "BPNL00000000ISSUER", "BPNA00000000MAIN0");
+    static final String ASSIGNING_DATASPACE = "decade-x";
 
     private TestFixtures() {
     }
 
     static VerificationProperties props(Map<String, Integer> expectedEvents) {
-        var tight = Duration.ofMillis(300);
         var ccm = new VerificationProperties.Ccm("ccm-inbox-verification", CCM_API, CERTIFICATE, expectedEvents,
                 Map.of("events.issuance.credential.delivered", 1));
         var catenaX = new VerificationProperties.DataspaceProfile(
                 "Catena-X",
-                new VerificationProperties.MemberId("BPN", "BPNL[0-9A-Z]{12}", "BPNL000000000001"),
+                new VerificationProperties.MemberId("BPN", "BPNL[0-9A-Z]{12}", "BPNL000000000001", false),
                 DSP_PROFILE, POLICY_CONTEXT, ACCESS, CONTRACT,
                 """
                 {"city": "Munich", "uniqueIds": [ { "type": "VAT_ID", "value": "{{uniqueId}}" } ]}""",
@@ -44,6 +45,30 @@ final class TestFixtures {
                         "Verification Participant", "verification-participant", "BPNLVERIFY000001", "DEVERIFY0001"),
                 Map.of(USE_CASE, new VerificationProperties.UseCase("Company Certificate Management", true, ccm),
                         "traceability", new VerificationProperties.UseCase("Traceability", false, null)));
+        return properties(Map.of(DATASPACE, catenaX));
+    }
+
+    /**
+     * One dataspace, {@link #ASSIGNING_DATASPACE}, that assigns its members' ids: its verification
+     * participant declares none, and its registration template still names {@code {{memberId}}}.
+     */
+    static VerificationProperties assigningProps() {
+        var ccm = new VerificationProperties.Ccm("ccm-inbox-verification-dx", CCM_API, CERTIFICATE, Map.of(),
+                Map.of("events.issuance.credential.delivered", 1));
+        var decadeX = new VerificationProperties.DataspaceProfile(
+                "DECADE-X",
+                new VerificationProperties.MemberId("DECADE-X-ID", "DX-[0-9]{8}", "DX-00000001", true),
+                "dx-2025", POLICY_CONTEXT, List.of(), List.of(),
+                """
+                {"ref": "{{memberId}}", "uniqueIds": [ { "type": "vatID", "value": "{{uniqueId}}" } ]}""",
+                new VerificationProperties.ParticipantIdentity(
+                        "Verification Participant DX", "verification-participant-dx", null, "DEVERIFYDX01"),
+                Map.of(USE_CASE, new VerificationProperties.UseCase("Company Certificate Management", true, ccm)));
+        return properties(Map.of(ASSIGNING_DATASPACE, decadeX));
+    }
+
+    private static VerificationProperties properties(Map<String, VerificationProperties.DataspaceProfile> dataspaces) {
+        var tight = Duration.ofMillis(300);
         return new VerificationProperties(
                 "http://gw/api/dsp",
                 new VerificationProperties.TokenSpec("issuer", "admin"),
@@ -53,7 +78,7 @@ final class TestFixtures {
                 new VerificationProperties.Timeouts(tight, tight, tight, tight, tight, tight),
                 Duration.ofMillis(10),
                 new VerificationProperties.External("http", tight, tight, tight),
-                Map.of(DATASPACE, catenaX));
+                dataspaces);
     }
 
     static Membership membership(String externalId, String state, String did, String pcid, String processId) {

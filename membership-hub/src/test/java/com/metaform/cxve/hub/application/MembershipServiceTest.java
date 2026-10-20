@@ -9,11 +9,14 @@ import com.metaform.cxve.hub.domain.model.RegistrationOutcome;
 import com.metaform.cxve.hub.domain.port.DataspaceOnboarding;
 import com.metaform.cxve.hub.domain.port.TenantManager;
 import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
@@ -67,6 +70,8 @@ class MembershipServiceTest {
         final Map<String, RegistrationOutcome.Status> polledStatus = new HashMap<>();
         final Map<String, String> assignedMemberIds = new HashMap<>();
         final List<String> polledExternalIds = new ArrayList<>();
+        // for a dataspace that assigns its member ids: the ids it makes up for hosted members, in order
+        final Deque<String> generatedMemberIds = new ArrayDeque<>();
 
         RecordingOnboarding(String dataspace) {
             this.dataspace = dataspace;
@@ -82,6 +87,11 @@ class MembershipServiceTest {
             if (refuseRegistration) {
                 throw new InvalidRegistrationException("registration.city must not be blank");
             }
+        }
+
+        @Override
+        public Optional<String> memberIdForHostedMember() {
+            return Optional.ofNullable(generatedMemberIds.poll());
         }
 
         @Override
@@ -716,5 +726,47 @@ class MembershipServiceTest {
         var second = service.onboard(request(OTHER_DATASPACE, "did:web:two.example.com", "two", null));
 
         assertThat(second.state()).isEqualTo(MembershipState.SUBMITTED);
+    }
+
+    @Test
+    void aHostedMember_ofADataspaceThatAssignsIds_isDeployedWithAGeneratedOne_noMembershipHolds() {
+        // DX-00000001 belongs to a member that was declined: an id never names two participants
+        otherOnboarding.polled = true;
+        var declined = onboardExternally(OTHER_DATASPACE, SUT_DID, "DX-00000001");
+        otherOnboarding.polledStatus.put(declined.externalId(), RegistrationOutcome.Status.DECLINED);
+        poller.poll();
+        assertThat(stored(declined.externalId()).state()).isEqualTo(MembershipState.REJECTED);
+        tenantManager.contextIdOnDeploy = "pctx-1";
+        otherOnboarding.generatedMemberIds.addAll(List.of("DX-00000001", "DX-00000002"));
+
+        var membership = service.onboard(request(OTHER_DATASPACE, null, "verifier", null));
+
+        assertThat(membership.memberId()).isEqualTo("DX-00000002");
+        assertThat(tenantManager.deployedSpecs.get(0).issuerProperties()).containsEntry("memberId", "DX-00000002");
+        assertThat(repository.findPayload(membership.externalId()).orElseThrow().memberId()).isEqualTo("DX-00000002");
+        assertThat(otherOnboarding.generatedMemberIds).isEmpty();
+    }
+
+    @Test
+    void aMemberRunningElsewhere_orDeclaringItsId_getsNoGeneratedOne() {
+        otherOnboarding.generatedMemberIds.add("DX-00000001");
+        tenantManager.contextIdOnDeploy = "pctx-1";
+
+        var external = service.onboard(request(OTHER_DATASPACE, SUT_DID, "sut", null));
+        var declared = service.onboard(request(OTHER_DATASPACE, null, "acme", "M-1"));
+
+        assertThat(external.memberId()).isNull();
+        assertThat(declared.memberId()).isEqualTo("M-1");
+        assertThat(otherOnboarding.generatedMemberIds).containsExactly("DX-00000001");
+    }
+
+    @Test
+    void aHostedMember_isFoundAgainByItsShortName() {
+        tenantManager.contextIdOnDeploy = "pctx-1";
+        var membership = service.onboard(request(null));
+
+        assertThat(service.findByShortName("Acme")).extracting(Membership::externalId)
+                .containsExactly(membership.externalId());
+        assertThat(service.findByShortName("other")).isEmpty();
     }
 }

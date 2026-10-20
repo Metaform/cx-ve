@@ -8,6 +8,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Context smoke test: the full application context (incl. the {@code verification.*} properties
@@ -34,6 +36,10 @@ class VerificationUiApplicationTest {
         assertEquals("Traceability", catenaX.useCase("traceability").displayName());
         assertFalse(catenaX.useCase("traceability").enabled());
         var decadeX = properties.dataspace("decade-x");
+        // DECADE-X assigns member ids: its verification participant declares none
+        assertTrue(decadeX.memberId().assigned());
+        assertFalse(catenaX.memberId().assigned());
+        assertNull(decadeX.verificationParticipant().memberId());
         assertEquals("Company Certificate Management", decadeX.useCase("ccm").displayName());
         assertEquals("Substance tracing", decadeX.useCase("substance-tracing").displayName());
         assertFalse(decadeX.useCase("substance-tracing").enabled());

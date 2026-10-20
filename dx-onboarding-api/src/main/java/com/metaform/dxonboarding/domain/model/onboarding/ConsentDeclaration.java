@@ -1,7 +1,10 @@
 package com.metaform.dxonboarding.domain.model.onboarding;
 
-import java.util.UUID;
-
-/** The applicant's acceptance of a versioned document — the General Terms and Conditions. */
-public record ConsentDeclaration(UUID versionId, String versionNumber, Boolean accepted) {
+/**
+ * The General Terms and Conditions the applicant signs: their signed copy is the request's
+ * {@code gtc} document.
+ *
+ * @param versionNumber the version signed; changing it drops the signed copy on file
+ */
+public record ConsentDeclaration(String versionNumber) {
 }

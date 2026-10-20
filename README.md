@@ -12,7 +12,7 @@ Monorepo containing:
 | Path | Contents |
 |---|---|
 | `cx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — the **Catena-X** onboarding API: CX-0006 partner registration incl. credential-holder registration at the IssuerService; self-contained build |
-| `dx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — the **DECADE-X** onboarding API: the TSP onboarding intake (multipart onboarding requests with documents, status read-back); in memory; no TSP operator yet, so requests are approved automatically (participants hosted by the VE, and for now external ones too); an approval registers the participant as credential holder and has the platform's issuer offer it the `DecadeXMembershipCredential` for the DECADE-X-ID the participant declares (one the TSP assigns, when it declares none); self-contained build |
+| `dx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — the **DECADE-X** onboarding API: the TSP onboarding intake (draft onboarding requests, document uploads, submission, status read-back); in memory; no TSP operator yet, so requests are approved automatically (participants hosted by the VE, and for now external ones too); an approval assigns the participant its DECADE-X-ID, registers it as credential holder and has the platform's issuer offer it the `DecadeXMembershipCredential` for that id (a participant the VE hosts gets the id the hub generated for its deployment); self-contained build |
 | `membership-hub/` | Spring Boot application (Java 17, Gradle) — the Membership Hub: drives the full member journey in each dataspace it serves (EDC resource provisioning via the CFM Tenant Manager, then registration via the dataspace's onboarding API); self-contained build |
 | `verification-ui/` | Spring Boot BFF + Angular dashboard — dataspace and use-case selection, verification runs ([README](verification-ui/README.md)) |
 | `compliance-tracker/` | CFM lifecycle agent (Go) consuming lifecycle CloudEvents off NATS — self-contained module |
@@ -29,7 +29,8 @@ The member journey is split across the two applications, with the Membership Hub
 point (see [membership-hub/README.md](membership-hub/README.md) for its API and states):
 
 1. `POST /api/members` on the **Membership Hub** names the member's `dataspace` and its
-   `memberId` there (Catena-X: the BPN), plus a dataspace-specific `registration` object. The hub
+   `memberId` there (Catena-X: the BPN; DECADE-X assigns it on approval, so none is given there),
+   plus a dataspace-specific `registration` object. The hub
    checks that object against the dataspace, mints an `externalId`, resolves the member's DID,
    and refuses a DID or member id a live membership already holds (`409`). The steps below are
    Catena-X's; another dataspace differs in step 3, its onboarding API.

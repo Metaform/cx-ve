@@ -217,13 +217,19 @@ verification:
         label: DECADE-X-ID
         pattern: "DX-[0-9]{8}"
         example: DX-00000001
+        # The TSP assigns every DECADE-X-ID on approval, so a run takes none: it reads the id from
+        # the participant's membership — for a participant hosted here, the one the hub generated
+        # before deploying it (its deployment needs it), for a system under test the one the TSP
+        # assigned.
+        assigned: true
       # DECADE-X's own (seeded by the umbrella's decadex-profile): cx-neptune's DCP scopes ask for the
       # Catena-X credentials, which a DECADE-X participant does not hold. A DID document still
       # advertises cx-neptune (one platform-wide profile), so this is dialled explicitly.
       dsp-profile: decade-x
       policy-context: https://w3id.org/decadex/policy/context.jsonld
-      # The TSP's onboarding request, minus what the hub fills in itself (legal name, DID,
-      # applicantReference); the hub also adds the placeholder GTC and UCA documents.
+      # The TSP's onboarding request data, minus what the hub fills in itself (legal name, DID,
+      # applicantReference); the hub also adds the placeholder GTC and UCA documents. The use case
+      # agreed to is product-conformity, the TSP's closest to CCM, for now.
       registration-template: |
         {
           "legalEntity": {
@@ -235,15 +241,14 @@ verification:
           },
           "legalPerson": { "fullName": "Verification Operator", "email": "vui-{{uniqueId}}@example.com",
                            "role": "Operator" },
-          "gtc": { "versionId": "0b8e1f0e-5c0a-4a52-9a53-7a1d2c3b4e5f", "versionNumber": "1.0", "accepted": true },
-          "ucas": [ { "useCaseId": "ccm", "useCaseName": "Company Certificate Management", "versionNumber": "1.0",
-                      "accepted": true } ],
+          "gtc": { "versionNumber": "1.0" },
+          "ucas": [ { "useCaseId": "product-conformity", "versionNumber": "1.0" } ],
           "declarations": { "informationAccurate": true, "authorisedToAct": true, "evidenceMayBeRequested": true }
         }
+      # No member id: the hub generates its DECADE-X-ID; it is found again by its short name.
       verification-participant:
         name: "Verification Participant (DECADE-X)"
         short-name: verification-participant-dx
-        member-id: DX-99999999
         unique-id: DXVERIFY0001
       use-cases:
         ccm:

@@ -21,9 +21,9 @@ import org.springframework.stereotype.Service;
  * onboarding API does it for Catena-X:
  *
  * <ol>
- *   <li>the participant gets its DECADE-X-ID: the one it declared with its request (a participant
- *       hosted by the VE always does — its deployment needs it — and an external one may, as a
- *       Catena-X participant declares its BPN), or else a newly assigned one;</li>
+ *   <li>the participant is assigned its DECADE-X-ID — unless it is hosted by the VE and was
+ *       deployed with one, out-of-band, which its request carries and which it keeps (no other
+ *       request can carry one: {@link DefaultOnboardingRequestService} ignores it);</li>
  *   <li>it is registered as a credential holder with the IssuerService, under its DID (its
  *       connector identity) and with its DECADE-X-ID as claim;</li>
  *   <li>the IssuerService offers it the DECADE-X credentials, pushed to its wallet.</li>
@@ -95,7 +95,7 @@ public class ApprovalService {
             // nothing else decides a request today, but an approval must never overwrite a decision
             return Optional.empty();
         }
-        var supplied = request.data().legalEntity().legalEntityId();
+        var supplied = request.data().declaredLegalEntityId().orElse(null);
         String decadeXId;
         if (supplied != null) {
             var holder = repository.findHolderOfLegalEntityId(supplied)

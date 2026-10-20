@@ -79,6 +79,8 @@ public class CertificateExchangeFlow {
                 var membership = hub.onboard(run.dataspace(), run.name(), run.shortName(), run.memberId(),
                         run.uniqueId(), null);
                 run.onSubmitted(membership.externalId());
+                // a dataspace that assigns member ids has the hub generate the hosted participant's
+                run.adoptMemberId(membership.memberId());
                 return membership;
             }, membership -> "externalId " + membership.externalId());
 

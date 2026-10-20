@@ -2,11 +2,10 @@ package com.metaform.dxonboarding.application;
 
 import com.metaform.dxonboarding.config.ReviewProperties;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
-import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStatus;
+import com.metaform.dxonboarding.domain.model.onboarding.Requests;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,8 +36,8 @@ class AutomaticReviewTest {
     }
 
     private static OnboardingRequest filed(String id, String connectorId) {
-        return new OnboardingRequest(id, "DX-OR-000001", connectorId, Instant.parse("2026-10-02T10:00:00Z"),
-                OnboardingStatus.SUBMITTED, null, null, null, null, null, null, Map.of(), null);
+        return OnboardingRequest.draft(id, "DX-OR-000001", connectorId, Requests.data(connectorId), null,
+                Instant.parse("2026-10-02T10:00:00Z")).submitted(Instant.parse("2026-10-02T10:00:01Z"), null);
     }
 
     private void runWorker() {

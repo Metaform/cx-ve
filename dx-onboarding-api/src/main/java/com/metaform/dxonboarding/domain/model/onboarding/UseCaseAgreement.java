@@ -1,16 +1,14 @@
 package com.metaform.dxonboarding.domain.model.onboarding;
 
-import java.util.UUID;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 /**
- * The applicant's acceptance of a use case agreement (UCA). Its signed document is the
- * submission's {@code ucaDocument[<useCaseId>]}. The reviewer-only fields of the wire format
- * ({@code verified}, {@code verificationNotes}) are not modelled, so they are ignored when sent.
+ * A use case agreement (UCA) the applicant signs: its signed copy is the request's {@code uca}
+ * document for {@code useCaseId}. The applicant's {@code useCaseName} is deprecated and ignored —
+ * the TSP names the use case ({@link UseCase#displayName()}).
+ *
+ * @param versionNumber the version signed; changing it drops the signed copy on file
  */
-public record UseCaseAgreement(
-        String useCaseId,
-        String useCaseName,
-        UUID versionId,
-        String versionNumber,
-        Boolean accepted) {
+@JsonIgnoreProperties("useCaseName")
+public record UseCaseAgreement(UseCase useCaseId, String versionNumber) {
 }

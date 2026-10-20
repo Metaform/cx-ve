@@ -116,6 +116,21 @@ class CertificateExchangeFlowTest {
         verify(certo).accept("pctx-vp", "ex-1", "ACCEPTED", "flow-pull");
     }
 
+    /** In a dataspace that assigns member ids, the run starts without one and shows its membership's. */
+    @Test
+    void aRunWithoutAMemberId_adoptsTheOneItsMembershipGets() {
+        happyStubs();
+        run = new VerificationRun("r1", TestFixtures.DATASPACE, TestFixtures.USE_CASE, "Participant r1", "put-r1",
+                null, "DEPUT0001", null, RunStep.MANAGED);
+        when(hub.onboard(TestFixtures.DATASPACE, "Participant r1", "put-r1", null, "DEPUT0001", null))
+                .thenReturn(TestFixtures.membership("put-ext", "SUBMITTED", null, null, null));
+
+        flow.execute(run);
+
+        assertEquals(RunState.SUCCEEDED, run.snapshot().state());
+        assertEquals("BPNLPUT000000001", run.snapshot().participant().memberId());
+    }
+
     @Test
     void provisioningFailure_failsFastAndSkipsTheRest() {
         happyStubs();

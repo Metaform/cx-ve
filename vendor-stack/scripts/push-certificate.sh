@@ -16,6 +16,8 @@
 #      http-pull profile): the push flow;
 #   4. uploads a document and a certificate into the vendor's Certo tenant and publishes it to the
 #      verification participant over that flow, retried until Certo reports the consumer notified.
+#      The certificate's holder is the vendor participant's member id as its member credential
+#      carries it — in DECADE-X the DECADE-X-ID the TSP assigned on approval.
 #
 # Run it ONCE per verification run, after the run has onboarded the DID: the VE fails a run that
 # finds more than one exchange awaiting acceptance on its verification participant. (Order relative
@@ -29,7 +31,8 @@
 #   -d, --dataspace     catena-x (default) or decade-x — the dataspace of the stack
 #   --vp-did            the VE's verification participant of the dataspace (default:
 #                       did:web:identity.cxve.localhost:verification-participant, -dx in DECADE-X)
-#   --vp-member-id      its member id (default: BPNLVERIFY000001, DX-99999999 in DECADE-X;
+#   --vp-member-id      its member id (default: BPNLVERIFY000001; in DECADE-X, which assigns it,
+#                       looked up from the VE's Membership Hub — the Verification UI shows it too;
 #                       --vp-bpn is an alias)
 #   --pdf               certificate document (default: the Verification UI's sample document)
 #   -s, --short-name    the vendor participant (default: vendor-participant)
@@ -78,6 +81,12 @@ esac
 
 init base64
 [[ -r "$PDF" ]] || die "no certificate document at $PDF"
+if [[ -z "$VP_MEMBER_ID" ]]; then
+  # DECADE-X assigns member ids: the VE's hub generated its verification participant's
+  VP_MEMBER_ID=$(ve_member_id_of "$VP_SHORT_NAME")
+  [[ -n "$VP_MEMBER_ID" ]] || die "could not look up the $MEMBER_ID_LABEL of $VP_SHORT_NAME at http://${VE_HOST}/hub — is it onboarded? Pass --vp-member-id (the Verification UI shows it)"
+  log "verification participant's $MEMBER_ID_LABEL: $VP_MEMBER_ID (from the VE's Membership Hub)"
+fi
 DID=$(participant_did)
 PCID=$(participant_context_of "$DID") || exit 1
 [[ -n "$PCID" ]] || die "no participant context for $DID — run create-participant.sh first"
@@ -182,13 +191,24 @@ poll "$TIMEOUT" 3 "transfer $FLOW_ID to start" reaches transferprocesses "$FLOW_
 log "push flow $FLOW_ID STARTED"
 
 # ---- 4. publish -------------------------------------------------------------------------------
-# The certificate's holder is the vendor participant: its member id as provisioned (cfm.issuer.bpn —
-# Certo's name for the member id, whatever the dataspace).
-PROFILE=$(participant_profile_of "$DID") || exit 1
-HOLDER=$(printf '%s' "$PROFILE" | jq -r '
-  ([.vpas[]? | select(.type == "cfm.issuer") | .properties.bpn] + [.vpaProperties["cfm.issuer"].bpn?])
-  | map(select(. != null)) | .[0] // empty')
-[[ -n "$HOLDER" ]] || die "could not read the vendor participant's $MEMBER_ID_LABEL from its participant profile: $PROFILE"
+# The certificate's holder is the vendor participant, under the member id its member credential
+# carries — the one the VE's side checks certificates against. In Catena-X that is the BPN it was
+# provisioned with (cfm.issuer.bpn — Certo's name for the member id); DECADE-X assigns the
+# DECADE-X-ID on approval, so the one provisioned there is only provisional.
+case "$VENDOR_DATASPACE" in
+  decade-x)
+    HOLDER=$(member_credential_of "$PCID" \
+      | jq -r '(.credentialSubject | if type == "array" then .[0] else . end).decadeXId // empty')
+    [[ -n "$HOLDER" ]] || die "the vendor participant's $MEMBER_CREDENTIAL carries no decadeXId"
+    ;;
+  *)
+    PROFILE=$(participant_profile_of "$DID") || exit 1
+    HOLDER=$(printf '%s' "$PROFILE" | jq -r '
+      ([.vpas[]? | select(.type == "cfm.issuer") | .properties.bpn] + [.vpaProperties["cfm.issuer"].bpn?])
+      | map(select(. != null)) | .[0] // empty')
+    [[ -n "$HOLDER" ]] || die "could not read the vendor participant's $MEMBER_ID_LABEL from its participant profile: $PROFILE"
+    ;;
+esac
 
 certo POST "/participant-contexts/$PCID/documents" \
   "$(jq -n --arg content "$(base64 < "$PDF" | tr -d '\n')" '{mediaType: "application/pdf", contentBase64: $content}')"

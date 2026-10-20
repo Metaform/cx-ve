@@ -27,7 +27,11 @@ in the profile AND implemented here (a `UseCaseFlow`).
 Unlike the e2e suite (which onboards both sides fresh per run), the verification participant is
 **permanent** — one per dataspace: created on first use under the profile's fixed member id
 (Catena-X: `BPNLVERIFY000001`), rediscovered from the hub after restarts, its CCM inbox offer
-re-seeded idempotently. Runs themselves are held in
+re-seeded idempotently. A dataspace that assigns its members' ids (`member-id.assigned`;
+DECADE-X, where the TSP assigns the DECADE-X-ID on approval) has no fixed one: the hub generates
+the participant's when it first onboards it, and the participant is rediscovered by its short
+name instead. Runs in such a dataspace take no member id either, and show the participant's once
+its membership has one. Runs themselves are held in
 memory — a restart forgets them; the participant and the event ledger are durable.
 
 The browser only ever talks to this app (same-origin `/ui`); all platform tokens (RFC 8693

@@ -1,5 +1,6 @@
 package com.metaform.cxve.hub.adapter.out.onboarding.decadex;
 
+import com.fasterxml.jackson.annotation.JsonValue;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
@@ -7,29 +8,31 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * The DECADE-X shape of a member request's {@code registration} object: the TSP's onboarding
  * request ({@code OnboardingRequestWriteDto}), passed through as is — minus what the hub fills in
  * itself: {@code legalEntity.legalName} (the member's {@code name}), {@code legalEntity.preferredDid}
  * (its DID) and {@code applicantReference} (the hub's external id). Sending one of those is refused
- * like any other unknown property.
+ * like any other unknown property, and so are the fields of the TSP's previous API version
+ * ({@code versionId} and {@code accepted} on {@code gtc} and {@code ucas}).
  *
- * <p>The constraints mirror what the TSP refuses a request for, so a bad request fails in the hub
- * — for a member hosted here, BEFORE its deployment rather than at the submission after it. The
- * documents the TSP also requires (the signed GTC, one signed UCA per use case) are not part of
- * it: the hub generates placeholders ({@link PlaceholderDocuments}).
+ * <p>The constraints mirror what the TSP refuses a request for — its required fields, its
+ * {@code maxLength} and {@code maxItems} bounds, its use cases — so a bad request fails in the
+ * hub: for a member hosted here, BEFORE its deployment rather than at the submission after it.
+ * The documents the TSP also requires (the signed GTC, one signed UCA per use case) are not part
+ * of it: the hub generates placeholders ({@link PlaceholderDocuments}).
  */
 public record DecadeXRegistration(
         @NotNull @Valid LegalEntity legalEntity,
         @NotNull @Valid LegalPerson legalPerson,
-        List<@NotNull @Valid BusinessSite> businessSites,
+        @Size(max = 100) List<@NotNull @Valid BusinessSite> businessSites,
         @NotNull @Valid Gtc gtc,
-        List<@NotNull @Valid Uca> ucas,
+        @Size(max = 50) List<@NotNull @Valid Uca> ucas,
         @NotNull @Valid Declarations declarations
 ) {
 
@@ -40,17 +43,17 @@ public record DecadeXRegistration(
 
     @AssertTrue(message = "must not list a useCaseId more than once")
     public boolean isUcasDistinct() {
-        var seen = new HashSet<String>();
+        var seen = new HashSet<UseCase>();
         return ucas.stream().filter(Objects::nonNull).map(Uca::useCaseId).filter(Objects::nonNull).allMatch(seen::add);
     }
 
     public record LegalEntity(
-            @NotBlank String registrationCountry,
+            @NotBlank @Size(max = 2) String registrationCountry,
             @NotNull CompanyType companyType,
-            String companyTypeOther,
-            String accreditationNumber,
-            String website,
-            @NotEmpty List<@NotNull @Valid RegistrationNumber> registrationNumbers,
+            @Size(max = 255) String companyTypeOther,
+            @Size(max = 255) String accreditationNumber,
+            @Size(max = 2048) String website,
+            @NotEmpty @Size(max = 20) List<@NotNull @Valid RegistrationNumber> registrationNumbers,
             @NotNull @Valid LegalAddress legalAddress) {
 
         @AssertTrue(message = "is required when companyType is OTHER")
@@ -80,15 +83,42 @@ public record DecadeXRegistration(
         cageCode
     }
 
-    public record RegistrationNumber(@NotNull RegistrationScheme scheme, @NotBlank String value) {
+    /** The TSP's use cases, by the id a use case agreement names one with. */
+    public enum UseCase {
+        EXPORT_CONTROL("export-control"),
+        PRODUCT_CONFORMITY("product-conformity"),
+        CRITICAL_SUPPLY_CHAIN("critical-supply-chain"),
+        ENGINEERING("engineering"),
+        DEVELOPMENT_AND_INDUSTRIALISATION("development-and-industrialisation"),
+        DEMAND_AND_CAPACITY_MANAGEMENT("demand-and-capacity-management"),
+        NON_QUALITY_MANAGEMENT("non-quality-management"),
+        SUBSTANCE_TRACKING("substance-tracking");
+
+        private final String id;
+
+        UseCase(String id) {
+            this.id = id;
+        }
+
+        /** The id on the wire, e.g. {@code product-conformity}. */
+        @JsonValue
+        public String id() {
+            return id;
+        }
+    }
+
+    public record RegistrationNumber(@NotNull RegistrationScheme scheme, @NotBlank @Size(max = 255) String value) {
     }
 
     /** The legal address, of which street, locality and country are required. */
-    public record LegalAddress(@NotBlank String street, String postalCode, @NotBlank String locality,
-                               @NotBlank String countryCode, String countryName) {
+    public record LegalAddress(@NotBlank @Size(max = 255) String street, @Size(max = 32) String postalCode,
+                               @NotBlank @Size(max = 255) String locality, @NotBlank @Size(max = 2) String countryCode,
+                               @Size(max = 255) String countryName) {
     }
 
-    public record Address(String street, String postalCode, String locality, String countryCode, String countryName) {
+    public record Address(@Size(max = 255) String street, @Size(max = 32) String postalCode,
+                          @Size(max = 255) String locality, @Size(max = 2) String countryCode,
+                          @Size(max = 255) String countryName) {
     }
 
     /**
@@ -96,31 +126,33 @@ public record DecadeXRegistration(
      *                                  power-of-attorney document and only passes the value on
      */
     public record LegalPerson(
-            @NotBlank String fullName,
-            @NotBlank @Email String email,
-            String role,
-            String phoneNumber,
-            Address headquartersAddress,
+            @NotBlank @Size(max = 255) String fullName,
+            @NotBlank @Email @Size(max = 255) String email,
+            @Size(max = 255) String role,
+            @Size(max = 32) String phoneNumber,
+            @Valid Address headquartersAddress,
             @Pattern(regexp = "\\d{4}-\\d{2}-\\d{2}") String powerOfAttorneyValidUntil) {
     }
 
     public record BusinessSite(
-            String siteId,
-            String siteName,
-            String siteNameAlias,
-            Address mainAddress,
-            Address secondaryAddress,
-            List<@NotNull @Valid RegistrationNumber> registrationNumbers) {
+            @Size(max = 64) String siteId,
+            @Size(max = 255) String siteName,
+            @Size(max = 255) String siteNameAlias,
+            @Valid Address mainAddress,
+            @Valid Address secondaryAddress,
+            @Size(max = 20) List<@NotNull @Valid RegistrationNumber> registrationNumbers) {
     }
 
-    /** The accepted General Terms and Conditions. */
-    public record Gtc(@NotNull UUID versionId, @NotBlank String versionNumber,
-                      @NotNull @AssertTrue(message = "the GTC must be accepted") Boolean accepted) {
+    /** The version of the General Terms and Conditions the member accepts. */
+    public record Gtc(@NotBlank @Size(max = 32) String versionNumber) {
     }
 
-    /** An accepted use case agreement; the TSP's reviewer-only fields are not part of it. */
-    public record Uca(@NotBlank String useCaseId, String useCaseName, UUID versionId, String versionNumber,
-                      @NotNull @AssertTrue(message = "the use case agreement must be accepted") Boolean accepted) {
+    /**
+     * A use case agreement the member accepts. {@code useCaseName} is accepted for the sake of
+     * existing payloads, but not passed on: the TSP names the use case itself.
+     */
+    public record Uca(@NotNull UseCase useCaseId, @Size(max = 255) String useCaseName,
+                      @Size(max = 32) String versionNumber) {
     }
 
     public record Declarations(

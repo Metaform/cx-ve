@@ -43,6 +43,16 @@ public record VerificationProperties(
                 .filter(useCase -> useCase.ccm() != null && useCase.ccm().inboxAssetId() != null)
                 .map(useCase -> useCase.ccm().inboxAssetId())
                 .toList());
+        // A dataspace that assigns member ids refuses a declared one, and the hub would refuse the
+        // verification participant's onboarding over it — again only at its first ensure.
+        dataspaces.forEach((id, profile) -> {
+            var participant = profile.verificationParticipant();
+            var memberId = participant == null ? null : participant.memberId();
+            if (profile.memberId() != null && profile.memberId().assigned() && memberId != null && !memberId.isBlank()) {
+                throw new IllegalStateException(("verification.dataspaces.%s: %s assigns member ids — "
+                        + "leave verification-participant.member-id out").formatted(id, profile.displayName()));
+            }
+        });
     }
 
     private static void requireDistinct(Map<String, DataspaceProfile> dataspaces, String key,
@@ -128,18 +138,27 @@ public record VerificationProperties(
     }
 
     /**
-     * @param label   what the dataspace calls a member id, e.g. "BPN"
-     * @param pattern a regular expression a member id must match in full; blank accepts anything
-     * @param example a sample value, shown as the input's placeholder
+     * @param label    what the dataspace calls a member id, e.g. "BPN"
+     * @param pattern  a regular expression a member id must match in full; blank accepts anything
+     * @param example  a sample value, shown as the input's placeholder
+     * @param assigned whether the dataspace ASSIGNS its members' ids rather than having them
+     *                 declared (DECADE-X: the TSP on approval; the hub generates one for a participant
+     *                 it hosts, whose deployment needs it earlier). A run then takes none, and reads
+     *                 the participant's from its membership once it has one; so does the
+     *                 verification participant, which is found again by its short name instead.
      */
-    public record MemberId(String label, String pattern, String example) {
+    public record MemberId(String label, String pattern, String example, boolean assigned) {
     }
 
     /** A policy constraint; the leftOperand is resolved against the dataspace's policy context. */
     public record PolicyConstraint(String leftOperand, String operator, String rightOperand) {
     }
 
-    /** A permanent verification participant's fixed identity. Its member id is its rediscovery key. */
+    /**
+     * A permanent verification participant's fixed identity. Its member id is its rediscovery key —
+     * absent in a dataspace that assigns member ids ({@link MemberId#assigned()}), where its short
+     * name is.
+     */
     public record ParticipantIdentity(String name, String shortName, String memberId, String uniqueId) {
     }
 

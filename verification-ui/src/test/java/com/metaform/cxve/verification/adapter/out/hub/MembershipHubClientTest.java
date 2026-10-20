@@ -58,6 +58,42 @@ class MembershipHubClientTest {
     }
 
     @Test
+    void findByShortName_asksWithinTheDataspace() {
+        var builder = RestClient.builder().baseUrl("http://hub");
+        var server = MockRestServiceServer.bindTo(builder).build();
+        var client = new MembershipHubClient(builder.build(), mapper, TestFixtureAccess.assigningProps());
+
+        server.expect(requestTo("http://hub/api/members?dataspace=decade-x&shortName=verification-participant-dx"))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        assertThat(client.findByShortName("decade-x", "verification-participant-dx")).isEmpty();
+        server.verify();
+    }
+
+    /** A dataspace that assigns member ids refuses a declared one: none is sent, not even null. */
+    @Test
+    void onboard_withoutAMemberId_leavesItOut() {
+        var builder = RestClient.builder().baseUrl("http://hub");
+        var server = MockRestServiceServer.bindTo(builder).build();
+        var client = new MembershipHubClient(builder.build(), mapper, TestFixtureAccess.assigningProps());
+
+        server.expect(requestTo("http://hub/api/members"))
+                .andExpect(jsonPath("$.dataspace").value("decade-x"))
+                .andExpect(jsonPath("$.memberId").doesNotExist())
+                .andExpect(jsonPath("$.registration.ref").value(""))
+                .andExpect(jsonPath("$.registration.uniqueIds[0].value").value("DEVERIFYDX01"))
+                .andRespond(withStatus(HttpStatus.CREATED).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"externalId": "ext-1", "dataspace": "decade-x", "memberId": "DX-00004711",
+                         "state": "SUBMITTED"}"""));
+
+        var membership = client.onboard("decade-x", "Verification Participant DX", "verification-participant-dx",
+                null, "DEVERIFYDX01", null);
+
+        assertThat(membership.memberId()).isEqualTo("DX-00004711");
+        server.verify();
+    }
+
+    @Test
     void onboard_sendsTheCommonFieldsAndTheDataspacesRegistrationFilledIn() {
         var builder = RestClient.builder().baseUrl("http://hub");
         var server = MockRestServiceServer.bindTo(builder).build();

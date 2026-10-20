@@ -12,6 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.metaform.cxve.verification.application.TestFixtures.ASSIGNING_DATASPACE;
 import static com.metaform.cxve.verification.application.TestFixtures.DATASPACE;
 import static com.metaform.cxve.verification.application.TestFixtures.membership;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,6 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -113,6 +116,42 @@ class VerificationParticipantServiceTest {
         assertEquals(first, second);
         verify(hub, times(1)).findByMemberId(DATASPACE, VP_BPN);
         verify(hub, never()).get(any());
+    }
+
+    /**
+     * Where the dataspace assigns member ids (DECADE-X), the participant declares none — the hub
+     * generates one at its first onboarding — so its short name is what it is found again by.
+     */
+    @Test
+    void ensure_inADataspaceThatAssignsMemberIds_findsTheParticipantByItsShortName() {
+        var assigning = new VerificationParticipantService(hub, management, certo, TestFixtures.assigningProps());
+        when(hub.findByShortName(ASSIGNING_DATASPACE, "verification-participant-dx")).thenReturn(List.of(
+                membership("vp-old", "REJECTED", null, null, null),
+                membership("vp-1", "CREDENTIALS_OFFERED", "did:web:vp", "pctx-vp", "proc-vp")));
+
+        var participant = assigning.ensure(ASSIGNING_DATASPACE);
+
+        assertEquals("pctx-vp", participant.participantContextId());
+        verify(hub, never()).findByMemberId(any(), any());
+        verify(hub, never()).onboard(any(), any(), any(), any(), any(), any());
+        verify(management).upsertAsset("pctx-vp", "ccm-inbox-verification-dx", CcmApi.consumer(TestFixtures.CCM_API));
+    }
+
+    @Test
+    void ensure_inADataspaceThatAssignsMemberIds_onboardsWithoutOne() {
+        var assigning = new VerificationParticipantService(hub, management, certo, TestFixtures.assigningProps());
+        when(hub.findByShortName(ASSIGNING_DATASPACE, "verification-participant-dx")).thenReturn(List.of());
+        when(hub.onboard(eq(ASSIGNING_DATASPACE), eq("Verification Participant DX"), eq("verification-participant-dx"),
+                isNull(), eq("DEVERIFYDX01"), isNull()))
+                .thenReturn(membership("vp-1", "SUBMITTED", null, null, null));
+        when(hub.awaitProvisioned("vp-1"))
+                .thenReturn(membership("vp-1", "PROVISIONED", "did:web:vp", "pctx-vp", "proc-vp"));
+        when(hub.awaitCredentialsOffered("vp-1"))
+                .thenReturn(membership("vp-1", "CREDENTIALS_OFFERED", "did:web:vp", "pctx-vp", "proc-vp"));
+
+        var participant = assigning.ensure(ASSIGNING_DATASPACE);
+
+        assertEquals("pctx-vp", participant.participantContextId());
     }
 
     @Test

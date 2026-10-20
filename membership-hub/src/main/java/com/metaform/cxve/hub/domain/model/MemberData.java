@@ -13,10 +13,11 @@ import java.util.Map;
  *
  * <p>{@code memberId} is the member's identifier WITHIN the dataspace — the BPN in Catena-X, the
  * DECADE-X-ID in DECADE-X. Whether it is given up front is the dataspace's rule, checked by its
- * {@code DataspaceOnboarding}: a member hosted HERE always brings one, because provisioning needs it
- * (the {@code cfm.issuer} VPA properties feed it to the certo activity) before any registration
- * could assign one; Catena-X requires the BPN for every member; an EXTERNAL DECADE-X member may
- * leave its DECADE-X-ID out, the TSP then assigns one on approval, which the hub records.
+ * {@code DataspaceOnboarding}: Catena-X requires the BPN for every member; DECADE-X refuses one,
+ * because the TSP assigns every DECADE-X-ID on approval, which the hub records. A member hosted
+ * HERE needs its id before that, because provisioning reads it (the {@code cfm.issuer} VPA
+ * properties feed it to the certo activity): for DECADE-X the hub generates one out of band
+ * ({@code DataspaceOnboarding#memberIdForHostedMember}).
  *
  * <p>{@code did} decides whether this environment provisions anything. SUPPLY IT and the member
  * is taken to run elsewhere — its connector, wallet and DID document already exist, and the hub
@@ -38,6 +39,11 @@ public record MemberData(
     @JsonIgnore
     public boolean hostedHere() {
         return did == null || did.isBlank();
+    }
+
+    /** The same request, with the member id the hub generated for it. */
+    public MemberData withMemberId(String memberId) {
+        return new MemberData(dataspace, name, shortName, memberId, did, registration);
     }
 
     /** The dataspace-specific part, never null — an absent object reads as empty. */

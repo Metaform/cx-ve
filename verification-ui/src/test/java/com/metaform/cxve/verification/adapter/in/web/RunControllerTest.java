@@ -21,10 +21,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Web-slice test of the request-shape rules the run flow cannot enforce for itself: a run names
- * its dataspace and use case, and its member id is mandatory. Nothing in this environment may
- * invent a participant's identifier — it issues the member credential for exactly the value given,
- * and an external system's is agreed with its operator — so a run with none is refused here rather
- * than given a derived placeholder downstream.
+ * its dataspace and use case. Whether it must also name a member id depends on the dataspace —
+ * mandatory in Catena-X, refused in DECADE-X, which assigns it — so that is the catalog's call: a
+ * run without one reaches the service as is, and the service's refusal is a 400.
  */
 @WebMvcTest(controllers = RunController.class)
 class RunControllerTest {
@@ -55,21 +54,30 @@ class RunControllerTest {
     }
 
     @Test
-    void start_rejectsAMissingMemberId() throws Exception {
+    void start_leavesAMissingMemberIdToTheCatalog() throws Exception {
+        when(runService.start(any(), any(), any(), any(), any(), any())).thenThrow(
+                new DataspaceCatalog.InvalidRunRequestException("The participant's BPN is required"));
+
         mvc.perform(post("/api/runs").contentType(MediaType.APPLICATION_JSON).content("""
                         {"dataspace": "catena-x", "useCase": "ccm", "name": "Acme Corp", "shortName": "acme"}"""))
                 .andExpect(status().isBadRequest());
 
-        verifyNoInteractions(runService);
+        verify(runService).start("catena-x", "ccm", "Acme Corp", "acme", null, null);
     }
 
+    /** DECADE-X assigns the member id on onboarding: the run starts without one. */
     @Test
-    void start_rejectsABlankMemberId() throws Exception {
-        mvc.perform(post("/api/runs").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"dataspace": "catena-x", "useCase": "ccm", "shortName": "acme", "memberId": "   "}"""))
-                .andExpect(status().isBadRequest());
+    void start_acceptsARunWithoutAMemberIdWhereTheDataspaceAssignsIt() throws Exception {
+        when(runService.start(any(), any(), any(), any(), any(), any())).thenReturn(
+                new VerificationRun("r1", "decade-x", "ccm", "Acme Corp", "acme", null, "DEACME0001",
+                        null, RunStep.MANAGED).snapshot());
 
-        verifyNoInteractions(runService);
+        mvc.perform(post("/api/runs").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"dataspace": "decade-x", "useCase": "ccm", "name": "Acme Corp", "shortName": "acme"}"""))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.participant.memberId").isEmpty());
+
+        verify(runService).start("decade-x", "ccm", "Acme Corp", "acme", null, null);
     }
 
     @Test
@@ -79,16 +87,6 @@ class RunControllerTest {
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/api/runs").contentType(MediaType.APPLICATION_JSON).content("""
                         {"dataspace": "catena-x", "memberId": "BPNLACME00000001"}"""))
-                .andExpect(status().isBadRequest());
-
-        verifyNoInteractions(runService);
-    }
-
-    /** An external run declares a DID, and still has to declare the member id agreed with its operator. */
-    @Test
-    void start_rejectsAnExternalRunWithoutAMemberId() throws Exception {
-        mvc.perform(post("/api/runs").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"dataspace": "catena-x", "useCase": "ccm", "did": "did:web:sut.example.com:vendor"}"""))
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(runService);

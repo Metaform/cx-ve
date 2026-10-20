@@ -60,6 +60,7 @@ public class MembershipService {
 
     private static final Logger log = LoggerFactory.getLogger(MembershipService.class);
     private static final int MAX_SAVE_ATTEMPTS = 5;
+    private static final int MAX_GENERATED_MEMBER_ID_ATTEMPTS = 20;
 
     private final MembershipRepository repository;
     private final DataspaceRegistry dataspaces;
@@ -89,7 +90,8 @@ public class MembershipService {
      * Creates the membership and starts it. The DID is resolved here — caller-supplied or
      * template-derived, the SAME rule the Onboarding API applies — and passed explicitly with the
      * registration, so the identity the holder is registered under and the identity the profile is
-     * deployed as cannot drift.
+     * deployed as cannot drift. A hosted member of a dataspace that assigns member ids (DECADE-X)
+     * gets one generated here, before its deployment needs it.
      *
      * <p>A member hosted here returns in PROVISIONING, its deployment running on the worker; one
      * that brought its own DID returns from the submitted registration, typically in SUBMITTED and
@@ -103,10 +105,14 @@ public class MembershipService {
      *                                                          dataspace refuses
      * @throws DuplicateMembershipException when a live membership already holds this DID or member id
      */
-    public Membership onboard(MemberData data) {
-        dataspaces.onboarding(data.dataspace()).validate(data);
-        var did = ofNullable(data.did()).filter(d -> !d.isBlank()).orElseGet(() -> didTemplate + data.shortName());
-        rejectDuplicate(data.dataspace(), did, data.memberId(), data.hostedHere());
+    public Membership onboard(MemberData request) {
+        var onboarding = dataspaces.onboarding(request.dataspace());
+        onboarding.validate(request);
+        var did = ofNullable(request.did()).filter(d -> !d.isBlank()).orElseGet(() -> hostedDid(request.shortName()));
+        rejectDuplicate(request.dataspace(), did, request.memberId(), request.hostedHere());
+        var data = request.hostedHere() && isBlank(request.memberId())
+                ? generatedMemberId(onboarding, request)
+                : request;
         var externalId = UUID.randomUUID().toString();
         log.info("Starting {} membership '{}' for participant \"{}\" (did={})",
                 data.dataspace(), externalId, data.name(), did);
@@ -118,6 +124,27 @@ public class MembershipService {
         provisioningExecutor.execute(() -> deployAndRegister(externalId));
         // re-read rather than return the record as created: the worker may already have moved it
         return current(externalId);
+    }
+
+    /**
+     * A hosted member of a dataspace that assigns its members' ids gets one generated before it is
+     * deployed (its deployment reads it), one no membership of the dataspace holds — not even a
+     * dead one, so an id never names two participants.
+     */
+    private MemberData generatedMemberId(DataspaceOnboarding onboarding, MemberData data) {
+        for (var attempt = 0; attempt < MAX_GENERATED_MEMBER_ID_ATTEMPTS; attempt++) {
+            var candidate = onboarding.memberIdForHostedMember();
+            if (candidate.isEmpty()) {
+                return data;
+            }
+            if (repository.findByMemberId(data.dataspace(), candidate.get()).isEmpty()) {
+                log.info("Generated {} member id {} for hosted participant \"{}\"",
+                        data.dataspace(), candidate.get(), data.name());
+                return data.withMemberId(candidate.get());
+            }
+        }
+        throw new IllegalStateException("No free %s member id found in %d attempts"
+                .formatted(data.dataspace(), MAX_GENERATED_MEMBER_ID_ATTEMPTS));
     }
 
     /**
@@ -140,9 +167,9 @@ public class MembershipService {
                     throw new DuplicateMembershipException("A membership for DID %s already exists: '%s' (%s, %s)"
                             .formatted(did, existing.externalId(), existing.dataspace(), existing.state()));
                 });
-        if (memberId == null || memberId.isBlank()) {
-            // the dataspace assigns this member's id on registration (DECADE-X's TSP, to an
-            // external member declaring no DECADE-X-ID)
+        if (isBlank(memberId)) {
+            // the dataspace assigns this member's id on registration (DECADE-X's TSP), or the hub
+            // generates one for a hosted member, checked as it is generated
             return;
         }
         repository.findByMemberId(dataspace, memberId).stream().filter(Membership::isLive).findFirst().ifPresent(existing -> {
@@ -312,6 +339,16 @@ public class MembershipService {
     }
 
     /**
+     * The memberships of the member hosted here under the given short name — those registered
+     * under the DID this hub mints for it ({@code participant.did.template} + short name), with the
+     * same read semantics as {@link #findByMemberId}. This is how a caller finds a hosted member
+     * again whose member id it did not choose (DECADE-X's verification participant).
+     */
+    public List<Membership> findByShortName(String shortName) {
+        return repository.findByDid(hostedDid(shortName));
+    }
+
+    /**
      * The membership by its external id. When a participant profile has been deployed for it,
      * its current state is read from the Tenant Manager (resolved via the stored profile id) —
      * that is where the participant context id appears and deployment errors surface.
@@ -421,6 +458,15 @@ public class MembershipService {
         }
         throw new IllegalStateException(
                 "Membership '%s' could not be updated after %d attempts".formatted(externalId, MAX_SAVE_ATTEMPTS), conflict);
+    }
+
+    /** The DID this hub mints for a member it hosts. */
+    private String hostedDid(String shortName) {
+        return didTemplate + shortName;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private Membership current(String externalId) {

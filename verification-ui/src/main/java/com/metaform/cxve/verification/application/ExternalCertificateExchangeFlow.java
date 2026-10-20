@@ -90,6 +90,8 @@ public class ExternalCertificateExchangeFlow {
                         ? membership
                         : hub.awaitCredentialsOffered(membership.externalId());
                 run.onExternallyOnboarded(offered.did(), offered.onboardingProcessId());
+                // a dataspace that assigns member ids has done so by now
+                run.adoptMemberId(offered.memberId());
                 return offered;
             }, offered -> "credentials offered to %s (process %s)".formatted(
                     offered.did(), offered.onboardingProcessId()));
@@ -165,6 +167,7 @@ public class ExternalCertificateExchangeFlow {
             log.info("run {} adopting the existing membership {} of {} (state {})",
                     run.id(), existing.externalId(), run.declaredDid(), existing.state());
             run.onSubmitted(existing.externalId());
+            run.adoptMemberId(existing.memberId());
             return existing;
         }
         var membership = hub.onboard(run.dataspace(), run.name(), run.shortName(), run.memberId(), run.uniqueId(),

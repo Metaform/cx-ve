@@ -32,7 +32,9 @@ ENV_VE_HOST="${VE_HOST:-}"
 # The dataspace the stack's participant is a member of, and everything that follows from it: the
 # stack's default cluster, gateway and port (one stack per dataspace, side by side), the DSP
 # profile, what a member id is, the member credential the VE issues, and the VE's verification
-# participant of that dataspace. Called below with VENDOR_DATASPACE (default catena-x), and again by
+# participant of that dataspace. DECADE-X assigns member ids (the TSP, on approval), so there the
+# defaults are no ids to declare: DEFAULT_MEMBER_ID is only the provisional one the Certo tenant is
+# provisioned with, and the verification participant's is looked up (ve_member_id_of). Called below with VENDOR_DATASPACE (default catena-x), and again by
 # a script's -d/--dataspace — before init.
 use_dataspace() { # <catena-x|decade-x>
   local cluster host port
@@ -54,7 +56,7 @@ use_dataspace() { # <catena-x|decade-x>
       DEFAULT_MEMBER_ID=DX-00009001
       MEMBER_CREDENTIAL=DecadeXMembershipCredential
       VP_SHORT_NAME=verification-participant-dx
-      VP_MEMBER_ID=DX-99999999
+      VP_MEMBER_ID=""
       ;;
     *) die "unknown dataspace '$1' — catena-x or decade-x" ;;
   esac
@@ -105,6 +107,17 @@ member_credential_of() { # <participant context id>
   [[ "$HTTP_STATUS" == 200 ]] || return 0
   printf '%s' "$HTTP_BODY" | jq -c --arg type "$MEMBER_CREDENTIAL" \
     '[.[] | .verifiableCredential.credential // . | select((.type // []) | index($type))] | .[0] // empty'
+}
+
+# The member id the VE's Membership Hub holds for one of its hosted participants, by short name, or
+# empty — how the verification participant's DECADE-X-ID is found: the hub generated it when it
+# first onboarded the participant. Dead attempts are skipped, as the VE skips them.
+ve_member_id_of() { # <short name>
+  curl -s -m 10 -G "http://${VE_HOST}/hub/api/members" \
+      --data-urlencode "dataspace=${VENDOR_DATASPACE}" --data-urlencode "shortName=$1" 2>/dev/null \
+    | jq -r '[if type == "array" then .[] else empty end
+              | select(.memberId != null and (.state | IN("REJECTED", "FAILED", "REGISTERING") | not))]
+             | .[0].memberId // empty' 2>/dev/null || true
 }
 
 # The counterparty's DSP endpoint for the stack's DSP profile. A DID document advertises ONE

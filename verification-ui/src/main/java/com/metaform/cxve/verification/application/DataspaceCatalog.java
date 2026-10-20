@@ -39,10 +39,14 @@ public class DataspaceCatalog {
     }
 
     /**
-     * Checks a run request against the catalog and returns the flow that verifies it.
+     * Checks a run request against the catalog and returns the flow that verifies it. The member
+     * id is required, in the dataspace's format — except in a dataspace that assigns it
+     * ({@link VerificationProperties.MemberId#assigned()}), which must come without one.
      *
+     * @param memberId null when none was given
      * @throws InvalidRunRequestException for a dataspace or use case that is unknown or unavailable,
-     *                                    or a member id the dataspace's format does not allow
+     *                                    or a member id that is missing, not allowed, or not in the
+     *                                    dataspace's format
      */
     public UseCaseFlow resolve(String dataspace, String useCase, String memberId) {
         var profile = properties.dataspaces().get(dataspace);
@@ -63,6 +67,17 @@ public class DataspaceCatalog {
                     .formatted(configured.displayName(), profile.displayName()));
         }
         var format = profile.memberId();
+        var label = format == null || format.label() == null ? "member id" : format.label();
+        if (format != null && format.assigned()) {
+            if (memberId != null) {
+                throw new InvalidRunRequestException("%s assigns a participant's %s on onboarding — leave it empty"
+                        .formatted(profile.displayName(), label));
+            }
+            return flow;
+        }
+        if (memberId == null) {
+            throw new InvalidRunRequestException("The participant's %s is required".formatted(label));
+        }
         if (format != null && format.pattern() != null && !format.pattern().isBlank()
                 && !Pattern.matches(format.pattern(), memberId)) {
             throw new InvalidRunRequestException("'%s' is not a valid %s %s (expected e.g. %s)"

@@ -5,8 +5,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
  * The DECADE-X onboarding API: the TSP (Trust Service Provider) onboarding intake, which a
- * participant reaches as an asset of the federated connector. An onboarding request is submitted
- * with its documents in one step and read back with its status.
+ * participant reaches as a dataset of the dataspace. An onboarding request is created as a draft,
+ * completed with its documents one by one, submitted, and read back with its status.
  *
  * <p>In memory only, and without a TSP operator: a request is approved automatically or waits in
  * {@code SUBMITTED} — the requests of participants hosted by the VE are approved, and for now those

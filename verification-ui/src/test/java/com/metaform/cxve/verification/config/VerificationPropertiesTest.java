@@ -11,7 +11,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Two dataspaces' verification participants are separate participants: they must not share the
  * short name (it forms the hosted DID) or the inbox asset id (control-plane ids are unique across
- * participant contexts). A clash fails at startup rather than at the second participant's ensure.
+ * participant contexts). A clash fails at startup rather than at the second participant's ensure —
+ * and so does a declared member id in a dataspace that assigns them.
  */
 class VerificationPropertiesTest {
 
@@ -19,14 +20,20 @@ class VerificationPropertiesTest {
     private static final VerificationProperties.DataspaceProfile CATENA_X = BASE.dataspace(TestFixtureAccess.DATASPACE);
 
     private static VerificationProperties.DataspaceProfile copy(String shortName, String inboxAssetId) {
+        return copy(shortName, inboxAssetId, CATENA_X.memberId(), "OTHER-1");
+    }
+
+    private static VerificationProperties.DataspaceProfile copy(String shortName, String inboxAssetId,
+                                                                VerificationProperties.MemberId format,
+                                                                String participantMemberId) {
         var ccm = CATENA_X.useCase("ccm");
         var useCase = new VerificationProperties.UseCase(ccm.displayName(), ccm.enabled(),
                 new VerificationProperties.Ccm(inboxAssetId, ccm.ccm().api(), ccm.ccm().certificate(),
                         ccm.ccm().expectedEvents(), ccm.ccm().externalExpectedEvents()));
-        return new VerificationProperties.DataspaceProfile("Other", CATENA_X.memberId(), CATENA_X.dspProfile(),
+        return new VerificationProperties.DataspaceProfile("Other", format, CATENA_X.dspProfile(),
                 CATENA_X.policyContext(), CATENA_X.accessConstraints(), CATENA_X.contractConstraints(),
                 CATENA_X.registrationTemplate(),
-                new VerificationProperties.ParticipantIdentity("Other VP", shortName, "OTHER-1", "OTHERVERIFY1"),
+                new VerificationProperties.ParticipantIdentity("Other VP", shortName, participantMemberId, "OTHERVERIFY1"),
                 Map.of("ccm", useCase));
     }
 
@@ -56,5 +63,17 @@ class VerificationPropertiesTest {
         assertThatThrownBy(() -> with(copy("verification-participant", "ccm-inbox-other")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("short-name 'verification-participant'");
+    }
+
+    @Test
+    void aDeclaredParticipantMemberIdIsRefusedWhereTheDataspaceAssignsThem() {
+        var assigning = new VerificationProperties.MemberId("Other-ID", "", "O-1", true);
+
+        assertThatCode(() -> with(copy("verification-participant-other", "ccm-inbox-other", assigning, null)))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> with(copy("verification-participant-other", "ccm-inbox-other", assigning, "OTHER-1")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("verification.dataspaces.other-x")
+                .hasMessageContaining("leave verification-participant.member-id out");
     }
 }

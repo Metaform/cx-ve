@@ -11,6 +11,11 @@ export interface MemberIdFormat {
   pattern: string | null;
   /** A sample value, shown as the input's placeholder. */
   example: string;
+  /**
+   * Whether the dataspace assigns its members' ids rather than having them declared (DECADE-X: the
+   * TSP on approval). A run then takes none, and shows the participant's once its membership has one.
+   */
+  assigned?: boolean;
 }
 
 export interface CatalogUseCase {
@@ -32,15 +37,17 @@ export interface CatalogDataspace {
 }
 
 /**
- * A run of a use case in a dataspace, both by their catalog ids. The member id is mandatory; a
- * `did` makes it a run against a third-party system, without one the participant is onboarded here.
+ * A run of a use case in a dataspace, both by their catalog ids. The member id is mandatory unless
+ * the dataspace assigns it; a `did` makes it a run against a third-party system, without one the
+ * participant is onboarded here.
  */
 export interface StartRunRequest {
   dataspace: string;
   useCase: string;
   name?: string;
   shortName?: string;
-  memberId: string;
+  /** Absent in a dataspace that assigns it. */
+  memberId?: string;
   did?: string;
 }
 
@@ -49,7 +56,8 @@ export interface Membership {
   dataspace: string;
   name: string;
   did: string | null;
-  memberId: string;
+  /** Null until assigned, in a dataspace that assigns its members' ids. */
+  memberId: string | null;
   state: string;
   onboardingProcessId: string | null;
   tenantId: string | null;
@@ -99,9 +107,9 @@ export interface ParticipantInfo {
   shortName: string;
   /**
    * The participant's id within the run's dataspace — the BPN in Catena-X, the DECADE-X-ID in
-   * DECADE-X.
+   * DECADE-X. Null until assigned, in a dataspace that assigns it.
    */
-  memberId: string;
+  memberId: string | null;
   /** The registration's unique id (e.g. a VAT id), derived by the BFF from the short name. */
   uniqueId: string;
   externalId: string | null;
@@ -138,7 +146,7 @@ export interface RunSummary {
   finishedAt: string | null;
   name: string;
   shortName: string;
-  memberId: string;
+  memberId: string | null;
   externalId: string | null;
   externallyHosted: boolean;
 }

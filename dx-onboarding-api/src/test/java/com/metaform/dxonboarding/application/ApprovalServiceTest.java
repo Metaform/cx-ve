@@ -1,18 +1,11 @@
 package com.metaform.dxonboarding.application;
 
 import com.metaform.dxonboarding.adapter.out.persistence.InMemoryOnboardingRequestRepository;
-import com.metaform.dxonboarding.domain.model.onboarding.Address;
-import com.metaform.dxonboarding.domain.model.onboarding.CompanyType;
-import com.metaform.dxonboarding.domain.model.onboarding.ConsentDeclaration;
 import com.metaform.dxonboarding.domain.model.onboarding.DecadeXId;
-import com.metaform.dxonboarding.domain.model.onboarding.Declarations;
-import com.metaform.dxonboarding.domain.model.onboarding.LegalEntity;
-import com.metaform.dxonboarding.domain.model.onboarding.LegalPerson;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingCompleted;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
-import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequestData;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStatus;
-import com.metaform.dxonboarding.domain.model.onboarding.RegistrationNumber;
+import com.metaform.dxonboarding.domain.model.onboarding.Requests;
 import com.metaform.dxonboarding.domain.model.onboarding.ReviewDecision;
 import com.metaform.dxonboarding.domain.port.CredentialOfferService;
 import com.metaform.dxonboarding.domain.port.HolderRegistrationService;
@@ -21,7 +14,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -29,9 +21,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * An approval makes the applicant a DECADE-X member: it gets its DECADE-X-ID (a participant hosted
- * here keeps the one it supplied, every other one is assigned one), is registered as credential
- * holder, and is offered its credentials — in that order, with the request's status telling how far
- * it got.
+ * here keeps the one it was deployed with, every other one is assigned one), is registered as
+ * credential holder, and is offered its credentials — in that order, with the request's status
+ * telling how far it got.
  */
 class ApprovalServiceTest {
 
@@ -39,7 +31,6 @@ class ApprovalServiceTest {
     private static final String HOSTED_PREFIX = "did:web:identity.cxve.localhost:";
     private static final String HOSTED = HOSTED_PREFIX + "verification-participant-dx";
     private static final String EXTERNAL = "did:web:sut.example.com";
-    private static final Address ADDRESS = new Address("Beispielstrasse 1", "10115", "Berlin", "DE", "Germany");
 
     private final InMemoryOnboardingRequestRepository repository = new InMemoryOnboardingRequestRepository();
     /** What happened, in order: "holder:<did>:<decadeXId>:<status while registering>", "offer:<did>". */
@@ -64,17 +55,11 @@ class ApprovalServiceTest {
     private final ApprovalService approval = new ApprovalService(repository, holders, offers, events,
             Clock.fixed(DECIDED_AT, ZoneOffset.UTC));
 
-    private OnboardingRequest filed(String connectorId, String suppliedDecadeXId) {
-        var data = new OnboardingRequestData(
-                new LegalEntity(connectorId, "Acme Corp", "DE", CompanyType.LIMITED_LIABILITY_COMPANY, null, null, null,
-                        List.of(new RegistrationNumber(RegistrationNumber.Scheme.vatID, "DE123456789")), ADDRESS,
-                        suppliedDecadeXId),
-                new LegalPerson("Erika Mustermann", "erika@example.org", null, null, null, null),
-                List.of(), new ConsentDeclaration(UUID.randomUUID(), "1.0", true), List.of(),
-                new Declarations(true, true, true), "ref-1");
-        var request = new OnboardingRequest(UUID.randomUUID().toString(), "DX-OR-000001", connectorId,
-                Instant.parse("2026-10-02T10:00:00Z"), OnboardingStatus.SUBMITTED, data, null, null, null, null, null,
-                Map.of(), null);
+    /** A submitted request of the connector, declaring the given DECADE-X-ID (null: none). */
+    private OnboardingRequest filed(String connectorId, String declaredDecadeXId) {
+        var data = Requests.declaring(Requests.data(connectorId), declaredDecadeXId);
+        var request = OnboardingRequest.draft(UUID.randomUUID().toString(), "DX-OR-000001", connectorId, data, null,
+                Instant.parse("2026-10-02T10:00:00Z")).submitted(Instant.parse("2026-10-02T10:00:01Z"), null);
         repository.save(request);
         return request;
     }
@@ -100,16 +85,13 @@ class ApprovalServiceTest {
     }
 
     @Test
-    void anExternalParticipant_keepsTheDecadeXIdItDeclared_orIsAssignedOne() {
-        var declared = filed(EXTERNAL, "DX-12345678");
-        var undeclared = filed("did:web:other.example.com", null);
+    void anExternalParticipant_isAssignedItsDecadeXId() {
+        var request = filed(EXTERNAL, null);
 
-        approval.approve(declared.id());
-        approval.approve(undeclared.id());
+        approval.approve(request.id());
 
-        assertThat(stored(declared).legalEntityId()).isEqualTo("DX-12345678");
-        assertThat(stored(declared).status()).isEqualTo(OnboardingStatus.APPROVED);
-        assertThat(stored(undeclared).legalEntityId()).matches(DecadeXId.PATTERN);
+        assertThat(stored(request).legalEntityId()).matches(DecadeXId.PATTERN);
+        assertThat(stored(request).status()).isEqualTo(OnboardingStatus.APPROVED);
     }
 
     @Test

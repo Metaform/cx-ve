@@ -4,6 +4,7 @@ import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.model.RegistrationOutcome;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * One dataspace's onboarding, as the hub drives it. Everything dataspace-specific about getting a
@@ -30,6 +31,17 @@ public interface DataspaceOnboarding {
      * @throws InvalidRegistrationException naming every violation
      */
     void validate(MemberData data);
+
+    /**
+     * A member id for a member hosted here that declared none, in a dataspace that assigns its
+     * members' ids rather than having them declared (DECADE-X). The member's deployment needs one
+     * before any registration could assign it (see {@link #issuerProperties}), so the hub makes one
+     * up, out of band. A fresh candidate on every call: the hub asks again until it has one no
+     * membership of the dataspace holds. Empty for a dataspace whose members declare their id.
+     */
+    default Optional<String> memberIdForHostedMember() {
+        return Optional.empty();
+    }
 
     /**
      * The {@code cfm.issuer} VPA properties the member's participant profile is deployed with —
