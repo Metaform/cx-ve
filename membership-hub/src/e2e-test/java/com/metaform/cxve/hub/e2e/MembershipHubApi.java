@@ -16,7 +16,8 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * Minimal client for the Membership Hub through the VE gateway ({@code /hub}) — the full member
- * journey: {@code POST /api/members} runs the CX-0006 registration (Onboarding API) and deploys
+ * journey: {@code POST /api/members} into the Catena-X dataspace runs the CX-0006 registration (CX
+ * onboarding API) and deploys
  * the participant profile (CFM Tenant Manager); {@code GET /api/members/<externalId>} reads the
  * correlated record, refreshing the provisioning state from the Tenant Manager on every call.
  * The hub's API is unauthenticated (operator surface); the wire shapes are mirrored inline, like
@@ -43,21 +44,24 @@ public class MembershipHubApi {
                 .contentType(ContentType.JSON)
                 .body("""
                         {
+                          "dataspace": "catena-x",
                           "name": "%s",
                           "shortName": "%s",
-                          "bpn": "%s",
-                          "city": "Munich",
-                          "streetName": "Otto-Hahn-Ring",
-                          "countryAlpha2Code": "DE",
-                          "region": "BY",
-                          "uniqueIds": [ { "type": "VAT_ID", "value": "%s" } ],
-                          "companyRoles": [ "ACTIVE_PARTICIPANT" ],
-                          "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
-                          "userDetails": [ {
-                            "providerId": "e2e-user-%s",
-                            "firstName": "E2e", "lastName": "Tester",
-                            "email": "e2e-%s@example.com"
-                          } ]
+                          "memberId": "%s",
+                          "registration": {
+                            "city": "Munich",
+                            "streetName": "Otto-Hahn-Ring",
+                            "countryAlpha2Code": "DE",
+                            "region": "BY",
+                            "uniqueIds": [ { "type": "VAT_ID", "value": "%s" } ],
+                            "companyRoles": [ "ACTIVE_PARTICIPANT" ],
+                            "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
+                            "userDetails": [ {
+                              "providerId": "e2e-user-%s",
+                              "firstName": "E2e", "lastName": "Tester",
+                              "email": "e2e-%s@example.com"
+                            } ]
+                          }
                         }""".formatted(name, shortName, bpn, vatId, vatId, vatId))
                 .post("/api/members");
         assertThat(response.statusCode())

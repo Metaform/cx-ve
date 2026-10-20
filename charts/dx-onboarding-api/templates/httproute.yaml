@@ -1,0 +1,32 @@
+{{- if .Values.httpRoute.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "dx-onboarding-api.fullname" . }}
+  labels:
+    {{- include "dx-onboarding-api.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    {{- toYaml .Values.httpRoute.parentRefs | nindent 4 }}
+  {{- with .Values.httpRoute.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.httpRoute.pathPrefix | quote }}
+      {{- if ne .Values.httpRoute.pathPrefix "/" }}
+      filters:
+        # The app serves at / — strip the prefix like the platform routes do.
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      {{- end }}
+      backendRefs:
+        - name: {{ include "dx-onboarding-api.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}

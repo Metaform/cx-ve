@@ -3,9 +3,12 @@ package com.metaform.cxve.verification.adapter.out.management;
 import com.metaform.cxve.verification.adapter.out.auth.TokenProvider;
 import com.metaform.cxve.verification.application.TestFixtureAccess;
 import com.metaform.cxve.verification.application.VerificationException;
+import com.metaform.cxve.verification.config.VerificationProperties.PolicyConstraint;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -16,8 +19,12 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.manyTimes;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /**
  * How the catalog wait tells a counterparty that is not ready apart from one that will never be.
@@ -64,7 +71,7 @@ class ManagementApiClientTest {
                         .body(counterPartyResponded(404)));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, "ccm-api", Duration.ofSeconds(30)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE, "ccm-api", Duration.ofSeconds(30)))
                 .isInstanceOf(VerificationException.class)
                 // names the address dialled and where it came from — the finding, not "timed out"
                 .hasMessageContaining(DSP)
@@ -85,7 +92,7 @@ class ManagementApiClientTest {
                         .body(counterPartyResponded(405)));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, "ccm-api", Duration.ofSeconds(30)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE, "ccm-api", Duration.ofSeconds(30)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("405");
         fixture.server().verify();
@@ -102,7 +109,7 @@ class ManagementApiClientTest {
                 .andRespond(withServerError().body("controlplane is restarting"));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, "ccm-api", Duration.ofMillis(300)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE, "ccm-api", Duration.ofMillis(300)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("timed out")
                 .hasMessageContaining("catalog request failed with HTTP 500");
@@ -135,7 +142,8 @@ class ManagementApiClientTest {
                         dataset("vendor-inbox", "CompanyCertificateManagementConsumerApi", "3.0"),
                         dataset("acme-ccm-provider-api", "CompanyCertificateManagementProviderApi", "3.0"))));
 
-        var offer = fixture.client().awaitCatalogOffer("pctx-vp", DSP, DID, CcmApi.provider("3.0"), Duration.ofSeconds(30));
+        var offer = fixture.client().awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE,
+                CcmApi.provider(TestFixtureAccess.CCM_API), Duration.ofSeconds(30));
 
         assertThat(offer.datasetId()).isEqualTo("acme-ccm-provider-api");
         assertThat(offer.offer().path("@id").asText()).isEqualTo("offer-acme-ccm-provider-api");
@@ -144,7 +152,7 @@ class ManagementApiClientTest {
 
     @Test
     void theSameApiOfferedTwiceFailsImmediately() {
-        // CX-0135 allows one asset per API and version per business partner. Picking one of two
+        // CCM standard allows one asset per API and version per business partner. Picking one of two
         // would verify an arbitrary offer — the catalog's answer is final, so no second request.
         var fixture = fixture();
         fixture.server().expect(MockRestRequestMatchers.requestTo("http://cp/participants/pctx-vp/catalog/request"))
@@ -153,7 +161,8 @@ class ManagementApiClientTest {
                         dataset("ccm-b", "CompanyCertificateManagementProviderApi", "3.0"))));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, CcmApi.provider("3.0"), Duration.ofSeconds(30)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE,
+                CcmApi.provider(TestFixtureAccess.CCM_API), Duration.ofSeconds(30)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("ambiguous")
                 .hasMessageContaining("ccm-a")
@@ -173,10 +182,11 @@ class ManagementApiClientTest {
                         dataset("old-ccm", "CompanyCertificateManagementProviderApi", "2.0"))));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, CcmApi.provider("3.0"), Duration.ofMillis(300)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE,
+                CcmApi.provider(TestFixtureAccess.CCM_API), Duration.ofMillis(300)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("timed out")
-                .hasMessageContaining("foobar-ccm-api (no CX-0135 API subject)")
+                .hasMessageContaining("foobar-ccm-api (no CCM API subject)")
                 .hasMessageContaining("old-ccm (CompanyCertificateManagementProviderApi 2.0)");
     }
 
@@ -192,8 +202,123 @@ class ManagementApiClientTest {
                         .body(counterPartyResponded(401)));
 
         assertThatThrownBy(() -> fixture.client()
-                .awaitCatalogOffer("pctx-vp", DSP, DID, "ccm-api", Duration.ofMillis(300)))
+                .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE, "ccm-api", Duration.ofMillis(300)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("timed out");
+    }
+
+    @Test
+    void aConstrainedPolicyCarriesTheDataspacesPolicyContext() {
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-1"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$['@context'][1]").value("https://example.com/policy/context.jsonld"))
+                .andExpect(jsonPath("$.policy.permission[0].action").value("access"))
+                .andExpect(jsonPath("$.policy.permission[0].constraint[0].and[0].leftOperand").value("Membership"))
+                .andExpect(jsonPath("$.policy.permission[0].constraint[0].and[0].rightOperand").value("active"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        fixture.client().createPolicyIdempotent("pctx-vp", "p-1", "access", "https://example.com/policy/context.jsonld",
+                List.of(new PolicyConstraint("Membership", "eq", "active")));
+
+        fixture.server().verify();
+    }
+
+    @Test
+    void anUnconstrainedAccessPolicyIsAnEmptySetWithoutTheDataspaceContext() {
+        // a dataspace without a settled policy vocabulary: a rule without constraints is refused by
+        // the control plane's policy validation ("action 'access' is not bound to any scopes"), and
+        // the (placeholder) context may not even resolve — no rules at all is what "permit" is
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-2"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$['@context'].length()").value(1))
+                .andExpect(jsonPath("$.policy['@type']").value("Set"))
+                .andExpect(jsonPath("$.policy.permission").doesNotExist())
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        fixture.client().createPolicyIdempotent("pctx-vp", "p-2", "access", "https://unresolvable.example/context.jsonld",
+                List.of());
+
+        fixture.server().verify();
+    }
+
+    @Test
+    void anUnconstrainedContractPolicyIsOneUsePermission() {
+        // the contract policy is negotiated, and a contract request's policy must carry a rule — an
+        // empty Set cannot be requested; `use` is bound, so a permission without constraints passes
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-3"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$['@context'].length()").value(1))
+                .andExpect(jsonPath("$.policy.permission.length()").value(1))
+                .andExpect(jsonPath("$.policy.permission[0].action").value("use"))
+                .andExpect(jsonPath("$.policy.permission[0].constraint").doesNotExist())
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        fixture.client().createPolicyIdempotent("pctx-vp", "p-3", "use", "https://unresolvable.example/context.jsonld",
+                List.of());
+
+        fixture.server().verify();
+    }
+
+    @Test
+    void anAssetIdOwnedByAnotherContextIsReportedAsSuch() {
+        // the control plane's ids are unique across participant contexts while its reads are per
+        // context: the create collides, and the update cannot find the asset
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-dx/assets"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CONFLICT));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-dx/assets"))
+                .andExpect(method(HttpMethod.PUT))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> fixture.client().upsertAsset("pctx-dx", "ccm-inbox-verification",
+                CcmApi.consumer(TestFixtureAccess.CCM_API)))
+                .isInstanceOf(VerificationException.class)
+                .hasMessageContaining("ccm-inbox-verification")
+                .hasMessageContaining("taken by another participant context");
+    }
+
+    @Test
+    void aPolicyIdOwnedByAnotherContextIsNotTakenForCreated() {
+        // formerly read as "created concurrently — reusing it", leaving the context without it
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-dx/policydefinitions/vui-ccm-access-policy"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-dx/policydefinitions"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CONFLICT));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-dx/policydefinitions/vui-ccm-access-policy"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> fixture.client().createPolicyIdempotent("pctx-dx", "vui-ccm-access-policy", "access",
+                null, List.of()))
+                .isInstanceOf(VerificationException.class)
+                .hasMessageContaining("policy id 'vui-ccm-access-policy'")
+                .hasMessageContaining("pctx-dx");
+    }
+
+    @Test
+    void aPolicyCreatedConcurrentlyInTheSameContextIsReused() {
+        var fixture = fixture();
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-3"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CONFLICT));
+        fixture.server().expect(requestTo("http://cp/participants/pctx-vp/policydefinitions/p-3"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        fixture.client().createPolicyIdempotent("pctx-vp", "p-3", "use", null, List.of());
+
+        fixture.server().verify();
     }
 }

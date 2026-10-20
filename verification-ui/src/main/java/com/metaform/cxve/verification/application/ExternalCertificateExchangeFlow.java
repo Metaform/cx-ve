@@ -63,14 +63,16 @@ public class ExternalCertificateExchangeFlow {
 
     public void execute(VerificationRun run) {
         var external = properties.external();
-        log.info("run {} starting against the external participant {} (\"{}\", {})",
-                run.id(), run.declaredDid(), run.name(), run.bpn());
+        var profile = properties.dataspace(run.dataspace());
+        var ccm = profile.useCase(run.useCase()).ccm();
+        log.info("run {} starting against the external {} participant {} (\"{}\", {})",
+                run.id(), run.dataspace(), run.declaredDid(), run.name(), run.memberId());
         try {
             var vp = support.step(run, RunStep.ENSURE_VERIFICATION_PARTICIPANT, () -> {
-                var participant = participantService.ensure();
+                var participant = participantService.ensure(run.dataspace());
                 run.verificationParticipant(participant);
                 return participant;
-            }, participant -> "%s (pcid %s)".formatted(participant.bpn(), participant.participantContextId()));
+            }, participant -> "%s (pcid %s)".formatted(participant.memberId(), participant.participantContextId()));
 
             // Checkpoint 0: the participant is discoverable at all. Everything below dials the
             // endpoints this document advertises, so a run that gets past here has already
@@ -88,6 +90,8 @@ public class ExternalCertificateExchangeFlow {
                         ? membership
                         : hub.awaitCredentialsOffered(membership.externalId());
                 run.onExternallyOnboarded(offered.did(), offered.onboardingProcessId());
+                // a dataspace that assigns member ids has done so by now
+                run.adoptMemberId(offered.memberId());
                 return offered;
             }, offered -> "credentials offered to %s (process %s)".formatted(
                     offered.did(), offered.onboardingProcessId()));
@@ -98,16 +102,16 @@ public class ExternalCertificateExchangeFlow {
             // credential delivery are everything the tracker can attribute to a participant this
             // environment does not host.
             support.step(run, RunStep.AWAIT_CREDENTIALS,
-                    () -> support.evaluateEvents(run, external.expectedEvents(), external.credentialsTimeout()),
+                    () -> support.evaluateEvents(run, ccm.externalExpectedEvents(), external.credentialsTimeout()),
                     Function.identity());
 
             // The verification participant becomes consumer of the SUT's certificate offer — found
-            // by the CX-0135 provider API it declares, since the asset id is the vendor's own
+            // by the CCM provider API it declares, since the asset id is the vendor's own
             // choice. The wait is for the SUT's operator to seed it; the negotiation that follows is
             // the real proof of its credentials, since this environment's offer is policy-gated.
             var flowIdPull = support.step(run, RunStep.ESTABLISH_PULL_FLOW,
                     () -> support.establishCcmFlow(vp.participantContextId(), didDocument.protocolEndpoint(),
-                            run.declaredDid(), CcmApi.provider(properties.ccmApiVersion()),
+                            run.declaredDid(), profile.dspProfile(), CcmApi.provider(ccm.api()),
                             external.providerOfferTimeout()),
                     flow -> "flowId %s (dataset '%s')".formatted(flow.flowId(), flow.datasetId())).flowId();
 
@@ -150,12 +154,12 @@ public class ExternalCertificateExchangeFlow {
 
     /**
      * The membership for this DID — reused when one already exists. A repeat run against the same
-     * system must reuse it rather than register again: the Onboarding API treats an already
+     * system must reuse it rather than register again: an onboarding API treats an already
      * registered DID as a duplicate and would decline the second attempt, so re-onboarding is not
      * a fresh start but a guaranteed failure.
      */
     private Membership onboard(VerificationRun run) {
-        var existing = hub.findByDid(run.declaredDid()).stream()
+        var existing = hub.findByDid(run.dataspace(), run.declaredDid()).stream()
                 .filter(Membership::isReusable)
                 .findFirst()
                 .orElse(null);
@@ -163,9 +167,11 @@ public class ExternalCertificateExchangeFlow {
             log.info("run {} adopting the existing membership {} of {} (state {})",
                     run.id(), existing.externalId(), run.declaredDid(), existing.state());
             run.onSubmitted(existing.externalId());
+            run.adoptMemberId(existing.memberId());
             return existing;
         }
-        var membership = hub.onboard(run.name(), run.shortName(), run.bpn(), run.vatId(), run.declaredDid());
+        var membership = hub.onboard(run.dataspace(), run.name(), run.shortName(), run.memberId(), run.uniqueId(),
+                run.declaredDid());
         run.onSubmitted(membership.externalId());
         return membership;
     }

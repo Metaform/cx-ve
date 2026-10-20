@@ -112,7 +112,7 @@ func event(subject string, data map[string]any) lifecycleagent.EventContext[life
 	payload := lifecycleagent.CloudEvent[any]{
 		SpecVersion: lifecycleagent.SpecVersion,
 		ID:          "ce-1",
-		Source:      "onboarding-api-7d56645cc7-2bzkl",
+		Source:      "cx-onboarding-api-7d56645cc7-2bzkl",
 		Time:        eventTime,
 		Data:        data,
 	}

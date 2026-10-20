@@ -3,12 +3,15 @@ package com.metaform.cxve.hub.application;
 import com.metaform.cxve.hub.domain.model.MemberData;
 import com.metaform.cxve.hub.domain.model.Membership;
 import com.metaform.cxve.hub.domain.model.MembershipState;
+import com.metaform.cxve.hub.domain.model.RegistrationOutcome;
+import com.metaform.cxve.hub.domain.port.DataspaceOnboarding;
 import com.metaform.cxve.hub.domain.port.MembershipRepository;
-import com.metaform.cxve.hub.domain.port.OnboardingApi;
 import com.metaform.cxve.hub.domain.port.TenantManager;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.function.UnaryOperator;
@@ -23,7 +26,9 @@ import static java.util.Optional.ofNullable;
 
 /**
  * Drives a membership in the order the credential offer dictates: DEPLOY FIRST, REGISTER SECOND.
- * The Onboarding API registers the member as a credential holder and has the IssuerService push a
+ * Every dataspace is driven the same way; what differs between them — the onboarding API, its
+ * payloads and callbacks, the participant profile's dataspace settings — comes from the member's
+ * dataspace through the {@link DataspaceRegistry}. The dataspace's onboarding API registers the member as a credential holder and has the IssuerService push a
  * DCP offer to the Credential Service the member's DID document advertises — so the member's
  * wallet must exist before the registration is submitted. A member this environment hosts is
  * therefore provisioned through the CFM Tenant Manager first, exactly as an external vendor has
@@ -55,9 +60,10 @@ public class MembershipService {
 
     private static final Logger log = LoggerFactory.getLogger(MembershipService.class);
     private static final int MAX_SAVE_ATTEMPTS = 5;
+    private static final int MAX_GENERATED_MEMBER_ID_ATTEMPTS = 20;
 
     private final MembershipRepository repository;
-    private final OnboardingApi onboardingApi;
+    private final DataspaceRegistry dataspaces;
     private final TenantManager tenantManager;
     private final String didTemplate;
     private final Duration provisioningTimeout;
@@ -65,14 +71,14 @@ public class MembershipService {
     private final Executor provisioningExecutor;
 
     public MembershipService(MembershipRepository repository,
-                             OnboardingApi onboardingApi,
+                             DataspaceRegistry dataspaces,
                              TenantManager tenantManager,
                              @Value("${participant.did.template:did:web:identity.cxve.localhost:}") String didTemplate,
                              @Value("${participant.provisioning.timeout:10m}") Duration provisioningTimeout,
                              @Value("${participant.provisioning.poll-interval:5s}") Duration provisioningPollInterval,
                              @Qualifier("provisioningExecutor") Executor provisioningExecutor) {
         this.repository = repository;
-        this.onboardingApi = onboardingApi;
+        this.dataspaces = dataspaces;
         this.tenantManager = tenantManager;
         this.didTemplate = didTemplate;
         this.provisioningTimeout = provisioningTimeout;
@@ -84,7 +90,8 @@ public class MembershipService {
      * Creates the membership and starts it. The DID is resolved here — caller-supplied or
      * template-derived, the SAME rule the Onboarding API applies — and passed explicitly with the
      * registration, so the identity the holder is registered under and the identity the profile is
-     * deployed as cannot drift.
+     * deployed as cannot drift. A hosted member of a dataspace that assigns member ids (DECADE-X)
+     * gets one generated here, before its deployment needs it.
      *
      * <p>A member hosted here returns in PROVISIONING, its deployment running on the worker; one
      * that brought its own DID returns from the submitted registration, typically in SUBMITTED and
@@ -93,37 +100,81 @@ public class MembershipService {
      * arrive on another thread while that call is still on the wire — the handler must find the
      * record.
      *
-     * @throws DuplicateMembershipException when a live membership already holds this DID or BPN
+     * @throws DataspaceOnboarding.UnknownDataspaceException for a dataspace this hub does not serve
+     * @throws DataspaceOnboarding.InvalidRegistrationException for a registration object the
+     *                                                          dataspace refuses
+     * @throws DuplicateMembershipException when a live membership already holds this DID or member id
      */
-    public Membership onboard(MemberData data) {
-        var did = ofNullable(data.did()).orElseGet(() -> didTemplate + data.shortName());
-        rejectDuplicate(did, data.bpn());
+    public Membership onboard(MemberData request) {
+        var onboarding = dataspaces.onboarding(request.dataspace());
+        onboarding.validate(request);
+        var did = ofNullable(request.did()).filter(d -> !d.isBlank()).orElseGet(() -> hostedDid(request.shortName()));
+        rejectDuplicate(request.dataspace(), did, request.memberId(), request.hostedHere());
+        var data = request.hostedHere() && isBlank(request.memberId())
+                ? generatedMemberId(onboarding, request)
+                : request;
         var externalId = UUID.randomUUID().toString();
-        log.info("Starting membership '{}' for participant \"{}\" (did={})", externalId, data.name(), did);
+        log.info("Starting {} membership '{}' for participant \"{}\" (did={})",
+                data.dataspace(), externalId, data.name(), did);
         if (!data.hostedHere()) {
-            repository.create(Membership.submitted(externalId, data.name(), did, data.bpn()), data);
+            repository.create(Membership.submitted(externalId, data.dataspace(), data.name(), did, data.memberId()), data);
             return register(externalId, did, data);
         }
-        repository.create(Membership.provisioning(externalId, data.name(), did, data.bpn()), data);
+        repository.create(Membership.provisioning(externalId, data.dataspace(), data.name(), did, data.memberId()), data);
         provisioningExecutor.execute(() -> deployAndRegister(externalId));
         // re-read rather than return the record as created: the worker may already have moved it
         return current(externalId);
     }
 
     /**
-     * Refuses a member whose DID or BPN a live membership already holds. Registering the same DID
-     * twice would be declined by the Onboarding API anyway — this check is what makes that a clean
-     * 409 BEFORE anything is deployed, since a declined registration does NOT undo a deployment
-     * that already happened. Dead attempts (rejected, failed) release their identities.
+     * A hosted member of a dataspace that assigns its members' ids gets one generated before it is
+     * deployed (its deployment reads it), one no membership of the dataspace holds — not even a
+     * dead one, so an id never names two participants.
      */
-    private void rejectDuplicate(String did, String bpn) {
-        repository.findByDid(did).stream().filter(Membership::isLive).findFirst().ifPresent(existing -> {
-            throw new DuplicateMembershipException("A membership for DID %s already exists: '%s' (%s)"
-                    .formatted(did, existing.externalId(), existing.state()));
-        });
-        repository.findByBpn(bpn).stream().filter(Membership::isLive).findFirst().ifPresent(existing -> {
-            throw new DuplicateMembershipException("A membership for BPN %s already exists: '%s' (%s)"
-                    .formatted(bpn, existing.externalId(), existing.state()));
+    private MemberData generatedMemberId(DataspaceOnboarding onboarding, MemberData data) {
+        for (var attempt = 0; attempt < MAX_GENERATED_MEMBER_ID_ATTEMPTS; attempt++) {
+            var candidate = onboarding.memberIdForHostedMember();
+            if (candidate.isEmpty()) {
+                return data;
+            }
+            if (repository.findByMemberId(data.dataspace(), candidate.get()).isEmpty()) {
+                log.info("Generated {} member id {} for hosted participant \"{}\"",
+                        data.dataspace(), candidate.get(), data.name());
+                return data.withMemberId(candidate.get());
+            }
+        }
+        throw new IllegalStateException("No free %s member id found in %d attempts"
+                .formatted(data.dataspace(), MAX_GENERATED_MEMBER_ID_ATTEMPTS));
+    }
+
+    /**
+     * Refuses a member whose DID or member id a live membership of the same dataspace already
+     * holds. Registering the same DID twice would be declined by the onboarding API anyway — this
+     * check is what makes that a clean 409 BEFORE anything is deployed, since a declined
+     * registration does NOT undo a deployment that already happened. Dead attempts (rejected,
+     * failed) release their identities.
+     *
+     * <p>A member that runs elsewhere may join several dataspaces under one DID. A member hosted
+     * HERE may not: its DID is deployed as a participant profile, and a second membership would
+     * deploy the same identity twice — so for a hosted member the DID check spans all dataspaces.
+     */
+    private void rejectDuplicate(String dataspace, String did, String memberId, boolean hostedHere) {
+        repository.findByDid(did).stream()
+                .filter(Membership::isLive)
+                .filter(existing -> hostedHere || existing.dataspace().equals(dataspace))
+                .findFirst()
+                .ifPresent(existing -> {
+                    throw new DuplicateMembershipException("A membership for DID %s already exists: '%s' (%s, %s)"
+                            .formatted(did, existing.externalId(), existing.dataspace(), existing.state()));
+                });
+        if (isBlank(memberId)) {
+            // the dataspace assigns this member's id on registration (DECADE-X's TSP), or the hub
+            // generates one for a hosted member, checked as it is generated
+            return;
+        }
+        repository.findByMemberId(dataspace, memberId).stream().filter(Membership::isLive).findFirst().ifPresent(existing -> {
+            throw new DuplicateMembershipException("A %s membership for member id %s already exists: '%s' (%s)"
+                    .formatted(dataspace, memberId, existing.externalId(), existing.state()));
         });
     }
 
@@ -155,18 +206,19 @@ public class MembershipService {
     }
 
     /**
-     * Submits the registration and records the process id. The Onboarding API does the rest of the
-     * work this membership needs — assigning the BPN, registering the credential holder and having
-     * the IssuerService offer it the dataspace's credentials — and reports the outcome through the
-     * status callback, which may well arrive before this method returns.
+     * Submits the registration to the member's dataspace and records the process id. The
+     * dataspace's onboarding API does the rest of the work this membership needs — registering the
+     * credential holder and having the issuer offer it the dataspace's credentials — and reports
+     * the outcome through the status callback, which may well arrive before this method returns.
      */
     private Membership register(String externalId, String did, MemberData data) {
         String processId;
         try {
+            var onboarding = dataspaces.onboarding(data.dataspace());
             // Re-registered before every submission rather than once at startup: idempotent, and it
             // survives the callback store being reseeded underneath a long-running hub.
-            onboardingApi.registerCallback();
-            processId = onboardingApi.submitRegistration(externalId, did, data);
+            onboarding.registerCallback();
+            processId = onboarding.submitRegistration(externalId, did, data);
             log.info("Membership '{}' registered as onboarding process '{}'", externalId, processId);
         } catch (RuntimeException e) {
             log.error("Membership '{}' failed to submit its registration", externalId, e);
@@ -181,19 +233,43 @@ public class MembershipService {
     }
 
     /**
-     * Reacts to an Onboarding API status callback — the ONLY driver of the registration outcome,
-     * and now of the membership's terminal state: a confirmation means the holder is registered AND
-     * its credentials offered, so the record goes straight to CREDENTIALS_OFFERED. A redelivered
-     * confirmation against a record already there is ignored. DECLINED terminally rejects a
-     * not-yet-confirmed record (the internal REJECTED state — the wire value changed with the spec,
-     * the persisted enum did not); after a confirmation it is contradictory input and ignored.
+     * Reacts to a status callback of the given dataspace's onboarding API, in that API's own wire
+     * format — the dataspace's {@code DataspaceOnboarding} reads it. A callback naming a membership
+     * of ANOTHER dataspace is treated like an unknown one: it is not this API's to decide.
+     *
+     * @throws NoSuchElementException for an unknown external id, or one of another dataspace; and
+     *                                for a dataspace whose status is polled, which takes no callbacks
      */
-    public Membership onRegistrationStatus(String externalId, String status, String message) {
-        return switch (status == null ? "" : status.toUpperCase()) {
-            case "CONFIRMED" -> {
+    public Membership onRegistrationStatus(String dataspace, Map<String, Object> callback) {
+        var onboarding = dataspaces.onboarding(dataspace);
+        if (onboarding.pollsStatus()) {
+            throw new NoSuchElementException("%s reports registration status by polling, not callbacks".formatted(dataspace));
+        }
+        var outcome = onboarding.readCallback(callback);
+        var membership = current(outcome.externalId());
+        if (!Objects.equals(membership.dataspace(), dataspace)) {
+            throw new NoSuchElementException("No %s membership with external id %s".formatted(dataspace, outcome.externalId()));
+        }
+        return onRegistrationStatus(outcome);
+    }
+
+    /**
+     * Reacts to a normalized status — from a callback, or polled by the
+     * {@link RegistrationStatusPoller} — the ONLY driver of the registration outcome, and of the
+     * membership's terminal state: a confirmation means the holder is registered AND its
+     * credentials offered, so the record goes straight to CREDENTIALS_OFFERED. A redelivered
+     * confirmation against a record already there is ignored. DECLINED terminally rejects a
+     * not-yet-confirmed record (the internal REJECTED state); after a confirmation it is
+     * contradictory input and ignored.
+     */
+    Membership onRegistrationStatus(RegistrationOutcome outcome) {
+        var externalId = outcome.externalId();
+        var message = outcome.message();
+        return switch (outcome.status()) {
+            case CONFIRMED -> {
                 var membership = update(externalId, current ->
                         current.state().canAdvanceTo(MembershipState.CREDENTIALS_OFFERED)
-                                ? current.credentialsOffered()
+                                ? adoptAssignedMemberId(current.credentialsOffered(), outcome.assignedMemberId())
                                 : current);
                 if (membership.state() == MembershipState.CREDENTIALS_OFFERED) {
                     log.info("Membership '{}' confirmed — its credentials have been offered (did={})",
@@ -204,43 +280,72 @@ public class MembershipService {
                 }
                 yield membership;
             }
-            case "DECLINED" -> {
+            case DECLINED -> {
                 var membership = update(externalId, current ->
                         current.state().canAdvanceTo(MembershipState.REJECTED)
                                 ? current.rejected(message)
                                 : current);
                 if (membership.state() == MembershipState.REJECTED) {
-                    log.warn("Membership '{}' was declined by the Onboarding API: {}", externalId, message);
+                    log.warn("Membership '{}' was declined by the onboarding API: {}", externalId, message);
                 } else {
                     log.info("Membership '{}' is already {} — ignoring the DECLINED callback",
                             externalId, membership.state());
                 }
                 yield membership;
             }
-            default -> {
-                log.debug("Membership '{}' received status '{}' — nothing to do", externalId, status);
+            case PENDING -> {
+                log.debug("Membership '{}' received a pending status — nothing to do", externalId);
                 yield current(externalId);
             }
         };
     }
 
     /**
-     * All memberships registered under the given BPN — a plain repository read, deliberately
-     * WITHOUT the Tenant Manager refresh {@link #get} performs: callers use this to rediscover
-     * records (e.g. a permanent participant after a restart), not to poll provisioning progress.
+     * Records the member id the dataspace's onboarding assigned with its confirmation (DECADE-X's TSP
+     * assigns a DECADE-X-ID to an external member declaring none). A member id the record already
+     * holds stays: it is the one the member was provisioned under, and the onboarding echoes it back.
      */
-    public List<Membership> findByBpn(String bpn) {
-        return repository.findByBpn(bpn);
+    private static Membership adoptAssignedMemberId(Membership membership, String assignedMemberId) {
+        if (assignedMemberId == null || assignedMemberId.equals(membership.memberId())) {
+            return membership;
+        }
+        if (membership.memberId() != null) {
+            log.warn("Membership '{}': the onboarding API confirmed it under member id {}, not {} — keeping {}",
+                    membership.externalId(), assignedMemberId, membership.memberId(), membership.memberId());
+            return membership;
+        }
+        log.info("Membership '{}' was assigned member id {}", membership.externalId(), assignedMemberId);
+        return membership.withMemberId(assignedMemberId);
+    }
+
+    /**
+     * All memberships of the dataspace registered under the given member id — a plain repository
+     * read, deliberately WITHOUT the Tenant Manager refresh {@link #get} performs: callers use this
+     * to rediscover records (e.g. a permanent participant after a restart), not to poll
+     * provisioning progress.
+     */
+    public List<Membership> findByMemberId(String dataspace, String memberId) {
+        return repository.findByMemberId(dataspace, memberId);
     }
 
     /**
      * All memberships registered under the given DID, with the same read semantics as
-     * {@link #findByBpn}. This is the lookup for an externally hosted member, whose DID is the
+     * {@link #findByMemberId}, across dataspaces. This is the lookup for an externally hosted member, whose DID is the
      * one identity its operator knows up front — and the one a repeat onboarding would collide
      * with. A caller about to onboard such a member looks here first and reuses what it finds.
      */
     public List<Membership> findByDid(String did) {
         return repository.findByDid(did);
+    }
+
+    /**
+     * The memberships of the member hosted here under the given short name — those registered
+     * under the DID this hub mints for it ({@code participant.did.template} + short name), with the
+     * same read semantics as {@link #findByMemberId}. This is how a caller finds a hosted member
+     * again whose member id it did not choose (DECADE-X's verification participant).
+     */
+    public List<Membership> findByShortName(String shortName) {
+        return repository.findByDid(hostedDid(shortName));
     }
 
     /**
@@ -266,14 +371,12 @@ public class MembershipService {
      */
     private Membership deployParticipant(Membership membership, MemberData payload) {
         var externalId = membership.externalId();
-        var activeAgreements = payload.agreements().stream()
-                .filter(MemberData.AgreementConsent::hasActiveConsent)
-                .map(MemberData.AgreementConsent::agreementId)
-                .toList();
         log.info("Membership '{}' — provisioning EDC resources for did={}", externalId, membership.did());
         TenantManager.ProvisionedProfile profile;
         try {
-            profile = tenantManager.deployParticipant(membership, activeAgreements);
+            var issuerProperties = dataspaces.onboarding(membership.dataspace()).issuerProperties(membership.did(), payload);
+            var spec = dataspaces.deploymentSpec(membership.dataspace(), issuerProperties);
+            profile = tenantManager.deployParticipant(membership, spec);
         } catch (RuntimeException e) {
             log.error("Membership '{}' failed to provision", externalId, e);
             return fail(externalId, "Provisioning failed: " + e.getMessage());
@@ -355,6 +458,15 @@ public class MembershipService {
         }
         throw new IllegalStateException(
                 "Membership '%s' could not be updated after %d attempts".formatted(externalId, MAX_SAVE_ATTEMPTS), conflict);
+    }
+
+    /** The DID this hub mints for a member it hosts. */
+    private String hostedDid(String shortName) {
+        return didTemplate + shortName;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private Membership current(String externalId) {

@@ -3,8 +3,8 @@ package com.metaform.cxve.verification.domain.model;
 import java.util.List;
 
 /**
- * The steps a verification run can take — CX-0135 v3.0.0 Flow B (provider-initiated push) either
- * way, with the verification participant as the certificate CONSUMER and the participant-under-test
+ * The steps a verification run can take. So far there is one verifiable use case, CCM — the CCM
+ * standard's (Catena-X: CX-0135 v3.0.0) Flow B (provider-initiated push) either way, with the verification participant as the certificate CONSUMER and the participant-under-test
  * as the PROVIDER. Which steps a run actually has depends on where that participant lives, so the
  * two sequences are declared here rather than assumed by the flows:
  *
@@ -66,7 +66,7 @@ public enum RunStep {
     ACCEPT,
     EVALUATE_EVENTS;
 
-    /** The run whose participant this environment onboards and drives itself. */
+    /** The CCM run whose participant this environment onboards and drives itself. */
     public static final List<RunStep> MANAGED = List.of(
             ENSURE_VERIFICATION_PARTICIPANT,
             ONBOARD_PARTICIPANT,

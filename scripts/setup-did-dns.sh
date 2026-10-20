@@ -63,6 +63,10 @@ PORT=80
 SUT_ENTRIES=()
 SUT_SET=false
 SUT_CLEAR=false
+# Whose entries --sut / --sut-none manage: several external systems share the one managed block
+# (CoreDNS allows a single `hosts` plugin per server block), each owning the entries tagged with its
+# name. Without --sut-name, the whole block is the caller's.
+SUT_NAME=""
 
 # Fixed, as in install-ve.sh: the CFM agents hardcode system:serviceaccount:edc-v:… client ids
 NAMESPACE=edc-v
@@ -80,7 +84,8 @@ PROBE_IMAGE=debian:stable-slim
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [-c|--cluster <name>] [--pre] [-H|--host <host>] [-p|--port <port>]
-                       [--verify-only] [--sut <hostname>=<ip>]... [--sut-none] [-h|--help]
+                       [--verify-only] [--sut <hostname>=<ip>]... [--sut-name <name>] [--sut-none]
+                       [-h|--help]
 
 Options:
   -c, --cluster <name>  KinD cluster whose CoreDNS is configured (default: cxve). Kubeconfig is
@@ -99,9 +104,12 @@ Options:
                         enough. Use the address the pods can route to (for a SUT on the host
                         machine that is the host's LAN IP, not 127.0.0.1 — loopback inside a
                         pod is the pod itself).
-                        Replaces the managed SUT block; runs without it leave the block alone,
-                        so re-installing does not drop your entries.
-      --sut-none        remove the managed SUT block
+                        Replaces the managed SUT block (with --sut-name: only that system's
+                        entries in it); runs without it leave the block alone, so re-installing
+                        does not drop your entries.
+      --sut-name <name> the external system the --sut entries (or --sut-none) are for — keeps
+                        other systems' entries in the block, e.g. a second vendor stack's
+      --sut-none        remove the managed SUT block (with --sut-name: only that system's entries)
   -h, --help            show this help
 EOF
 }
@@ -120,6 +128,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "Error: --sut requires <hostname>=<ip>" >&2; usage >&2; exit 1; }
       [[ "$2" == *=* ]] || { echo "Error: --sut expects <hostname>=<ip>, got '$2'" >&2; exit 1; }
       SUT_ENTRIES+=("$2"); SUT_SET=true; shift 2 ;;
+    --sut-name)
+      [[ $# -ge 2 ]] || { echo "Error: --sut-name requires a name" >&2; usage >&2; exit 1; }
+      [[ "$2" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Error: --sut-name expects letters, digits, . _ -, got '$2'" >&2; exit 1; }
+      SUT_NAME="$2"; shift 2 ;;
     --sut-none) SUT_CLEAR=true; shift ;;
     --pre) PRE=true; shift ;;
     --verify-only) VERIFY_ONLY=true; shift ;;
@@ -329,32 +341,59 @@ apply_sut_block() { # <kubeconfig>
   local begin_marker="# BEGIN cx-ve did-dns:sut (managed by setup-did-dns.sh)"
   local end_marker="# END cx-ve did-dns:sut"
 
-  if [[ "$SUT_CLEAR" == "true" ]]; then
-    corefile "$kubeconfig" | strip_block "$begin_marker" "$end_marker" > "$GEN_DIR/Corefile.sut"
-    apply_corefile "$GEN_DIR/Corefile.sut" "removal of the external SUT entries"
+  [[ "$SUT_SET" == "true" || "$SUT_CLEAR" == "true" ]] || return 0
+
+  # The entries the block keeps: with --sut-name, every OTHER system's — an entry is tagged with
+  # its system's name (`# sut:<name>`, a Corefile comment the parser drops); untagged entries,
+  # written without --sut-name, belong to nobody in particular and are kept too. Without
+  # --sut-name the caller owns the whole block.
+  local kept=()
+  if [[ -n "$SUT_NAME" ]]; then
+    local line
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && kept+=("$line")
+    done < <(corefile "$kubeconfig" | awk -v b="$begin_marker" -v e="$end_marker" -v tag="# sut:$SUT_NAME" '
+      { t = $0; sub(/^[ \t]+/, "", t) }
+      t == b { inside = 1; next }
+      t == e { inside = 0; next }
+      # the tag ends the line exactly: "# sut:vendor" must not claim "# sut:vendor2"
+      inside && t ~ /^[0-9a-fA-F.:]+[ \t]/ && substr(t, length(t) - length(tag) + 1) != tag { print t }')
+  fi
+
+  local entry host ip tag=""
+  [[ -n "$SUT_NAME" ]] && tag=" # sut:$SUT_NAME"
+  local lines=("${kept[@]+"${kept[@]}"}")
+  if [[ "$SUT_SET" == "true" ]]; then
+    for entry in "${SUT_ENTRIES[@]}"; do
+      host="${entry%%=*}"; ip="${entry#*=}"
+      [[ -n "$host" && -n "$ip" ]] || { echo "Error: malformed --sut entry '$entry'" >&2; exit 1; }
+      lines+=("$ip $host$tag")
+    done
+  fi
+
+  corefile "$kubeconfig" | strip_block "$begin_marker" "$end_marker" > "$GEN_DIR/Corefile.base"
+  if (( ${#lines[@]} == 0 )); then
+    apply_corefile "$GEN_DIR/Corefile.base" "removal of the external SUT entries${SUT_NAME:+ of $SUT_NAME}"
     echo
     return
   fi
-  [[ "$SUT_SET" == "true" ]] || return 0
-
-  local entry host ip
   printf '    %s\n' "$begin_marker" > "$GEN_DIR/sutblock"
   printf '    hosts {\n' >> "$GEN_DIR/sutblock"
-  for entry in "${SUT_ENTRIES[@]}"; do
-    host="${entry%%=*}"; ip="${entry#*=}"
-    [[ -n "$host" && -n "$ip" ]] || { echo "Error: malformed --sut entry '$entry'" >&2; exit 1; }
-    printf '      %s %s\n' "$ip" "$host" >> "$GEN_DIR/sutblock"
+  for entry in "${lines[@]}"; do
+    printf '      %s\n' "$entry" >> "$GEN_DIR/sutblock"
   done
   # Without fallthrough the plugin answers NXDOMAIN for everything it does not list, which would
   # take out cluster DNS entirely.
   printf '      fallthrough\n    }\n' >> "$GEN_DIR/sutblock"
   printf '    %s\n' "$end_marker" >> "$GEN_DIR/sutblock"
 
-  corefile "$kubeconfig" \
-    | strip_block "$begin_marker" "$end_marker" \
-    | sed "/^\\.:53 {/r ${GEN_DIR}/sutblock" \
-    > "$GEN_DIR/Corefile.sut"
-  apply_corefile "$GEN_DIR/Corefile.sut" "external SUT entries (${SUT_ENTRIES[*]})"
+  sed "/^\\.:53 {/r ${GEN_DIR}/sutblock" "$GEN_DIR/Corefile.base" > "$GEN_DIR/Corefile.sut"
+  if [[ "$SUT_CLEAR" == "true" ]]; then
+    apply_corefile "$GEN_DIR/Corefile.sut" "removal of the external SUT entries of $SUT_NAME"
+    echo
+    return
+  fi
+  apply_corefile "$GEN_DIR/Corefile.sut" "external SUT entries${SUT_NAME:+ of $SUT_NAME} (${SUT_ENTRIES[*]})"
   echo
 
   echo ">> verifying the SUT hostnames resolve from inside the cluster"
