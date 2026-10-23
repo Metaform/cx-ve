@@ -20,7 +20,7 @@ dependencies:
   # infra (NATS/Vault/Postgres/telemetry) + generic platform seeding
   - name: core-platform-distribution
     repository: oci://ghcr.io/eclipse-cfm/charts
-    version: 0.0.32
+    version: 0.0.33
   # Catena-X dataspace seeding (issuer credentials, dataspace profile, EDC seed)
   - name: catenax-profile
     repository: oci://ghcr.io/metaform/charts
