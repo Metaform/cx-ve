@@ -95,122 +95,22 @@ verification:
     # design: a vendor accepting a credential offer or seeding an offer may involve a person.
     credentials-timeout: 15m                                    # VERIFICATION_EXTERNAL_CREDENTIALSTIMEOUT
     provider-offer-timeout: 15m                                 # VERIFICATION_EXTERNAL_PROVIDEROFFERTIMEOUT
-    publish-timeout: 15m                                        # VERIFICATION_EXTERNAL_PUBLISHTIMEOUT
+    # How long a certificate request the SUT does not fulfil at once may stay RECEIVED: the SUT's
+    # backend may have to issue the certificate first.
+    fulfillment-timeout: 15m                                    # VERIFICATION_EXTERNAL_FULFILLMENTTIMEOUT
 
   # The dataspaces a run can verify against, in the order the UI offers them, keyed by the
   # dataspace id the Membership Hub knows them by. A dataspace is offered as available only while
   # the hub serves it (GET /hub/api/dataspaces); a use case only when it is enabled here AND this
   # environment implements its verification (so far: ccm).
   dataspaces:
-    catena-x:
-      display-name: Catena-X
-      # What a member id is called and looks like here — the run form's label, placeholder and
-      # validation. Catena-X: the BPNL, the legal-entity BPN (CX-0010).
-      member-id:
-        label: BPN
-        pattern: "BPNL[0-9A-Z]{12}"
-        example: BPNL000000000001
-      # The DSP dataspace profile of every catalog, negotiation and transfer request — and the last
-      # segment of a provider's DSP address. Must be what the connector advertises.
-      dsp-profile: cx-neptune
-      # The policies of every offer this environment seeds. The leftOperands are Catena-X policy
-      # terms (in policy-context), each backed by a CEL expression the catenax-profile chart seeds;
-      # the rightOperands are placeholders — the CEL expressions check fixed credential claims.
-      policy-context: https://w3id.org/catenax/2025/9/policy/context.jsonld
-      access-constraints:
-        - { left-operand: Membership, operator: eq, right-operand: active }
-      contract-constraints:
-        - { left-operand: FrameworkAgreement, operator: eq, right-operand: "DataExchangeGovernance:1.0" }
-        - { left-operand: UsagePurpose, operator: isAnyOf, right-operand: "cx.pcf.base:1" }
-        - { left-operand: DataUsageEndDefinition, operator: eq, right-operand: "cx.dataUsageEnd.unlimited:1" }
-      # The Catena-X `registration` object of a hub member request (the CX-0009 registration
-      # beyond the common fields). The ACTIVE "Catena-X" agreement matters: it becomes the
-      # member's memberOf, which the Membership policy checks.
-      registration-template: |
-        {
-          "city": "Munich",
-          "streetName": "Otto-Hahn-Ring",
-          "countryAlpha2Code": "DE",
-          "region": "BY",
-          "uniqueIds": [ { "type": "VAT_ID", "value": "{{uniqueId}}" } ],
-          "companyRoles": [ "ACTIVE_PARTICIPANT" ],
-          "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
-          "userDetails": [ {
-            "providerId": "vui-user-{{uniqueId}}",
-            "firstName": "Verification", "lastName": "Runner",
-            "email": "vui-{{uniqueId}}@example.com"
-          } ]
-        }
-      # The dataspace's permanent verification participant. Its member id is the rediscovery key
-      # after restarts (hub lookup), so keep it stable; it is pinned rather than hash-derived to be
-      # readable in logs and the UI. The short name forms its hosted DID and must be unique across
-      # dataspaces (the hub deploys a DID only once).
-      verification-participant:
-        name: "Verification Participant"
-        short-name: verification-participant
-        member-id: BPNLVERIFY000001
-        unique-id: DEVERIFY0001
-      use-cases:
-        ccm:
-          display-name: Company Certificate Management
-          enabled: true
-          ccm:
-            # The verification participant's permanent CCM inbox asset (the push-flow target). The
-            # control plane's ids are unique across ALL participant contexts, so every dataspace's
-            # participant needs its own (checked at startup).
-            inbox-asset-id: ccm-inbox-verification
-            # CX-0135: how a CCM API offer is identified in a catalog — dct:type cx-taxo:CCMAPI, a
-            # dct:subject naming the provider or consumer API, and cx-common:version. This
-            # environment's own inbox declares the consumer API, a system under test's offer is
-            # looked up as the provider API. Asset ids play no part — a business partner may offer
-            # only one asset per API and version.
-            api:
-              taxonomy: "https://w3id.org/catenax/taxonomy#"
-              taxonomy-prefix: cx-taxo
-              version-property: "https://w3id.org/catenax/ontology/common#version"
-              version-prefix: cx-common
-              version: "3.0"
-            # The sample certificate a managed run publishes: its issuer and certified site (BPNs).
-            certificate:
-              issuer-name: Verification Environment CA
-              issuer-id: BPNL00000000ISSUER
-              site-id: BPNA00000000MAIN0
-            # The verdict's expected-events checklist: eventlog subject -> minimum count on the
-            # participant-under-test's log. The >=2 counts assume the provider-side controlplane
-            # events of both CCM flows carry the participant-under-test's context id — tune here
-            # (chart-overridable, no rebuild) if a live run shows different attribution.
-            expected-events:
-              "[events.onboarding.started]": 1
-              "[events.onboarding.completed]": 1
-              "[events.participantcontext.created]": 1
-              "[events.diddocument.published]": 1
-              "[events.keypair.added]": 1
-              "[events.issuance.credential.delivered]": 1
-              "[events.contract.negotiation.finalized]": 2
-              "[events.transfer.process.started]": 2
-              "[events.certificate.exchange.fulfilled]": 1
-              "[events.certificate.exchange.accepted]": 1
-            # The ledger checklist for an external participant. Deliberately short: the identity
-            # events above belong to wallets THIS environment provisions, and the exchange's own
-            # events carry the verification participant's context rather than the SUT's. What
-            # remains is what the tracker can honestly attribute to a participant hosted elsewhere —
-            # and the credential delivery is the load-bearing one: it proves the SUT accepted this
-            # environment's offer over DCP.
-            external-expected-events:
-              "[events.onboarding.started]": 1
-              "[events.onboarding.completed]": 1
-              "[events.issuance.credential.delivered]": 1
-        # Listed so operators see it exists; not verifiable yet (no implementation).
-        traceability:
-          display-name: Traceability
-          enabled: false
     # DECADE-X, onboarded through the dx-onboarding-api, the TSP onboarding intake (the hub's
     # dataspaces.decade-x): an approval has the platform's issuer offer the participant the
     # DX_LegalEntity_VC and DX_Site_VC, which its wallet then requests; the onboarding events it
     # publishes are what the compliance tracker follows the participant by. Still partly a PLACEHOLDER: the
     # policy vocabulary is unsettled (the offers this environment seeds carry no constraints, so
-    # nothing asks for the credential yet), and the CCM vocabulary assumes Certo's Catena-X API
-    # identity carries over.
+    # nothing asks for the credential yet). Certificates are exchanged as DSAF SCE defines it, which
+    # is what Certo's current release implements.
     decade-x:
       display-name: DECADE-X
       member-id:
@@ -222,10 +122,11 @@ verification:
         # before deploying it (its deployment needs it), for a system under test the one the TSP
         # assigned.
         assigned: true
-      # DECADE-X's own (seeded by the umbrella's decadex-profile): cx-neptune's DCP scopes ask for the
-      # Catena-X credentials, which a DECADE-X participant does not hold. A DID document still
-      # advertises cx-neptune (one platform-wide profile), so this is dialled explicitly.
+      # The DSP dataspace profile of every catalog, negotiation and transfer request — and the last
+      # segment of a provider's DSP address. DECADE-X's own, seeded by the umbrella's
+      # decadex-profile; must be what the connector advertises.
       dsp-profile: decade-x
+      # The JSON-LD context of the policies' terms, once offers carry constraints.
       policy-context: https://w3id.org/decadex/policy/context.jsonld
       # The TSP's onboarding request data, minus what the hub fills in itself (legal name, DID,
       # applicantReference); the hub also adds the placeholder GTC and UCA documents. The use case
@@ -251,7 +152,9 @@ verification:
           "ucas": [ { "useCaseId": "product-conformity", "versionNumber": "1.0" } ],
           "declarations": { "informationAccurate": true, "authorisedToAct": true, "evidenceMayBeRequested": true }
         }
-      # No member id: the hub generates its DECADE-X-ID; it is found again by its short name.
+      # The dataspace's permanent verification participant. No member id: the hub generates its
+      # DECADE-X-ID; it is found again by its short name, so keep that stable. The short name forms
+      # its hosted DID.
       verification-participant:
         name: "Verification Participant (DECADE-X)"
         short-name: verification-participant-dx
@@ -261,19 +164,30 @@ verification:
           display-name: Company Certificate Management
           enabled: true
           ccm:
+            # The verification participant's permanent CCM inbox asset (the push-flow target). The
+            # control plane's ids are unique across ALL participant contexts (checked at startup).
             inbox-asset-id: ccm-inbox-verification-dx
+            # How a CCM API offer is identified in a catalog, as DSAF SCE defines it: the dataset's
+            # dct:conformsTo names the API and the specification's major version. This
+            # environment's own inbox declares the consumer API, a system under test's offer is
+            # looked up as the provider API. Asset ids play no part.
             api:
-              taxonomy: "https://w3id.org/catenax/taxonomy#"
-              taxonomy-prefix: cx-taxo
-              version-property: "https://w3id.org/catenax/ontology/common#version"
-              version-prefix: cx-common
-              version: "3.0"
+              provider-api: "https://w3id.org/dsaf/sce/v1/provider-api"
+              consumer-api: "https://w3id.org/dsaf/sce/v1/consumer-api"
+            # The wire protocol Certo speaks to the counterparty, and the certificate type a run
+            # requests (and a managed run issues) — a lowercase code, as SCE requires.
+            protocol: sce-1.0
+            certificate-type: iso9001
+            # The issuer of the sample certificate a managed run issues; it is certified for the
+            # participant-under-test's DECADE-X-ID.
             certificate:
               issuer-name: Verification Environment CA
               issuer-id: DX-00000000
-              site-id: DX-00000000-MAIN
-            # The same subjects as Catena-X's, but every one a DECADE-X participant actually produces:
-            # the onboarding events are the dx-onboarding-api's own (type org.decade-x.onboarding.*),
+            # The verdict's expected-events checklist: eventlog subject -> minimum count on the
+            # participant-under-test's log. The >=2 counts assume the provider-side controlplane
+            # events of both CCM flows carry the participant-under-test's context id — tune here
+            # (chart-overridable, no rebuild) if a live run shows different attribution. The
+            # onboarding events are the dx-onboarding-api's own (type org.decade-x.onboarding.*),
             # which is what the compliance tracker follows the participant by; the credential
             # delivery is its DX_LegalEntity_VC's and DX_Site_VC's (one issuance, one delivery).
             expected-events:
@@ -287,8 +201,11 @@ verification:
               "[events.transfer.process.started]": 2
               "[events.certificate.exchange.fulfilled]": 1
               "[events.certificate.exchange.accepted]": 1
-            # An external participant's, as for Catena-X: its onboarding and the delivery of the
-            # credential it was offered — all the ledger can attribute to a participant hosted elsewhere.
+            # The ledger checklist for an external participant. Deliberately short: the identity
+            # events above belong to wallets THIS environment provisions, and the exchange's own
+            # events carry the verification participant's context rather than the SUT's. What
+            # remains is its onboarding and the delivery of the credential it was offered — all the
+            # ledger can attribute to a participant hosted elsewhere.
             external-expected-events:
               "[events.onboarding.started]": 1
               "[events.onboarding.completed]": 1

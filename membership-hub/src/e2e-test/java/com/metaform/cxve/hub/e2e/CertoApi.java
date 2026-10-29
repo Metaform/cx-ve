@@ -9,25 +9,27 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.Base64;
-import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.metaform.cxve.hub.e2e.TestLog.log;
 import static io.restassured.RestAssured.given;
-import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 /**
- * Minimal client for Certo's management API (CX-0135 CCM) through the VE gateway
+ * Minimal client for Certo's management API (DSAF SCE, wire protocol {@value #PROTOCOL}) through the VE gateway
  * ({@code http://<host>/api/certo/management/v1}). There is no clearglass on this route — Certo
  * validates the jwtlet bearer token itself (scope {@code certo-mgmt-api:write} covers all
  * management calls). {@code flowId} parameters name the LIVE data flow (an EDC transfer process
  * of the CCM transfer type, in STARTED) whose Siglet cache entry supplies the token + endpoint
- * for the outbound CCM call the management action triggers — the caller side must be the DSP
+ * for the outbound SCE call the management action triggers — the caller side must be the DSP
  * consumer of that flow, since only the DSP consumer's cache is populated.
  */
 public class CertoApi {
+
+    /** The counterparty's wire-protocol id, stated on every management call that goes out. */
+    static final String PROTOCOL = "sce-1.0";
 
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(2);
 
@@ -68,92 +70,68 @@ public class CertoApi {
     }
 
     /**
-     * Issues a certificate in the provider tenant referencing the uploaded document (state
-     * change only, notifies no one). Returns the certificateId.
+     * Issues an {@code iso9001} certificate in the provider tenant, its main location the holder's
+     * legal entity, referencing the uploaded document (state change only, notifies no one).
+     * Returns the certificateId.
      */
-    public String addCertificate(String pcid, String holderBpn, String documentId) {
-        return addCertificate(pcid, holderBpn, documentId, "CXVE-E2E-9001");
-    }
-
-    /**
-     * As {@link #addCertificate(String, String, String)}, with a caller-chosen registration number. The
-     * v2.4.0 bridge derives a pushed certificate's identity from {@code issuerBpn|registrationNumber}, so a
-     * run-scoped number keeps that derived identity unique per run — and gives the receiving side a value
-     * the test can assert the up-conversion against.
-     */
-    public String addCertificate(String pcid, String holderBpn, String documentId, String registrationNumber) {
+    public String addCertificate(String pcid, String holderLegalEntityId, String documentId) {
         var body = """
                 {
-                  "certificateType": "ISO9001",
+                  "certificateType": "iso9001",
                   "certificateTypeVersion": "2015",
-                  "registrationNumber": "%s",
+                  "registrationNumber": "CXVE-E2E-9001",
                   "validFrom": "2026-01-01",
                   "validUntil": "2030-01-01",
-                  "trustLevel": "high",
                   "certifiedLocations": [{
-                    "bpnl": "%s",
-                    "bpna": "BPNA00000000MAIN0",
+                    "legalEntityId": "%s",
                     "locationRole": "MAIN_LOCATION"
                   }],
-                  "issuer": {"issuerName": "CXVE e2e CA", "issuerBpn": "BPNL00000000ISSUER"},
+                  "issuer": {"issuerName": "CXVE e2e CA", "issuerId": "DX-ISSUER"},
                   "documentIds": ["%s"]
-                }""".formatted(registrationNumber, holderBpn, documentId);
+                }""".formatted(holderLegalEntityId, documentId);
         var response = post("/participant-contexts/%s/certificates".formatted(pcid), body);
         expect2xx(response, "certificate");
-        var certificateId = json(response).path("certificateId").asText();
-        log("   Certo API:       certificate issued: %s (ISO9001, holder %s)", certificateId, holderBpn);
+        var created = json(response);
+        var certificateId = created.path("certificateId").asText();
+        log("   Certo API:       certificate issued: %s (iso9001 r%d, holder %s)",
+                certificateId, created.path("revision").asInt(), holderLegalEntityId);
         return certificateId;
     }
 
     /**
-     * Flow B publish: opens a FULFILLED exchange and pushes a lifecycle CREATED event to the
-     * named consumer over {@code flowId}. Returns the exchangeId; asserts the consumer was
-     * actually notified (the push CloudEvent was delivered 2xx). Retried on 5xx and on
-     * consumerNotified=false: certo resolves the flow token from siglet on every attempt, and
-     * that resolution can fail transiently right after provisioning (siglet authenticates to
-     * Vault per participant context via a jwtlet mapping the siglet agent has only just
-     * created). The stable idempotencyKey makes the repeat reuse the SAME exchange and just
-     * re-notify instead of opening a duplicate.
+     * Single-target lifecycle push: notifies the named consumer of the certificate's current
+     * lifecycle state ({@code AVAILABLE} for a fresh certificate) over {@code flowId}. Lifecycle
+     * only — it opens no exchange. Asserts the consumer was actually notified (the push CloudEvent
+     * was delivered 2xx). Retried on 5xx and on consumerNotified=false: certo resolves the flow
+     * token from siglet on every attempt, and that resolution can fail transiently right after
+     * provisioning (siglet authenticates to Vault per participant context via a jwtlet mapping the
+     * siglet agent has only just created). Every attempt carries the SAME messageId, so the
+     * consumer dedups a re-send as the same event.
      */
-    public String publish(String pcid, String certificateId, String consumerBpn, String consumerDid, String flowId) {
-        return publish(pcid, certificateId, consumerBpn, consumerDid, flowId, "3.0.0", false);
-    }
-
-    /**
-     * As {@link #publish(String, String, String, String, String)}, over an explicit protocol version and
-     * delivery mode. {@code protocolVersion} {@code "2.4.0"} renders the legacy wire form (certo
-     * docs/FLOWS.md Flow F3): {@code embedded} true delivers the full certificate inline to the consumer's
-     * {@code /companycertificate/push}, false only announces it on {@code /companycertificate/available}
-     * (ack-only — no content, and nothing to retrieve). Same retry + notification assertions as the native
-     * publish.
-     */
-    public String publish(String pcid, String certificateId, String consumerBpn, String consumerDid,
-                          String flowId, String protocolVersion, boolean embedded) {
+    public void notify(String pcid, String certificateId, String consumerDid, String flowId) {
         var body = """
-                {"consumerBpn": "%s", "consumerDid": "%s", "flowId": "%s", "idempotencyKey": "e2e-%s", \
-                "protocolVersion": "%s", "embedded": %b}"""
-                .formatted(consumerBpn, consumerDid, flowId, certificateId, protocolVersion, embedded);
+                {"messageId": "%s", "protocol": "%s", "consumerId": "%s", "flowId": "%s"}"""
+                .formatted(UUID.randomUUID(), PROTOCOL, consumerDid, flowId);
         var result = new AtomicReference<JsonNode>();
         await().atMost(Duration.ofMinutes(2)).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
-            var response = post("/participant-contexts/%s/certificates/%s/publish".formatted(pcid, certificateId), body);
-            expectSuccessOrRetry(response, "publish of certificate " + certificateId);
-            var publication = json(response);
-            assertThat(publication.path("consumerNotified").asBoolean())
-                    .withFailMessage("publish accepted but the consumer was NOT notified — the push "
-                                     + "CloudEvent to the consumer's certificate-notifications endpoint failed "
-                                     + "(check the flow token / siglet cache / certo logs): %s", publication)
+            var response = post("/participant-contexts/%s/certificates/%s/notify".formatted(pcid, certificateId), body);
+            expectSuccessOrRetry(response, "notify of certificate " + certificateId);
+            var notification = json(response);
+            assertThat(notification.path("consumerNotified").asBoolean())
+                    .withFailMessage("notify accepted but the consumer was NOT notified — the push "
+                                     + "CloudEvent to the consumer API failed "
+                                     + "(check the flow token / siglet cache / certo logs): %s", notification)
                     .isTrue();
-            result.set(publication);
+            result.set(notification);
         });
-        var exchangeId = result.get().path("exchangeId").asText();
-        log("   Certo API:       certificate published, consumer notified (exchange %s)", exchangeId);
-        return exchangeId;
+        log("   Certo API:       consumer notified: certificate %s %s r%d", certificateId,
+                result.get().path("lifecycleStatus").asText(), result.get().path("revision").asInt());
     }
 
     /**
      * Client-driven retrieve on the consumer tenant: pulls the certificate metadata + document
      * binaries from the provider over {@code flowId} for inspection before the verdict.
-     * Retried on 5xx (see {@link #publish}); the pull is idempotent.
+     * Retried on 5xx (see {@link #notify}); the pull is idempotent.
      */
     public JsonNode retrieve(String pcid, String exchangeId, String flowId) {
         var result = new AtomicReference<JsonNode>();
@@ -173,38 +151,6 @@ public class CertoApi {
     }
 
     /**
-     * Retrieve WITHOUT a flow: an exchange whose content arrived <b>inline</b> (an embedded v2.4.0 push) is
-     * served from what the consumer kept, so no pull — and no flow token — is involved. The management
-     * endpoint's {@code flowId} is optional for exactly that case; omitting it here is what proves the
-     * content travelled with the push rather than being fetched afterwards.
-     */
-    public JsonNode retrieveEmbedded(String pcid, String exchangeId) {
-        var response = given()
-                .baseUri(baseUrl)
-                .header("Authorization", "Bearer " + token)
-                .post("/participant-contexts/%s/consumer/exchanges/%s/retrieve".formatted(pcid, exchangeId));
-        expectSuccessOrRetry(response, "inline retrieve of exchange " + exchangeId);
-        var retrieved = json(response);
-        log("   Certo API:       certificate retrieved inline: %s (%d document(s), no pull)",
-                retrieved.path("certificate").path("certificateId").asText(), retrieved.path("documents").size());
-        return retrieved;
-    }
-
-    /**
-     * The consumer's reconciliation query: with {@code awaitingAcceptanceOnly} the exchanges still needing a
-     * client's action (FULFILLED and undecided, or decided but whose report never landed), otherwise every
-     * exchange of the tenant. This is the only way to find an exchange a v2.4.0 push opened — 2.4.0 carries
-     * no exchangeId, so the receiving side minted a consumer-local surrogate the pushing side never learns.
-     */
-    public JsonNode consumerExchanges(String pcid, boolean awaitingAcceptanceOnly) {
-        var body = """
-                {"awaitingAcceptanceOnly": %b}""".formatted(awaitingAcceptanceOnly);
-        var response = post("/participant-contexts/%s/consumer/exchanges/query".formatted(pcid), body);
-        expectSuccessOrRetry(response, "consumer exchange query in " + pcid);
-        return json(response);
-    }
-
-    /**
      * Client-driven terminal verdict on the consumer tenant, reported back over {@code flowId}.
      * Safe to re-drive: a repeat with the SAME verdict skips the state transition and only
      * re-reports to the provider — certo's documented recovery for a lost (best-effort,
@@ -220,36 +166,35 @@ public class CertoApi {
     }
 
     /**
-     * Opens a consumer-INITIATED request on the consumer tenant: asks the provider for a certificate
-     * of {@code certificateType} covering {@code locations}. Unlike {@link #publish}, which opens an
-     * exchange already {@code FULFILLED}, this enters the CX-0135 §2.1.3 state machine at its start —
-     * the provider has nothing to deliver yet.
+     * Opens a certificate request on the consumer tenant: asks the provider (by DID) for a
+     * certificate of {@code certificateType} whose locations cover {@code legalEntityId}. A
+     * certificate the provider already holds fulfills it immediately ({@code FULFILLED}, the
+     * certificate identity disclosed); otherwise the exchange waits in {@code RECEIVED} until the
+     * provider fulfills it.
      *
-     * <p>Retried on 5xx for the same reason as {@link #publish}: the outbound request-open resolves a
-     * flow token from siglet, which can fail transiently just after provisioning. certo resolves a
-     * repeat as find-or-create over a still-live exchange, so the retry reuses it rather than opening
-     * a duplicate.
+     * <p>Retried on 5xx for the same reason as {@link #notify}: the outbound request resolves a
+     * flow token from siglet, which can fail transiently just after provisioning. Every attempt
+     * carries the SAME messageId, on which the provider's exchange creation is idempotent, so a
+     * retry gets the already-created exchange back rather than opening a duplicate.
      *
-     * @return the opened exchange id
+     * @return the consumer's request view ({@code exchangeId}, {@code fulfillmentStatus}, ...)
      */
-    public String initiateRequest(String pcid, String providerBpn, String providerDid,
-                                  String certificateType, List<String> locations, String flowId) {
-        var quotedLocations = locations.stream().map("\"%s\""::formatted).collect(joining(", "));
+    public JsonNode requestCertificate(String pcid, String providerDid, String certificateType,
+                                       String legalEntityId, String flowId) {
         var body = """
-                {"providerBpn": "%s", "providerDid": "%s", "certificateType": "%s", \
-                "certifiedLocations": [%s], "flowId": "%s"}"""
-                .formatted(providerBpn, providerDid, certificateType, quotedLocations, flowId);
+                {"messageId": "%s", "protocol": "%s", "providerId": "%s", "certificateType": "%s", \
+                "certifiedLocations": [{"legalEntityId": "%s"}], "flowId": "%s"}"""
+                .formatted(UUID.randomUUID(), PROTOCOL, providerDid, certificateType, legalEntityId, flowId);
         var result = new AtomicReference<JsonNode>();
         await().atMost(Duration.ofMinutes(2)).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
             var response = post("/participant-contexts/%s/consumer/certificate-requests".formatted(pcid), body);
-            expectSuccessOrRetry(response, "certificate request to " + providerBpn);
+            expectSuccessOrRetry(response, "certificate request to " + providerDid);
             result.set(json(response));
         });
         var request = result.get();
-        var exchangeId = request.path("exchangeId").asText();
         log("   Certo API:       certificate request opened (exchange %s, status %s)",
-                exchangeId, request.path("fulfillmentStatus").asText());
-        return exchangeId;
+                request.path("exchangeId").asText(), request.path("fulfillmentStatus").asText());
+        return request;
     }
 
     /** The consumer's tracked view of a request it opened. */

@@ -45,8 +45,8 @@ public class RunService {
      * participant is onboarded into this environment and driven end to end.
      *
      * <p>The member id is REQUIRED (the catalog checks it against the dataspace's format). This
-     * environment issues the participant's member credential for exactly that value (Catena-X: the
-     * BpnCredential), and an external system's is agreed with its operator — Certo checks its
+     * environment issues the participant's member credential for exactly that value, and an
+     * external system's is agreed with its operator — Certo checks its
      * certificates against it — so nothing here may substitute a derived placeholder for a missing
      * one. The exception is a dataspace that ASSIGNS its members' ids (DECADE-X): the run comes
      * without one, and adopts the one the participant's membership gets.

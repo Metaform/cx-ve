@@ -9,6 +9,7 @@ import com.metaform.cxve.verification.domain.model.DidDocument;
 import com.metaform.cxve.verification.domain.model.Membership;
 import com.metaform.cxve.verification.domain.model.RunStep;
 import com.metaform.cxve.verification.domain.model.VerificationRun;
+import java.time.Duration;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,23 +18,24 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * A verification run against a THIRD-PARTY system: an alternative vendor's connector and wallet,
- * already running outside this environment and reachable only over DSP and DCP. Same CX-0135
- * v3.0.0 Flow B exchange as the managed run, with the verification participant as the certificate
- * consumer — but this environment drives only its own half.
+ * already running outside this environment and reachable only over DSP and DCP. Same DSAF SCE
+ * exchange as the managed run, with the verification participant as the certificate consumer —
+ * but this environment drives only its own half: it requests a certificate for the SUT's member id
+ * and takes it from there.
  *
  * <p>Everything on the system-under-test's side is an obligation IT fulfils, in its own time and
  * with whatever tooling it has (docs/sut-verification.md): requesting the credentials this
- * environment's issuer offers it, seeding the certificate offer this environment's participant
- * then consumes, and pushing a certificate over a flow it establishes itself. So the steps here
- * that concern the SUT are waits, not calls, and their timeouts bound a vendor's turnaround
+ * environment's issuer offers it, seeding the provider-API offer this environment's participant
+ * then consumes, and holding — or issuing, once asked — the requested certificate. So the steps
+ * here that concern the SUT are waits, not calls, and their timeouts bound a vendor's turnaround
  * rather than a deployment's — the operator is expected to stop a run rather than have it time
  * out at them.
  *
  * <p>What this costs in assertion strength is deliberate and worth naming: the certificate
  * arrives with content this environment never uploaded, so {@code RETRIEVE_AND_VERIFY} can only
  * check the delivery against itself, not against a known original. The exchange having happened
- * at all — a real negotiation, a real transfer, a real push, all under credentials this
- * environment's issuer signed — is the finding.
+ * at all — a real negotiation, a real transfer, a real request and retrieval, all under
+ * credentials this environment's issuer signed — is the finding.
  */
 @Component
 public class ExternalCertificateExchangeFlow {
@@ -115,11 +117,12 @@ public class ExternalCertificateExchangeFlow {
                             external.providerOfferTimeout()),
                     flow -> "flowId %s (dataset '%s')".formatted(flow.flowId(), flow.datasetId())).flowId();
 
-            var pushed = support.step(run, RunStep.AWAIT_PUBLISHED_CERTIFICATE,
-                    () -> awaitPushedExchange(vp.participantContextId(), external.publishTimeout()),
-                    exchange -> "exchange %s (certificate %s)".formatted(
+            var fulfilled = support.step(run, RunStep.REQUEST_CERTIFICATE,
+                    () -> requestCertificate(run, vp.participantContextId(), ccm, flowIdPull,
+                            external.fulfillmentTimeout()),
+                    exchange -> "exchange %s FULFILLED (certificate %s)".formatted(
                             exchange.path("exchangeId").asText(), exchange.path("certificateId").asText()));
-            var exchangeId = pushed.path("exchangeId").asText();
+            var exchangeId = fulfilled.path("exchangeId").asText();
 
             support.step(run, RunStep.RETRIEVE_AND_VERIFY,
                     () -> retrieveAndVerify(vp.participantContextId(), exchangeId, flowIdPull),
@@ -177,27 +180,36 @@ public class ExternalCertificateExchangeFlow {
     }
 
     /**
-     * Waits for a certificate to arrive on the verification participant. Nothing on the wire
-     * identifies it — the push opens the exchange on this side — so the consumer's reconciliation
-     * query is the only way to see it, and exactly one exchange awaiting acceptance is expected:
-     * the verification participant's inbox is otherwise idle for the length of a run.
+     * The verification participant asks the SUT for a certificate of the dataspace's type certified
+     * for the SUT's own member id. A provider holding one fulfils at once; one that does not leaves
+     * the request RECEIVED until its backend issues the certificate and fulfils it, which this
+     * environment observes by polling the SUT over the pull flow — so whether the SUT notifies about
+     * the fulfillment does not matter. DECLINED ends the run with the SUT's stated grounds.
      */
-    private JsonNode awaitPushedExchange(String consumerPcid, java.time.Duration timeout) {
-        return Poller.poll("a certificate pushed to the verification participant", timeout,
-                properties.pollInterval(), () -> {
-                    var items = certo.consumerExchanges(consumerPcid, true).path("items");
-                    if (items.isEmpty()) {
-                        throw new Poller.RetryException("no exchange awaiting acceptance yet");
-                    }
-                    if (items.size() > 1) {
-                        // Ambiguous rather than wrong: picking one would silently verify an
-                        // unrelated push (a concurrent run, or a leftover never accepted).
-                        throw new VerificationException(("%d exchanges are awaiting acceptance on the "
-                                + "verification participant — cannot tell which one this run's SUT pushed")
-                                .formatted(items.size()));
-                    }
-                    return items.path(0);
-                });
+    private JsonNode requestCertificate(VerificationRun run, String consumerPcid, VerificationProperties.Ccm ccm,
+                                        String flowIdPull, Duration timeout) {
+        var request = certo.requestCertificate(consumerPcid, RunFlowSupport.messageId(run, "request"), ccm.protocol(),
+                run.declaredDid(), ccm.certificateType(), run.memberId(), flowIdPull);
+        var exchangeId = request.path("exchangeId").asText();
+        if (!"RECEIVED".equals(request.path("fulfillmentStatus").asText())) {
+            return settled(exchangeId, request);
+        }
+        log.info("run {}: the SUT holds no matching certificate yet, exchange {} RECEIVED", run.id(), exchangeId);
+        return Poller.poll("exchange %s to be fulfilled by the SUT".formatted(exchangeId), timeout,
+                properties.pollInterval(), () -> settled(exchangeId, certo.pollRequest(consumerPcid, exchangeId, flowIdPull)));
+    }
+
+    /** The request's view once the SUT has decided it; still RECEIVED is "not yet". */
+    private static JsonNode settled(String exchangeId, JsonNode request) {
+        var status = request.path("fulfillmentStatus").asText();
+        return switch (status) {
+            case "FULFILLED" -> request;
+            case "DECLINED" -> throw new VerificationException("the SUT declined the certificate request (exchange %s): %s"
+                    .formatted(exchangeId, request.path("errors")));
+            case "RECEIVED" -> throw new Poller.RetryException("exchange %s is still RECEIVED on the SUT".formatted(exchangeId));
+            default -> throw new VerificationException("unexpected fulfillment status of exchange %s: %s"
+                    .formatted(exchangeId, request));
+        };
     }
 
     /**

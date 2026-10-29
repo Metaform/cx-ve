@@ -15,7 +15,7 @@
 ## its own. Credentials from the local issuer would not just be redundant, they would break the
 ## verification — the VE does not trust this stack's issuer, and a presentation carrying a single
 ## credential from an untrusted issuer is rejected as a whole. (The cfm.issuer VPA properties
-## still travel with the profile: the certo activity reads the BPN from them.)
+## still travel with the profile: the certo activity reads the member id from them.)
 ##
 ## A PLATFORM upgrade re-runs the platform's seed job and overwrites this definition again; this
 ## stack is only ever installed from scratch (install.sh), so that cannot happen here.
@@ -30,7 +30,7 @@ metadata:
     "helm.sh/hook": post-install,post-upgrade
     # Weight 220: MUST run after the platform's provision-manager-seed (weight 20) — both write
     # the same orchestration definition and the later writer wins. 220 also puts it after the
-    # catenax-profile seeds (110-130) and the certo jwtlet seed (210).
+    # decadex-profile seeds (140-150) and the certo jwtlet seed (210).
     "helm.sh/hook-weight": "220"
     "helm.sh/hook-delete-policy": {{ .Values.certoAgent.seed.hookDeletePolicy | quote }}
 spec:
@@ -132,7 +132,7 @@ spec:
                 -H "Authorization: Bearer ${EXCHANGED_TOKEN}" \
                 -H "Content-Type: application/json" \
                 -d '{
-                  "description": "Provisions the participant context in Certo (CX-0135 certificate exchange)",
+                  "description": "Provisions the participant context in Certo (SCE certificate exchange)",
                   "inputSchema": {},
                   "outputSchema": {},
                   "type": "certo-activity"

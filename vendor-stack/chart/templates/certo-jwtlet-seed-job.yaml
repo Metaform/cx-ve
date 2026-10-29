@@ -11,7 +11,7 @@ metadata:
     {{- include "vendor-stack.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
-    # Weight 210: after the platform's seeds (10/20) and the catenax-profile ones (110-130). Only
+    # Weight 210: after the platform's seeds (10/20) and the decadex-profile ones (140-150). Only
     # jwtlet must be up (the init container waits); the slot matches charts/cx-ve.
     "helm.sh/hook-weight": "210"
     "helm.sh/hook-delete-policy": {{ .Values.jwtlet.seed.hookDeletePolicy | quote }}

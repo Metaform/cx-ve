@@ -1,28 +1,28 @@
 # Configuration of the vendor stack: a system under test assembled from the VE's own components,
-# installed by vendor-stack/install.sh into its own kind cluster (cluster "vendor", release
-# "vendor-stack", namespace edc-v, host vendor.localhost, gateway port 8080).
+# installed by vendor-stack/install.sh into its own kind cluster (cluster "dx-vendor", release
+# "vendor-stack", namespace edc-v, host dx-vendor.localhost, gateway port 8081).
 #
 # Everything platform- and profile-related mirrors charts/cx-ve/values.yaml — see the comments
 # there for the why of each block; only what differs for a counterparty living OUTSIDE the VE is
-# explained here. The VE's applications (Onboarding API, Membership Hub, Verification UI,
+# explained here. The VE's applications (DECADE-X onboarding API, Membership Hub, Verification UI,
 # Compliance Tracker, OSP IdP) are deliberately absent: a vendor operates its stack with its own
 # tooling, which here is vendor-stack/scripts/.
 #
 # Host-derived keys are overridden by install.sh from its --host/--http-port options.
 
 global:
-  host: vendor.localhost
+  host: dx-vendor.localhost
   # Fixed: the CFM agents hardcode system:serviceaccount:edc-v:… client ids.
   namespace: edc-v
   gatewayName: edcv-gateway
-  # The gateway is published on port 8080 — the VE's cluster already holds 80 on the host.
-  # Carrying the port in every advertised URL and DID (did:web:identity.vendor.localhost%3A8080:…)
+  # The gateway is published on port 8081 — the VE's cluster already holds 80 on the host.
+  # Carrying the port in every advertised URL and DID (did:web:identity.dx-vendor.localhost%3A8081:…)
   # makes the SAME address work from everywhere that dereferences it: the operator's machine
   # (kind host-port mapping), the VE's pods (CoreDNS hosts entry → this node's IP, where Traefik
-  # binds hostPort 8080) and this cluster's own pods (CoreDNS rewrite → the Traefik Service,
-  # exposed on 8080). A portless identity would resolve to the VE's gateway on the host.
+  # binds hostPort 8081) and this cluster's own pods (CoreDNS rewrite → the Traefik Service,
+  # exposed on 8081). A portless identity would resolve to the VE's gateway on the host.
   external:
-    port: 8080
+    port: 8081
     scheme: http
 
 # ---- Core Platform Distribution --------------------------------------------------------------
@@ -44,17 +44,13 @@ core-platform-distribution:
       trustedIssuers: []
       dataspaceProfiles:
         # A counterparty finds this stack's DSP endpoint ONLY through the DID document, so it must
-        # advertise the profile the connector actually serves — the stack's dataspace's
-        # (install.sh -d decade-x sets decade-x).
-        advertisedProfile: cx-neptune
-    identityhub:
-      scopes:
-        - name: membership
-          pattern: 'org\.eclipse\.tractusx\.vc\.type:(.+):(read|\*|all)'
-          leftOperand: "verifiableCredential.credential.type"
-          operator: "contains"
-          rightOperand: "$1"
+        # advertise the profile the connector actually serves — DECADE-X's (decadex-profile below).
+        advertisedProfile: decade-x
     siglet:
+      # HTTP only, like the VE: without this, siglet rejects the counterparty's plain-http token
+      # refresh endpoint and every transfer this stack consumes terminates with "SDK error".
+      refreshEndpointPolicy:
+        allowHttp: true
       # The Data Plane Signaling HTTP transfer profile, pull direction
       # (https://eclipse-dataplane-signaling.github.io/profiles/HEAD/#transfer-profiles): the
       # transfer type is the profile value, and the endpointType of the DataAddress Siglet hands
@@ -89,44 +85,36 @@ core-platform-distribution:
       - { db: jwtlet,        user: jwtlet,  password: jwtlet }
       - { db: certo,         user: certo,   password: certo }
 
-# ---- Catena-X profile seeding ----------------------------------------------------------------
-catenax-profile:
+# ---- DECADE-X profile seeding ------------------------------------------------------------------
+# DECADE-X's DSP profile (decade-x) and the DCP scope asking for the DX_LegalEntity_VC — what the
+# VE's verification participant is dialled under and presents — and the tenant-manager dataspace
+# profile participant provisioning needs. install.sh sets the DIDs (host-derived).
+decadex-profile:
   issuer:
     # This stack's own issuer — the platform always deploys one and the profile always trusts it.
     # It issues nothing to the vendor participant: see the orchestration in
     # templates/certo-activity-seed-job.yaml.
-    did: "did:web:issuer.vendor.localhost%3A8080:issuer"
-    # The VE's issuer. Everything this stack's participant holds, and everything the VE's
-    # verification participant presents to it, is signed by that issuer — without this entry
+    did: "did:web:issuer.dx-vendor.localhost%3A8081:issuer"
+    # The VE's issuer, which signed the DX_LegalEntity_VCs both sides present — without this entry
     # every DSP request from the VE fails credential verification here.
     trustedIssuers:
       - "did:web:issuer.cxve.localhost:issuer"
-
-# ---- DECADE-X profile seeding ------------------------------------------------------------------
-# A DECADE-X stack's DSP profile (decade-x) and the DCP scope asking for the DX_LegalEntity_VC — what
-# the VE's DECADE-X verification participant is dialled under and presents. Off for a
-# Catena-X stack; install.sh -d decade-x turns it on and sets the DIDs (host-derived).
-decadex-profile:
-  enabled: false
-  issuer:
-    # this stack's own issuer, and the VE's — which signed the DX_LegalEntity_VCs both sides
-    # present
-    did: "did:web:issuer.dx-vendor.localhost%3A8081:issuer"
-    trustedIssuers:
-      - "did:web:issuer.cxve.localhost:issuer"
   seedJobs:
-    # the stack's own issuer issues nothing (see templates/certo-activity-seed-job.yaml)
+    # the stack's own issuer issues nothing
     issuerCredentials:
       enabled: false
+    tenantManagerProfile:
+      # the DECADE-X credentials are the VE's issuer's
+      credentialIssuer: "did:web:issuer.cxve.localhost:issuer"
 
-# ---- Certo (CX-0135 certificate exchange) ----------------------------------------------------
+# ---- Certo (DSAF SCE certificate exchange) ---------------------------------------------------
 certo:
   enabled: true
   gateway:
     name: edcv-gateway
     namespace: edc-v
     hostnames:
-      - vendor.localhost
+      - dx-vendor.localhost
     pathPrefix: /api/certo
   # In-cluster on purpose: certo calls siglet without a bearer token (see charts/cx-ve/values.yaml).
   sigletBaseUrl: "http://siglet.edc-v.svc.cluster.local:8080"
@@ -135,7 +123,6 @@ certo:
     url: http://jwtlet.edc-v.svc.cluster.local:8080/token
     audience: edcv
     scope: siglet-token
-    verifyResource: sudo
     subjectTokenAudience: https://kubernetes.default.svc.cluster.local
   events:
     nats:

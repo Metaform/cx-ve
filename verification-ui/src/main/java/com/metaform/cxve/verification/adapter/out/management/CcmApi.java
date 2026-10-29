@@ -1,125 +1,88 @@
 package com.metaform.cxve.verification.adapter.out.management;
 
 import com.metaform.cxve.verification.config.VerificationProperties.CcmApiVocabulary;
-import java.util.ArrayList;
+import java.util.List;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
- * A certificate management API as a dataspace's CCM standard identifies it in a catalog (Catena-X:
- * CX-0135): not by asset id, which is every participant's own choice, but by three asset
- * properties — {@code dct:type} {@code <taxonomy>CCMAPI}, a {@code dct:subject} naming the API,
- * and a version property. The standard allows one asset per subject and version per business
- * partner, so a catalog either offers the API exactly once, not yet, or in violation. The
- * vocabulary is the dataspace's ({@link CcmApiVocabulary}).
+ * A certificate exchange API as a dataspace's CCM standard identifies it in a catalog (Certo's
+ * current release: DSAF SCE): not by asset id, which is every participant's own choice, but by the
+ * dataset's {@code dct:conformsTo} value, which names the API and the specification's major
+ * version. The standard has a participant publish one dataset per API, so a catalog either offers
+ * the API exactly once, not yet, or in violation. The conformance IRIs are the dataspace's
+ * ({@link CcmApiVocabulary}).
  *
  * <p>Written with full IRIs: the management API accepts only context URLs, not inline prefix
  * definitions, so prefixed names in an asset body would not expand.
  */
-public record CcmApi(CcmApiVocabulary vocabulary, String subject) {
+public record CcmApi(String conformsTo) {
 
-    /** The API a certificate provider offers: retrieve certificates, receive acceptance feedback. */
-    public static final String PROVIDER_API = "CompanyCertificateManagementProviderApi";
-    /** The API a certificate consumer offers: receive certificate lifecycle notifications (the push). */
-    public static final String CONSUMER_API = "CompanyCertificateManagementConsumerApi";
+    private static final String CONFORMS_TO = "http://purl.org/dc/terms/conformsTo";
 
-    private static final String TYPE = "CCMAPI";
-    private static final String DCT = "http://purl.org/dc/terms/";
-
+    /** The API a certificate provider offers: answer requests, serve certificates, receive acceptance feedback. */
     public static CcmApi provider(CcmApiVocabulary vocabulary) {
-        return new CcmApi(vocabulary, vocabulary.taxonomy() + PROVIDER_API);
+        return new CcmApi(vocabulary.providerApi());
     }
 
+    /** The API a certificate consumer offers: receive lifecycle and fulfillment notifications. */
     public static CcmApi consumer(CcmApiVocabulary vocabulary) {
-        return new CcmApi(vocabulary, vocabulary.taxonomy() + CONSUMER_API);
-    }
-
-    public String version() {
-        return vocabulary.version();
+        return new CcmApi(vocabulary.consumerApi());
     }
 
     /** The asset properties that make an asset offer this API. */
     ObjectNode assetProperties(ObjectMapper mapper) {
         var properties = mapper.createObjectNode();
-        properties.putObject(DCT + "type").put("@id", vocabulary.taxonomy() + TYPE);
-        properties.putObject(DCT + "subject").put("@id", subject);
-        properties.put(vocabulary.versionProperty(), version());
+        properties.putObject(CONFORMS_TO).put("@id", conformsTo);
         return properties;
     }
 
     /**
-     * Whether a catalog dataset offers this API. Tolerant of how the catalog was compacted — a
-     * property may come back under its full IRI or a prefixed name, as a plain string or an
-     * {@code @id}/{@code @value} object, possibly wrapped in an array — since the compaction is the
-     * management API's, not the counterparty's.
+     * Whether a catalog dataset offers this API. Tolerant of how the catalog was compacted — the
+     * property may come back under its full IRI, a prefixed name or the bare term the DSP 2025-1
+     * context defines for it (what a live catalog returns), as a plain string or an {@code @id}
+     * object, possibly in an array — since the compaction is the management API's, not the
+     * counterparty's.
      */
     boolean offeredBy(JsonNode dataset) {
-        return (vocabulary.taxonomy() + TYPE).equals(iri(property(dataset, DCT + "type", "dct:type")))
-                && subject.equals(iri(property(dataset, DCT + "subject", "dct:subject")))
-                && version().equals(literal(versionOf(dataset)));
+        for (var value : conformsToValues(dataset)) {
+            if (conformsTo.equals(iri(value))) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    /** What a dataset offers, for diagnostics: its id and whatever API identity it declares. */
+    /** What a dataset offers, for diagnostics: its id and whatever conformance it declares. */
     String describe(JsonNode dataset) {
-        var parts = new ArrayList<String>();
-        var declared = iri(property(dataset, DCT + "subject", "dct:subject"));
-        if (declared != null) {
-            parts.add(localName(declared));
-        }
-        var version = literal(versionOf(dataset));
-        if (version != null) {
-            parts.add(version);
+        var declared = new StringBuilder();
+        for (var value : conformsToValues(dataset)) {
+            var iri = iri(value);
+            if (iri != null) {
+                declared.append(declared.isEmpty() ? "" : " ").append(iri);
+            }
         }
         var id = dataset.path("@id").asText();
-        return parts.isEmpty() ? id + " (no CCM API subject)" : "%s (%s)".formatted(id, String.join(" ", parts));
+        return declared.isEmpty() ? id + " (no dct:conformsTo)" : "%s (%s)".formatted(id, declared);
     }
 
     @Override
     public String toString() {
-        return "%s %s".formatted(localName(subject), version());
+        return conformsTo;
     }
 
-    private JsonNode versionOf(JsonNode dataset) {
-        var property = vocabulary.versionProperty();
-        var compacted = vocabulary.versionPrefix() == null ? null
-                : vocabulary.versionPrefix() + ":" + localName(property);
-        return property(dataset, property, compacted);
-    }
-
-    private static JsonNode property(JsonNode dataset, String... keys) {
-        for (var key : keys) {
-            if (key == null) {
-                continue;
-            }
+    private static Iterable<JsonNode> conformsToValues(JsonNode dataset) {
+        for (var key : new String[]{CONFORMS_TO, "dct:conformsTo", "conformsTo"}) {
             var value = dataset.path(key);
             if (!value.isMissingNode()) {
-                return value.isArray() ? value.path(0) : value;
+                return value.isArray() ? value : List.of(value);
             }
         }
-        return null;
+        return List.of();
     }
 
-    private String iri(JsonNode value) {
-        if (value == null) {
-            return null;
-        }
-        var raw = value.isObject() ? value.path("@id").asText(null) : value.asText(null);
-        var prefix = vocabulary.taxonomyPrefix() == null ? null : vocabulary.taxonomyPrefix() + ":";
-        return raw != null && prefix != null && raw.startsWith(prefix)
-                ? vocabulary.taxonomy() + raw.substring(prefix.length())
-                : raw;
-    }
-
-    private static String literal(JsonNode value) {
-        if (value == null) {
-            return null;
-        }
-        return value.isObject() ? value.path("@value").asText(null) : value.asText(null);
-    }
-
-    private static String localName(String iri) {
-        var cut = Math.max(iri.lastIndexOf('#'), iri.lastIndexOf('/'));
-        return cut < 0 ? iri : iri.substring(cut + 1);
+    private static String iri(JsonNode value) {
+        return value.isObject() ? value.path("@id").asText(null) : value.asText(null);
     }
 }

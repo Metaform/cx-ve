@@ -25,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -46,7 +48,7 @@ import static org.mockito.Mockito.when;
 class ExternalCertificateExchangeFlowTest {
 
     private static final String SUT_DID = "did:web:sut.example.com";
-    private static final String SUT_DSP = "http://sut.example.com/api/dsp/tenant-9/cx-neptune";
+    private static final String SUT_DSP = "http://sut.example.com/api/dsp/tenant-9/example-profile";
 
     private final JsonMapper mapper = new JsonMapper();
 
@@ -70,16 +72,16 @@ class ExternalCertificateExchangeFlowTest {
         var support = new RunFlowSupport(management, hub, new ChecklistEvaluator(), properties);
         flow = new ExternalCertificateExchangeFlow(hub, certo, didResolver, participantService, support, properties);
         run = new VerificationRun("r1", TestFixtures.DATASPACE, TestFixtures.USE_CASE, "SUT GmbH", "sut",
-                "BPNLSUT000000001", "DESUT0001", SUT_DID, RunStep.EXTERNAL);
+                "EX-00000003", "DESUT0001", SUT_DID, RunStep.EXTERNAL);
     }
 
     private void happyStubs() {
         when(participantService.ensure(TestFixtures.DATASPACE))
-                .thenReturn(new VerificationParticipant("vp-1", TestFixtures.DATASPACE, "VP", "BPNLVERIFY000001", "did:web:vp", "pctx-vp"));
+                .thenReturn(new VerificationParticipant("vp-1", TestFixtures.DATASPACE, "VP", "EX-00000099", "did:web:vp", "pctx-vp"));
         when(didResolver.resolve(SUT_DID))
                 .thenReturn(new DidDocument(SUT_DID, SUT_DSP, "http://sut.example.com/api/credentials"));
         when(hub.findByDid(TestFixtures.DATASPACE, SUT_DID)).thenReturn(List.of());
-        when(hub.onboard(TestFixtures.DATASPACE, "SUT GmbH", "sut", "BPNLSUT000000001", "DESUT0001", SUT_DID))
+        when(hub.onboard(TestFixtures.DATASPACE, "SUT GmbH", "sut", "EX-00000003", "DESUT0001", SUT_DID))
                 .thenReturn(TestFixtures.externalMembership("sut-ext", "SUBMITTED", SUT_DID, null));
         when(hub.awaitCredentialsOffered("sut-ext"))
                 .thenReturn(TestFixtures.externalMembership("sut-ext", "CREDENTIALS_OFFERED", SUT_DID, "proc-1"));
@@ -96,7 +98,10 @@ class ExternalCertificateExchangeFlowTest {
                 .thenReturn(mapper.createObjectNode().put("state", "STARTED"));
         when(management.startTransfer(anyString(), eq("agr-1"), anyString(), eq(TestFixtures.DSP_PROFILE), eq("https://w3id.org/dspace-sig/profile/http-pull")))
                 .thenReturn("flow-pull");
-        when(certo.consumerExchanges("pctx-vp", true)).thenReturn(exchangePage("ex-sut", null));
+        // the SUT holds a matching certificate, so it fulfils the request at once
+        when(certo.requestCertificate(eq("pctx-vp"), anyString(), eq(TestFixtures.PROTOCOL), eq(SUT_DID),
+                eq(TestFixtures.CERTIFICATE_TYPE), eq("EX-00000003"), eq("flow-pull")))
+                .thenReturn(request("FULFILLED"));
         when(certo.consumerExchanges("pctx-vp", false)).thenReturn(exchangePage("ex-sut", "ACCEPTED"));
         when(certo.retrieve("pctx-vp", "ex-sut", "flow-pull")).thenReturn(retrieved());
     }
@@ -115,16 +120,17 @@ class ExternalCertificateExchangeFlowTest {
         // rather than sitting PENDING forever.
         assertThat(snapshot.steps()).extracting(step -> step.step())
                 .doesNotContain(RunStep.AWAIT_PROVISIONED, RunStep.SEED_PROVIDER_OFFER,
-                        RunStep.ESTABLISH_PUSH_FLOW, RunStep.PUBLISH_CERTIFICATE, RunStep.AWAIT_CERTO_CONTEXT);
+                        RunStep.ESTABLISH_PUSH_FLOW, RunStep.ISSUE_CERTIFICATE, RunStep.NOTIFY_AVAILABLE,
+                        RunStep.AWAIT_CERTO_CONTEXT);
         assertThat(snapshot.participant().externallyHosted()).isTrue();
         assertThat(snapshot.participant().did()).isEqualTo(SUT_DID);
         assertThat(snapshot.participant().participantContextId()).isNull();
 
-        // Nothing was published, seeded or provisioned on the SUT's behalf — the certificate came
+        // Nothing was issued, seeded or provisioned on the SUT's behalf — the certificate came
         // from the SUT, and the verdict went back over the pull flow this environment opened.
         verify(certo, never()).addDocument(anyString(), anyString(), any());
-        verify(certo, never()).addCertificate(anyString(), anyString(), anyString(), anyString(), any());
-        verify(certo, never()).publish(anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(certo, never()).addCertificate(anyString(), anyString(), anyString(), anyString(), anyString(), any());
+        verify(certo, never()).notify(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
         verify(management, never()).upsertAsset(anyString(), anyString(), any());
         verify(certo).accept("pctx-vp", "ex-sut", "ACCEPTED", "flow-pull");
     }
@@ -147,8 +153,8 @@ class ExternalCertificateExchangeFlowTest {
 
         flow.execute(run);
 
-        // CX-0135 identifies the offer by dct:subject + cx-common:version; the vendor names the
-        // asset as it likes, and the step reports the name it chose.
+        // SCE identifies the offer by its dct:conformsTo; the vendor names the asset as it likes,
+        // and the step reports the name it chose.
         verify(management).awaitCatalogOffer(anyString(), anyString(), anyString(), anyString(), eq(CcmApi.provider(TestFixtures.CCM_API)), any());
         assertThat(run.snapshot().steps()).filteredOn(step -> step.step() == RunStep.ESTABLISH_PULL_FLOW)
                 .singleElement()
@@ -192,7 +198,7 @@ class ExternalCertificateExchangeFlowTest {
         flow.execute(run);
 
         // A dead attempt retires nothing, so a fresh registration is the right move.
-        verify(hub).onboard(TestFixtures.DATASPACE, "SUT GmbH", "sut", "BPNLSUT000000001", "DESUT0001", SUT_DID);
+        verify(hub).onboard(TestFixtures.DATASPACE, "SUT GmbH", "sut", "EX-00000003", "DESUT0001", SUT_DID);
     }
 
     @Test
@@ -214,21 +220,34 @@ class ExternalCertificateExchangeFlowTest {
     }
 
     @Test
-    void severalExchangesAwaitingAcceptance_isReportedRatherThanGuessed() {
+    void aRequestTheSutCannotFulfilYet_isPolledUntilItIs() {
         happyStubs();
-        var page = mapper.createObjectNode();
-        var items = page.putArray("items");
-        items.add(mapper.createObjectNode().put("exchangeId", "ex-a"));
-        items.add(mapper.createObjectNode().put("exchangeId", "ex-b"));
-        when(certo.consumerExchanges("pctx-vp", true)).thenReturn(page);
+        when(certo.requestCertificate(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyString())).thenReturn(request("RECEIVED"));
+        when(certo.pollRequest("pctx-vp", "ex-sut", "flow-pull"))
+                .thenReturn(request("RECEIVED"), request("FULFILLED"));
+
+        flow.execute(run);
+
+        assertThat(run.snapshot().state()).isEqualTo(RunState.SUCCEEDED);
+        verify(certo, times(2)).pollRequest("pctx-vp", "ex-sut", "flow-pull");
+    }
+
+    @Test
+    void aDeclinedRequest_failsTheRunWithTheSutsGrounds() {
+        happyStubs();
+        var declined = request("DECLINED");
+        declined.putArray("errors").addObject().put("message", "no ISO 9001 certification held");
+        when(certo.requestCertificate(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyString())).thenReturn(declined);
 
         flow.execute(run);
 
         var snapshot = run.snapshot();
         assertThat(snapshot.state()).isEqualTo(RunState.FAILED);
-        assertThat(snapshot.failedStep()).isEqualTo(RunStep.AWAIT_PUBLISHED_CERTIFICATE);
-        // Picking one would silently verify an unrelated push.
-        assertThat(snapshot.failureReason()).contains("cannot tell which one");
+        assertThat(snapshot.failedStep()).isEqualTo(RunStep.REQUEST_CERTIFICATE);
+        assertThat(snapshot.failureReason()).contains("declined").contains("no ISO 9001 certification held");
+        verify(certo, never()).retrieve(anyString(), anyString(), anyString());
     }
 
     @Test
@@ -244,6 +263,11 @@ class ExternalCertificateExchangeFlowTest {
 
         assertThat(run.snapshot().failedStep()).isEqualTo(RunStep.RETRIEVE_AND_VERIFY);
         assertThat(run.snapshot().failureReason()).contains("no content");
+    }
+
+    private ObjectNode request(String fulfillmentStatus) {
+        var request = mapper.createObjectNode().put("exchangeId", "ex-sut").put("fulfillmentStatus", fulfillmentStatus);
+        return "FULFILLED".equals(fulfillmentStatus) ? request.put("certificateId", "cert-sut") : request;
     }
 
     private JsonNode exchangePage(String exchangeId, String acceptanceStatus) {

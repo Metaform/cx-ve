@@ -63,14 +63,14 @@ class CertificateExchangeFlowTest {
         var support = new RunFlowSupport(management, hub, new ChecklistEvaluator(), properties);
         flow = new CertificateExchangeFlow(hub, management, certo, participantService, support, properties);
         run = new VerificationRun("r1", TestFixtures.DATASPACE, TestFixtures.USE_CASE, "Participant r1", "put-r1",
-                "BPNLPUT000000001", "DEPUT0001", null, RunStep.MANAGED);
+                "EX-00000002", "DEPUT0001", null, RunStep.MANAGED);
     }
 
     /** Stubs the whole happy choreography; individual tests break the link they exercise. */
     private void happyStubs() {
         when(participantService.ensure(TestFixtures.DATASPACE))
-                .thenReturn(new VerificationParticipant("vp-1", TestFixtures.DATASPACE, "VP", "BPNLVERIFY000001", "did:web:vp", "pctx-vp"));
-        when(hub.onboard(TestFixtures.DATASPACE, "Participant r1", "put-r1", "BPNLPUT000000001", "DEPUT0001", null))
+                .thenReturn(new VerificationParticipant("vp-1", TestFixtures.DATASPACE, "VP", "EX-00000099", "did:web:vp", "pctx-vp"));
+        when(hub.onboard(TestFixtures.DATASPACE, "Participant r1", "put-r1", "EX-00000002", "DEPUT0001", null))
                 .thenReturn(TestFixtures.membership("put-ext", "SUBMITTED", null, null, null));
         when(hub.awaitProvisioned("put-ext"))
                 .thenReturn(TestFixtures.membership("put-ext", "PROVISIONED", "did:web:put", "pctx-put", "proc-1"));
@@ -87,11 +87,14 @@ class CertificateExchangeFlowTest {
         when(management.startTransfer(anyString(), eq("agr-1"), anyString(), eq(TestFixtures.DSP_PROFILE), eq("https://w3id.org/dspace-sig/profile/http-pull")))
                 .thenReturn("flow-pull", "flow-push");
         when(certo.addDocument(eq("pctx-put"), eq("application/pdf"), any())).thenReturn("doc-1");
-        when(certo.addCertificate(eq("pctx-put"), eq("BPNLPUT000000001"), eq("doc-1"), anyString(),
-                eq(TestFixtures.CERTIFICATE)))
+        when(certo.addCertificate(eq("pctx-put"), eq(TestFixtures.CERTIFICATE_TYPE), eq("EX-00000002"), eq("doc-1"),
+                anyString(), eq(TestFixtures.CERTIFICATE)))
                 .thenReturn("cert-1");
-        when(certo.publish("pctx-put", "cert-1", "BPNLVERIFY000001", "did:web:vp", "flow-push"))
-                .thenReturn("ex-1");
+        // the provider holds the certificate when the VP asks for it, so the request is fulfilled at once
+        when(certo.requestCertificate(eq("pctx-vp"), anyString(), eq(TestFixtures.PROTOCOL), eq("did:web:put"),
+                eq(TestFixtures.CERTIFICATE_TYPE), eq("EX-00000002"), eq("flow-pull")))
+                .thenReturn(mapper.createObjectNode().put("exchangeId", "ex-1").put("certificateId", "cert-1")
+                        .put("fulfillmentStatus", "FULFILLED"));
         when(certo.retrieve("pctx-vp", "ex-1", "flow-pull")).thenReturn(retrieved());
         when(certo.getExchange("pctx-put", "ex-1")).thenReturn(mapper.createObjectNode()
                 .put("fulfillmentStatus", "FULFILLED").put("acceptanceStatus", "ACCEPTED"));
@@ -112,8 +115,27 @@ class CertificateExchangeFlowTest {
         snapshot.steps().forEach(step -> assertEquals(StepStatus.OK, step.status(), step.step().name()));
         assertTrue(snapshot.checklist().stream().allMatch(item -> item.satisfied()));
         assertEquals("pctx-put", snapshot.participant().participantContextId());
+        // the notification travels over the PUSH flow, from the participant-under-test's side
+        verify(certo).notify(eq("pctx-put"), eq("cert-1"), anyString(), eq(TestFixtures.PROTOCOL), eq("did:web:vp"),
+                eq("flow-push"));
         // the verdict travels over the PULL flow, from the VP side
         verify(certo).accept("pctx-vp", "ex-1", "ACCEPTED", "flow-pull");
+    }
+
+    @Test
+    void aRequestNotFulfilledAtOnce_failsTheRequestStep() {
+        happyStubs();
+        when(certo.requestCertificate(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyString()))
+                .thenReturn(mapper.createObjectNode().put("exchangeId", "ex-1").put("fulfillmentStatus", "RECEIVED"));
+
+        flow.execute(run);
+
+        var snapshot = run.snapshot();
+        assertEquals(RunState.FAILED, snapshot.state());
+        assertEquals(RunStep.REQUEST_CERTIFICATE, snapshot.failedStep());
+        assertTrue(snapshot.failureReason().contains("not fulfilled at once"));
+        assertEquals(StepStatus.SKIPPED, statusOf(snapshot, RunStep.RETRIEVE_AND_VERIFY));
     }
 
     /** In a dataspace that assigns member ids, the run starts without one and shows its membership's. */
@@ -128,7 +150,7 @@ class CertificateExchangeFlowTest {
         flow.execute(run);
 
         assertEquals(RunState.SUCCEEDED, run.snapshot().state());
-        assertEquals("BPNLPUT000000001", run.snapshot().participant().memberId());
+        assertEquals("EX-00000002", run.snapshot().participant().memberId());
     }
 
     @Test

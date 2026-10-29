@@ -81,7 +81,7 @@ export class RunDetail implements OnInit, OnDestroy {
     return this.run ? useCaseDisplayName(this.catalog, this.run.dataspace, this.run.useCase) : '';
   }
 
-  /** What the run's dataspace calls a member id — "BPN" in Catena-X. */
+  /** What the run's dataspace calls a member id — "DECADE-X-ID" in DECADE-X. */
   get memberIdLabel(): string {
     return memberIdLabelOf(this.run ? findDataspace(this.catalog, this.run.dataspace) : null);
   }

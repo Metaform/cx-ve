@@ -2,20 +2,18 @@
 
 # Stands up the vendor stack — a system under test for the Verification Environment (VE) built
 # from the VE's own components — on its OWN kind cluster: ONE helm release (vendor-stack/chart)
-# with the Core Platform Distribution, the Catena-X profile seeding, Certo and the Certo CFM agent —
-# and, for a DECADE-X stack, the DECADE-X profile seeding (its DSP profile and DCP scope). One stack
-# per dataspace: a Catena-X and a DECADE-X stack run side by side, on their own clusters and ports.
+# with the Core Platform Distribution, the DECADE-X profile seeding (its DSP profile, DCP scope and
+# tenant-manager dataspace profile), Certo and the Certo CFM agent. One stack per dataspace, on its
+# own cluster and port; DECADE-X is the only one so far.
 # Run from anywhere; paths are resolved relative to this script.
 #
 # The stack is a COUNTERPARTY of the VE, not part of it: the VE reaches it only over DSP, DCP and
 # CCM, at the addresses its DID documents advertise. Those addresses carry the gateway port
-# (http://vendor.localhost:8080, did:web:identity.vendor.localhost%3A8080:<participant>), which is
+# (http://dx-vendor.localhost:8081, did:web:identity.dx-vendor.localhost%3A8081:<participant>), which is
 # what lets the same URL work from the host, from this cluster's pods and from the VE's pods — see
-# chart/values.yaml. The VE's own cluster holds port 80, hence the default 8080 here.
+# chart/values.yaml. The VE's own cluster holds port 80, hence the default 8081 here.
 #
-# ALWAYS a fresh install: an existing cluster of the same name is deleted first. Upgrading the
-# release in place is not supported — the catenax-profile tenant-manager seed is not idempotent and
-# a second run duplicates the dataspace profile, which breaks participant provisioning.
+# ALWAYS a fresh install: an existing cluster of the same name is deleted first.
 #
 # After the install the stack can reach nothing outside its cluster yet: run ./connect.sh to make
 # the VE and this cluster resolve each other's hostnames (again after every re-install).
@@ -24,15 +22,15 @@
 #   ./vendor-stack/install.sh [-d|--dataspace <dataspace>] [-c|--cluster <name>] [-H|--host <hostname>]
 #                             [--http-port <port>] [--ve-issuer-did <did>] [-h|--help]
 #
-#   -d, --dataspace <ds>       catena-x (default) or decade-x — the dataspace the stack's participant
-#                              is a member of
-#   -c, --cluster <name>       kind cluster to (re)create (default: vendor; dx-vendor for decade-x).
+#   -d, --dataspace <ds>       decade-x (default, the only one so far) — the dataspace the stack's
+#                              participant is a member of
+#   -c, --cluster <name>       kind cluster to (re)create (default: dx-vendor).
 #                              CAUTION: an existing cluster of that name is deleted first. The
 #                              kubeconfig is written to ~/.kube/<name>.config
 #   -H, --host <hostname>      the stack's gateway hostname and identity domain (default:
-#                              vendor.localhost; dx-vendor.localhost for decade-x)
+#                              dx-vendor.localhost)
 #   --http-port <port>         gateway port, on the host AND in every advertised URL and DID
-#                              (default: 8080; 8081 for decade-x; must not collide with the VE's 80)
+#                              (default: 8081; must not collide with the VE's 80)
 #   --ve-issuer-did <did>      the VE issuer this stack trusts (default:
 #                              did:web:issuer.cxve.localhost:issuer)
 #   -h, --help                 show usage and exit
@@ -44,7 +42,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-DATASPACE=catena-x
+DATASPACE=decade-x
 CLUSTER_NAME=""
 HOST=""
 HTTP_PORT=""
@@ -61,13 +59,12 @@ Usage: $(basename "$0") [-d|--dataspace <dataspace>] [-c|--cluster <name>] [-H|-
                   [--http-port <port>] [--ve-issuer-did <did>] [-h|--help]
 
 Options:
-  -d, --dataspace <ds>    catena-x (default) or decade-x — the stack's dataspace (sets the defaults
-                          below)
-  -c, --cluster <name>    kind cluster to (re)create (default: vendor / dx-vendor). CAUTION: an
-                          existing cluster of that name is deleted first
-  -H, --host <hostname>   gateway hostname and identity domain (default: vendor.localhost /
-                          dx-vendor.localhost)
-  --http-port <port>      gateway port on the host and in advertised URLs/DIDs (default: 8080 / 8081)
+  -d, --dataspace <ds>    decade-x (default, the only one so far) — the stack's dataspace (sets the
+                          defaults below)
+  -c, --cluster <name>    kind cluster to (re)create (default: dx-vendor). CAUTION: an existing
+                          cluster of that name is deleted first
+  -H, --host <hostname>   gateway hostname and identity domain (default: dx-vendor.localhost)
+  --http-port <port>      gateway port on the host and in advertised URLs/DIDs (default: 8081)
   --ve-issuer-did <did>   the VE issuer to trust (default: did:web:issuer.cxve.localhost:issuer)
   -h, --help              show this help
 EOF
@@ -92,9 +89,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$DATASPACE" in
-  catena-x) CLUSTER_NAME="${CLUSTER_NAME:-vendor}"; HOST="${HOST:-vendor.localhost}"; HTTP_PORT="${HTTP_PORT:-8080}" ;;
   decade-x) CLUSTER_NAME="${CLUSTER_NAME:-dx-vendor}"; HOST="${HOST:-dx-vendor.localhost}"; HTTP_PORT="${HTTP_PORT:-8081}" ;;
-  *) echo "Error: unknown dataspace '$DATASPACE' — catena-x or decade-x" >&2; exit 1 ;;
+  *) echo "Error: unknown dataspace '$DATASPACE' — decade-x" >&2; exit 1 ;;
 esac
 
 if [[ "$HTTP_PORT" == 80 ]]; then
@@ -105,24 +101,16 @@ fi
 KUBECONFIG_FILE="$HOME/.kube/$CLUSTER_NAME.config"
 
 # Everything that follows the host and port. The issuer DID must equal what the platform derives
-# (did:web:issuer.<host>%3A<port>:issuer) — it is pinned into the dataspace profile.
+# (did:web:issuer.<host>%3A<port>:issuer) — it is trusted under the DSP profile. The VE's issuer is
+# trusted too, and named as the issuer of the DECADE-X credentials in the tenant-manager profile.
 HOST_OVERRIDES=(
   --set "global.host=${HOST}"
   --set "global.external.port=${HTTP_PORT}"
-  --set-string "catenax-profile.issuer.did=did:web:issuer.${HOST}%3A${HTTP_PORT}:issuer"
-  --set "catenax-profile.issuer.trustedIssuers={${VE_ISSUER_DID}}"
+  --set-string "decadex-profile.issuer.did=did:web:issuer.${HOST}%3A${HTTP_PORT}:issuer"
+  --set "decadex-profile.issuer.trustedIssuers={${VE_ISSUER_DID}}"
+  --set-string "decadex-profile.seedJobs.tenantManagerProfile.credentialIssuer=${VE_ISSUER_DID}"
   --set "certo.gateway.hostnames={${HOST}}"
 )
-# A DECADE-X stack's participant runs DSP under DECADE-X's own profile — advertised in its DID
-# documents, seeded with the VE's issuer trusted.
-if [[ "$DATASPACE" == decade-x ]]; then
-  HOST_OVERRIDES+=(
-    --set "core-platform-distribution.edc.controlplane.dataspaceProfiles.advertisedProfile=decade-x"
-    --set "decadex-profile.enabled=true"
-    --set-string "decadex-profile.issuer.did=did:web:issuer.${HOST}%3A${HTTP_PORT}:issuer"
-    --set "decadex-profile.issuer.trustedIssuers={${VE_ISSUER_DID}}"
-  )
-fi
 
 GEN_DIR=$(mktemp -d)
 trap 'rm -rf "$GEN_DIR"' EXIT
@@ -159,8 +147,8 @@ kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-s
 
 helm dependency update "$CHART"
 
-# Hook order in the release: platform seeds (10/20) -> catenax-profile (110-130) -> decadex-profile
-# (150, a DECADE-X stack only) -> certo jwtlet mappings (210) -> certo activity + orchestration (220).
+# Hook order in the release: platform seeds (10/20) -> decadex-profile (145 tenant-manager profile,
+# 150 EDC profile) -> certo jwtlet mappings (210) -> certo activity + orchestration (220).
 helm upgrade --install "$RELEASE" "$CHART" \
   --namespace "$NAMESPACE" --create-namespace \
   "${HOST_OVERRIDES[@]}" \

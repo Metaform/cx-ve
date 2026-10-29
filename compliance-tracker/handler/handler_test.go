@@ -112,7 +112,7 @@ func event(subject string, data map[string]any) lifecycleagent.EventContext[life
 	payload := lifecycleagent.CloudEvent[any]{
 		SpecVersion: lifecycleagent.SpecVersion,
 		ID:          "ce-1",
-		Source:      "cx-onboarding-api-7d56645cc7-2bzkl",
+		Source:      "dx-onboarding-api-7d56645cc7-2bzkl",
 		Time:        eventTime,
 		Data:        data,
 	}
@@ -227,8 +227,8 @@ func TestProcess_EveryFamily_PersistsItsCorrelationKeys(t *testing.T) {
 		SubjectCredentialOfferReceived:     pctxOnly,
 		SubjectDidDocumentPublished:        {ParticipantContextID: "pctx-1", HolderDid: "did:web:acme"},
 		SubjectIssuanceCredentialDelivered: {HolderDid: "holder-1"},
-		// Certo's CCM family: the event's own side only — the counterparty identifiers in the
-		// payload are a DIFFERENT participant and must not become this event's keys.
+		// Certo's certificate exchange family: the event's own side only — the counterpartyId in
+		// the payload is a DIFFERENT participant and must not become this event's keys.
 		SubjectCertificateExchangeFulfilled: pctxOnly,
 		// Secrets carry no attributable identity at all; the event is recorded keyless.
 		SubjectSecretCreated: {},
@@ -242,8 +242,7 @@ func TestProcess_EveryFamily_PersistsItsCorrelationKeys(t *testing.T) {
 				"holderId":             "holder-1",
 				// The counterparty of a certificate exchange: present on the wire, and expected
 				// to be ignored by every family's key extraction.
-				"counterpartyBpn": "BPNL_COUNTERPARTY",
-				"counterpartyDid": "did:web:counterparty",
+				"counterpartyId": "did:web:counterparty",
 			}))
 
 			require.NoError(t, err)
@@ -252,13 +251,36 @@ func TestProcess_EveryFamily_PersistsItsCorrelationKeys(t *testing.T) {
 	}
 }
 
+func TestCertificateExchangeEvent_DecodesCertosPayload(t *testing.T) {
+	// The payload exactly as Certo serializes CertificateExchangeStatusChanged (Jackson, NON_NULL).
+	// Revision 0 is a real first revision and must survive as such, not collapse into "unknown".
+	raw := []byte(`{"role":"PROVIDER","phase":"FULFILLMENT","eventType":"DECLINED","exchangeId":"ex-1",
+		"participantContextId":"pctx-1","counterpartyId":"did:web:counterparty","certificateId":"cert-1",
+		"revision":0,"previousStatus":"RECEIVED","status":"DECLINED",
+		"errors":[{"message":"out of scope","specifier":"loc-1"}],"occurredAt":"2026-10-29T10:00:00.123456Z"}`)
+
+	var evt CertificateExchangeEvent
+	require.NoError(t, json.Unmarshal(raw, &evt))
+
+	assert.Equal(t, "pctx-1", evt.ParticipantContextID)
+	assert.Equal(t, "did:web:counterparty", evt.CounterpartyID)
+	require.NotNil(t, evt.Revision)
+	assert.Equal(t, 0, *evt.Revision)
+	assert.Equal(t, []StatusError{{Message: "out of scope", Specifier: "loc-1"}}, evt.Errors)
+
+	// A pending request: no certificate yet, so Certo omits the revision altogether.
+	evt = CertificateExchangeEvent{}
+	require.NoError(t, json.Unmarshal([]byte(`{"status":"RECEIVED"}`), &evt))
+	assert.Nil(t, evt.Revision)
+}
+
 func TestProcess_PersistsTheRawEnvelope(t *testing.T) {
 	// The ledger stores the message body as delivered, NOT a re-marshal of the typed envelope:
-	// the typed form drops every member it does not declare (the onboarding events' sourcebpn and
-	// participantdid extensions, for instance), and what was dropped could never be recovered.
+	// the typed form drops every member it does not declare (the onboarding events'
+	// participantdid extension, for instance), and what was dropped could never be recovered.
 	events := &recordingStore{}
 	evt := event(SubjectOnboardingStarted, map[string]any{"processId": "proc-1"})
-	evt.Raw = []byte(`{"id":"ce-1","sourcebpn":"BPNL0000000001AB","data":{"processId":"proc-1"}}`)
+	evt.Raw = []byte(`{"id":"ce-1","participantdid":"did:web:acme","data":{"processId":"proc-1"}}`)
 
 	require.NoError(t, processorWith(&recordingMonitor{}, events).Process(context.Background(), evt))
 

@@ -63,13 +63,6 @@ testing {
                 implementation("com.fasterxml.jackson.core:jackson-databind")
 
                 implementation("org.awaitility:awaitility:4.3.0")
-                // newest stable line; 4.x is still in beta (org.wiremock coordinates, but the
-                // Java packages remain com.github.tomakehurst.wiremock). MUST be the standalone
-                // (shaded) artifact here: the Spring Boot BOM forces Jetty 12.1 on this
-                // configuration, which neither plain wiremock (needs Jetty 11) nor
-                // wiremock-jetty12 (built against 12.0, NoSuchMethodError on 12.1) can run on.
-                // The standalone jar bundles its own relocated Jetty, out of the BOM's reach.
-                implementation("org.wiremock:wiremock-standalone:3.13.2")
                 implementation("org.assertj:assertj-core:3.21.0")
             }
             sources {

@@ -30,7 +30,7 @@ export function useCaseDisplayName(catalog: CatalogDataspace[], dataspaceId: str
   return findUseCase(findDataspace(catalog, dataspaceId), useCaseId)?.displayName ?? useCaseId;
 }
 
-/** What the dataspace calls a member id — "BPN" in Catena-X. */
+/** What the dataspace calls a member id — "DECADE-X-ID" in DECADE-X. */
 export function memberIdLabelOf(dataspace: CatalogDataspace | null): string {
   return dataspace?.memberId?.label?.trim() || DEFAULT_MEMBER_ID_LABEL;
 }

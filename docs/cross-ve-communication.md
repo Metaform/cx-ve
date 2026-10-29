@@ -63,7 +63,7 @@ live deployment):
 ```
 
 The DSP base path pattern is `/api/dsp/{participant-context-id}/{dataspace-profile}`; the
-Catena-X deployment exchanges over the `cx-neptune` profile (the DID document additionally
+DECADE-X deployment exchanges over the `decade-x` profile (the DID document additionally
 advertises the default `http-dsp-profile-2025-1` binding).
 
 ## Layer 2 — presentation exchange (DCP: identity & credentials)
@@ -85,8 +85,8 @@ DSP message the **receiver** acts as DCP Verifier:
    issuer signature (issuer DID resolution, #3/#4, checked against the trust anchors) and,
    where present, revocation status.
 
-The credentials checked in this deployment are Membership, BpnCredential and
-DataExchangeGovernance — the demo policy requires all three:
+The credential checked in this deployment is the `dx:DX_LegalEntity_VC` — the DECADE-X profile's
+DCP scope asks for it:
 
 | # | From → To | Request | When |
 |---|---|---|---|
@@ -102,7 +102,7 @@ definitions) does not configure status lists, so no such fetches occur here.
 
 The Dataspace Protocol is asynchronous: the consumer calls the provider's DSP endpoint, and
 the provider *calls back* to the consumer's DSP endpoint (the `callbackAddress` sent in each
-request — the consumer's own `/api/dsp/<cons-ctx>/cx-neptune` base). Both directions target
+request — the consumer's own `/api/dsp/<cons-ctx>/decade-x` base). Both directions target
 `controlplane.<ns>.svc.<peer-domain>:8082`.
 
 | # | Direction | Request (relative to the peer's DSP base) | Purpose |

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# Builds the Catena-X Membership Hub from source. Alternative to the buildpacks image
+# Builds the CX-VE Membership Hub from source. Alternative to the buildpacks image
 # (./gradlew bootBuildImage); build from this directory with:  docker build -t membership-hub .
 
 # ---- Build the Spring Boot jar from source ----

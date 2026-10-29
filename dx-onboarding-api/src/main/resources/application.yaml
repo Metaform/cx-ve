@@ -13,8 +13,7 @@ spring:
       max-file-size: 10MB                                       # SPRING_SERVLET_MULTIPART_MAXFILESIZE
       max-request-size: 11MB                                    # SPRING_SERVLET_MULTIPART_MAXREQUESTSIZE
       resolve-lazily: true                                      # SPRING_SERVLET_MULTIPART_RESOLVELAZILY
-  # Bearer-JWT validation on /api/** against the VE's OSP IdP (Ory Hydra) — the same IdP the
-  # Catena-X onboarding API trusts. issuer-uri is the expected `iss`: the IdP's EXTERNAL URL.
+  # Bearer-JWT validation on /api/** against the VE's OSP IdP (Ory Hydra). issuer-uri is the expected `iss`: the IdP's EXTERNAL URL.
   security:
     oauth2:
       resourceserver:
@@ -23,7 +22,7 @@ spring:
           issuer-uri: http://cxve.localhost/auth/osp                                      # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUERURI
 
 # The IssuerService an approved participant is registered with as credential holder, and offered
-# its DECADE-X credentials through — as the Catena-X onboarding API does. The admin API is called
+# its DECADE-X credentials through. The admin API is called
 # with a token exchanged under the token-resource jwtlet mapping, which must grant
 # issuer-admin-api:admin (the chart's jwtlet seed registers it for this service's account).
 issuer-service:

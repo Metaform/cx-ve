@@ -17,22 +17,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class VerificationPropertiesTest {
 
     private static final VerificationProperties BASE = TestFixtureAccess.props(Map.of());
-    private static final VerificationProperties.DataspaceProfile CATENA_X = BASE.dataspace(TestFixtureAccess.DATASPACE);
+    private static final VerificationProperties.DataspaceProfile DECLARING = BASE.dataspace(TestFixtureAccess.DATASPACE);
 
     private static VerificationProperties.DataspaceProfile copy(String shortName, String inboxAssetId) {
-        return copy(shortName, inboxAssetId, CATENA_X.memberId(), "OTHER-1");
+        return copy(shortName, inboxAssetId, DECLARING.memberId(), "OTHER-1");
     }
 
     private static VerificationProperties.DataspaceProfile copy(String shortName, String inboxAssetId,
                                                                 VerificationProperties.MemberId format,
                                                                 String participantMemberId) {
-        var ccm = CATENA_X.useCase("ccm");
+        var ccm = DECLARING.useCase("ccm");
         var useCase = new VerificationProperties.UseCase(ccm.displayName(), ccm.enabled(),
-                new VerificationProperties.Ccm(inboxAssetId, ccm.ccm().api(), ccm.ccm().certificate(),
+                new VerificationProperties.Ccm(inboxAssetId, ccm.ccm().api(), ccm.ccm().protocol(),
+                        ccm.ccm().certificateType(), ccm.ccm().certificate(),
                         ccm.ccm().expectedEvents(), ccm.ccm().externalExpectedEvents()));
-        return new VerificationProperties.DataspaceProfile("Other", format, CATENA_X.dspProfile(),
-                CATENA_X.policyContext(), CATENA_X.accessConstraints(), CATENA_X.contractConstraints(),
-                CATENA_X.registrationTemplate(),
+        return new VerificationProperties.DataspaceProfile("Other", format, DECLARING.dspProfile(),
+                DECLARING.policyContext(), DECLARING.accessConstraints(), DECLARING.contractConstraints(),
+                DECLARING.registrationTemplate(),
                 new VerificationProperties.ParticipantIdentity("Other VP", shortName, participantMemberId, "OTHERVERIFY1"),
                 Map.of("ccm", useCase));
     }
@@ -54,7 +55,7 @@ class VerificationPropertiesTest {
         assertThatThrownBy(() -> with(copy("verification-participant-other", "ccm-inbox-verification")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("inbox-asset-id 'ccm-inbox-verification'")
-                .hasMessageContaining("catena-x")
+                .hasMessageContaining("example-x")
                 .hasMessageContaining("other-x");
     }
 

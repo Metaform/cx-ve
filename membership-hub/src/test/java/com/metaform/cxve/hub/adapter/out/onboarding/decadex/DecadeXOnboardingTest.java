@@ -111,7 +111,7 @@ class DecadeXOnboardingTest {
     }
 
     @Test
-    void validate_refusesACatenaXRegistration() {
+    void validate_refusesAForeignRegistration() {
         // one field only: which unknown field Jackson names first follows the map's iteration order
         assertThatThrownBy(() -> onboarding.validate(member(Map.of("city", "Munich"))))
                 .isInstanceOf(InvalidRegistrationException.class)

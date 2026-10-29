@@ -1,6 +1,6 @@
 # Membership Hub
 
-Drives a partner's full path into one of the dataspaces this VE hosts (Catena-X; DECADE-X through
+Drives a partner's full path into one of the dataspaces this VE hosts (so far DECADE-X, through
 its TSP onboarding intake) by combining the two halves the VE deliberately keeps apart:
 
 1. **Provisioning** — for a member this VE hosts, creates a tenant and deploys the participant
@@ -11,10 +11,10 @@ its TSP onboarding intake) by combining the two halves the VE deliberately keeps
    deployment errors surface.
 2. **Registration** — once the participant context exists, submits the partner to its
    dataspace's onboarding API, acting as an onboarding service provider (OAuth2
-   client-credentials against the VE's OSP IdP). For Catena-X that is the `cx-onboarding-api`
-   (CX-0006/CX-0009): it validates, proves identity, registers the credential holder with the
-   IssuerService and has it offer the member its credentials; its CONFIRMED status callback lands
-   on this app and is the membership's terminal success.
+   client-credentials against the VE's OSP IdP). For DECADE-X that is the `dx-onboarding-api`, the
+   TSP onboarding intake: an approval registers the credential holder with the IssuerService and
+   has it offer the member its credentials; the hub polls the request's status, and the approval
+   is the membership's terminal success.
 
 Everything dataspace-specific sits behind one `DataspaceOnboarding` implementation per dataspace
 (`adapter/out/onboarding/<dataspace>`): the shape of the request's `registration` object, the
@@ -34,7 +34,7 @@ status callbacks carry) and the `participantContextId` provisioning assigns.
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/dataspaces` | The dataspaces members can be onboarded into (`id`, `displayName`) — the enabled entries of `dataspaces.*`. |
-| `POST /api/members` | Submit a member: `dataspace`, `name`, `shortName`, `memberId` (the id within the dataspace — the BPN in Catena-X, required; refused in DECADE-X, where the TSP assigns the DECADE-X-ID on approval), optional `did`, and the dataspace-specific `registration` object (Catena-X: city, streetName, countryAlpha2Code, region, uniqueIds, companyRoles, agreements, userDetails; DECADE-X: the TSP's onboarding request data — `legalEntity` (without `legalName`/`preferredDid`, which the hub fills from `name` and the DID, and without `legalEntityId`), `legalPerson`, `businessSites`, `gtc` (`versionNumber`), `ucas` (`useCaseId`, one of the TSP's use cases, and `versionNumber`), `declarations`; the hub adds `applicantReference`, creates the draft, adds placeholder GTC/UCA documents and submits it). Returns the membership record incl. its `externalId`. `400` for a dataspace the hub does not serve or a `registration` it refuses — for an external DECADE-X member also one the TSP refuses, naming its reasons. |
+| `POST /api/members` | Submit a member: `dataspace`, `name`, `shortName`, `memberId` (the id within the dataspace, for a dataspace that takes one; refused in DECADE-X, where the TSP assigns the DECADE-X-ID on approval), optional `did`, and the dataspace-specific `registration` object (DECADE-X: the TSP's onboarding request data — `legalEntity` (without `legalName`/`preferredDid`, which the hub fills from `name` and the DID, and without `legalEntityId`), `legalPerson`, `businessSites`, `gtc` (`versionNumber`), `ucas` (`useCaseId`, one of the TSP's use cases, and `versionNumber`), `declarations`; the hub adds `applicantReference`, creates the draft, adds placeholder GTC/UCA documents and submits it). Returns the membership record incl. its `externalId`. `400` for a dataspace the hub does not serve or a `registration` it refuses — for an external DECADE-X member also one the TSP refuses, naming its reasons. |
 | `GET /api/members/{externalId}` | The correlated view. For a member with a deployed profile, resolves the stored profile id and reads its current state from the Tenant Manager. |
 | `GET /api/members?dataspace=&memberId=` / `?did=[&dataspace=]` / `?shortName=[&dataspace=]` | Rediscovery: the memberships under a member id (of one dataspace), a DID, or the short name of a member hosted here (the DID the hub minted for it). |
 | `POST /api/callbacks/{dataspace}/registration-status` | The status-callback endpoint registered with each dataspace's onboarding API, in that API's own wire format (`404` for a dataspace whose status is polled, e.g. DECADE-X). OAuth2-protected: the caller presents a client-credentials bearer from the OSP IdP, obtained with the client this app registers alongside its callback URL. Not meant for humans. |
@@ -47,10 +47,9 @@ states, no longer produced but still readable and still able to advance, so rows
 left behind heal on a redelivered callback.
 
 `CREDENTIALS_OFFERED` is the terminal success of EVERY member: its registration was confirmed,
-which (for Catena-X) means the onboarding API registered the credential holder AND had the
-IssuerService offer the membership credentials, which the member's own wallet then requests over
-DCP. A DECADE-X approval means the same: the TSP registered the holder and had the issuer offer
-the `DX_LegalEntity_VC` (its partner: the legal entity, under its DECADE-X-ID) and, for a member
+which means the onboarding API registered the credential holder AND had the IssuerService offer
+the member's credentials, which its own wallet then requests over DCP. For DECADE-X: the TSP
+registered the holder and had the issuer offer the `DX_LegalEntity_VC` (its partner: the legal entity, under its DECADE-X-ID) and, for a member
 that declared a business site, the `DX_Site_VC` (its partner: the first site). Having no operator, the
 VE's TSP approves requests automatically: those of participants hosted here, and for now those of
 external participants too (`dx-onboarding.review` in dx-onboarding-api).
@@ -60,8 +59,8 @@ member is taken to run elsewhere (nothing is deployed, and `PROVISIONING`/`PROVI
 skipped); **omit it** and the hub mints one under `participant.did.template` and deploys the
 member's EDC resources before registering it. A member hosted here needs its member id before it
 is deployed, because provisioning (the certo activity) needs it before any registration could
-assign one. Catena-X requires it on ingress for every member, as its status callback does not
-carry an assigned one back. DECADE-X refuses it: the TSP assigns every DECADE-X-ID on approval,
+assign one. A dataspace whose onboarding API cannot carry an assigned id back requires it on
+ingress for every member. DECADE-X refuses it: the TSP assigns every DECADE-X-ID on approval,
 and the hub records it with the confirmation. For a DECADE-X member hosted here, the hub generates
 a random DECADE-X-ID no membership holds before deploying it, and sends it along with the
 registration (`legalEntity.legalEntityId`, a VE extension the VE's TSP honors for the participants
@@ -100,14 +99,16 @@ rendered 1:1 into the pod's application.yaml). Notable:
   `/api/callbacks/<id>/registration-status`, plus the token-url/client-id/client-secret the
   onboarding API authenticates the callbacks with, validated via
   `spring.security.oauth2.resourceserver.jwt.*`), the connector's `dataspace-profiles`, and the
-  `member-id-claim` the data plane stamps into flow tokens (Catena-X: `BpnCredential`'s `bpn`).
+  `member-id-claim` the data plane stamps into flow tokens (DECADE-X: the `dx:DX_LegalEntity_VC`'s
+  `partner.partnerID`).
   A dataspace also needs its `DataspaceOnboarding` bean (`DataspacesConfig`).
 - `tenant-manager.*` — base URL and the jwtlet mapping (`token-resource`) the workload token is
   exchanged under; the chart's jwtlet-seed job registers it with the
   `tenant-manager-api:read/write` scopes.
 - `participant.*` — the DID template and the `cfm.dataplane`/CCM transfer-type mappings sent with
-  the participant profile. The `cfm.issuer` VPA properties are always sent (the certo activity
-  reads the member id from them, under `bpn`); their content is the dataspace's.
+  the participant profile. The `cfm.issuer` VPA properties are always sent (the certo CFM agent
+  reads the member id from them, under `bpn` — certo itself no longer uses it); their content is the
+  dataspace's.
 
 The image is published by `.github/workflows/publish.yml` to
 `ghcr.io/metaform/cx-ve/membership-hub`.

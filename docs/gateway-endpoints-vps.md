@@ -1,6 +1,6 @@
 # Gateway endpoints and authentication 
 
-This document outlines how to install the Catena-X Verification Environment on a dedicated Kubernetes cluster that is 
+This document outlines how to install the Verification Environment on a dedicated Kubernetes cluster that is 
 internet-reachable via DNS. For the purposes of this document, we'll use `"vps.yourdomain.com"` as a stand-in.
 
 Core Platform Distribution 0.0.17, rendered with `global.host=vps.yourdomain.com`. One Gateway (`edcv-gateway`), a single

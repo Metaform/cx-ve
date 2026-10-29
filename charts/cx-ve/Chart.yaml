@@ -1,9 +1,9 @@
 apiVersion: v2
 name: cx-ve
 description: >-
-  Umbrella chart for the Verification Environment: Core Platform Distribution, Catena-X
-  profile seeding, the dataspaces' onboarding APIs (Catena-X; DECADE-X as a stub),
-  Membership Hub, Verification UI, Certo and the Certo CFM agent, installed as a single release.
+  Umbrella chart for the Verification Environment: Core Platform Distribution, DECADE-X
+  profile seeding and onboarding API, Membership Hub, Verification UI, Certo and the Certo CFM
+  agent, installed as a single release.
 type: application
 version: 0.1.0
 appVersion: "latest"
@@ -17,28 +17,16 @@ dependencies:
   - name: core-platform-distribution
     repository: oci://ghcr.io/eclipse-cfm/charts
     version: 0.0.34
-  # Catena-X dataspace seeding (issuer credentials, dataspace profile, EDC seed), layered on
-  # the platform. 0.0.9+ carries hook weights 110-130 so its seeds run after the platform's
-  # 10/20 hooks in the release's shared hook space.
-  - name: catenax-profile
-    repository: oci://ghcr.io/metaform/charts
-    version: 0.0.11
-  # The Catena-X onboarding API application chart from this repository
-  - name: cx-onboarding-api
-    repository: file://../cx-onboarding-api
-    version: ">=0.0.0-0"
-    condition: cx-onboarding-api.enabled
   # The DECADE-X onboarding API (the TSP onboarding intake) from this repository
   - name: dx-onboarding-api
     repository: file://../dx-onboarding-api
     version: ">=0.0.0-0"
-    condition: dx-onboarding-api.enabled
-  # DECADE-X dataspace seeding (the issuer's credential definition, the EDC dataspace profile and
-  # its DCP scope) from this repository — the catenax-profile's counterpart
+  # DECADE-X dataspace seeding (the issuer's credential definitions, the EDC dataspace profile and
+  # its DCP scope, and the Tenant Manager dataspace profile participant provisioning needs) from
+  # this repository
   - name: decadex-profile
     repository: file://../decadex-profile
     version: ">=0.0.0-0"
-    condition: decadex-profile.enabled
   # The Membership Hub application chart from this repository
   - name: membership-hub
     repository: file://../membership-hub
@@ -47,8 +35,8 @@ dependencies:
   - name: verification-ui
     repository: file://../verification-ui
     version: ">=0.0.0-0"
-  # Certo (CX-0135 certificate exchange service)
+  # Certo (DSAF SCE certificate exchange service)
   - name: certo
     repository: oci://ghcr.io/metaform/charts
-    version: 0.0.7
+    version: 0.0.8
     condition: certo.enabled

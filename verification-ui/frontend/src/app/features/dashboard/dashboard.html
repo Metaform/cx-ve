@@ -131,9 +131,9 @@
               @if (isCcm) {
                 Verifies a system that already runs elsewhere: its DID is onboarded into
                 {{ dataspace.displayName }} without provisioning anything here, the issuer offers
-                it credentials, and this environment then consumes its certificate offer. Seeding
-                the offer and pushing the certificate are the system's own obligations — the run
-                waits for them.
+                it credentials, and this environment then consumes its certificate offer and
+                requests a certificate from it. Seeding the offer and holding — or issuing — the
+                certificate are the system's own obligations — the run waits for them.
               } @else {
                 Verifies a system that already runs elsewhere: its DID is onboarded into
                 {{ dataspace.displayName }} without provisioning anything here, and its side of
@@ -158,14 +158,14 @@
                 assigns the {{ memberIdLabel }} when the participant is onboarded.
               } @else {
                 Leave the name fields empty to auto-generate them; the {{ memberIdLabel }} is
-                required{{ canDeriveBpn ? ', and can be derived from the short name' : '' }}.
+                required.
               }
             }
           </p>
           <form (ngSubmit)="startRun()">
             <label class="field">
               <span class="label">Participant DID</span>
-              <input type="text" name="did" [(ngModel)]="did" (ngModelChange)="onDidChange()"
+              <input type="text" name="did" [(ngModel)]="did"
                      spellcheck="false" autocomplete="off"
                      placeholder="empty — onboard a participant into this environment">
               <span class="hint">Set it to verify an external system under test, hosted elsewhere.</span>
@@ -185,20 +185,11 @@
             @if (!memberIdAssigned) {
               <label class="field">
                 <span class="label">{{ memberIdLabel }}<span class="req">required</span></span>
-                <input type="text" name="memberId" [(ngModel)]="memberId" [disabled]="derivingBpn"
+                <input type="text" name="memberId" [(ngModel)]="memberId"
                        [placeholder]="memberIdPlaceholder" [class.invalid]="memberIdInvalid"
                        [attr.aria-invalid]="memberIdInvalid || null"
                        autocomplete="off" spellcheck="false">
                 <span class="hint" [class.invalid]="memberIdInvalid">{{ memberIdHint }}</span>
-              </label>
-            }
-            @if (canDeriveBpn) {
-              <label class="derive">
-                <input type="checkbox" name="deriveBpn" [(ngModel)]="deriveBpn">
-                <span>Derive {{ memberIdLabel }} from short name</span>
-                @if (derivingBpn && derivedBpn) {
-                  <span class="mono preview">→ {{ derivedBpn }}</span>
-                }
               </label>
             }
             <button class="btn primary submit" type="submit" [disabled]="!canStart">

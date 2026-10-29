@@ -9,9 +9,8 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The envelope the compliance tracker reads: the same subjects as Catena-X's onboarding events (it
- * follows a participant from events.onboarding.started), but DECADE-X's own type and fields —
- * nothing of Catena-X's.
+ * The envelope the compliance tracker reads: the dataspace-neutral onboarding subjects (it follows
+ * a participant from events.onboarding.started), with DECADE-X's own type and fields.
  */
 class NatsOnboardingEventPublisherTest {
 
@@ -30,12 +29,10 @@ class NatsOnboardingEventPublisherTest {
         assertThat(envelope.getSubject()).isEqualTo("req-1");
         assertThat(envelope.getSource().toString()).isEqualTo("dx-onboarding-api-0");
         assertThat(envelope.getExtension("participantdid")).isEqualTo(DID);
-        assertThat(envelope.getExtensionNames()).doesNotContain("sourcebpn");
         var data = mapper.readTree(envelope.getData().toBytes());
         assertThat(data.path("processId").asText()).isEqualTo("req-1");
         assertThat(data.path("externalId").asText()).isEqualTo("ext-1");
         assertThat(data.path("did").asText()).isEqualTo(DID);
-        assertThat(data.has("bpn")).isFalse();
     }
 
     @Test

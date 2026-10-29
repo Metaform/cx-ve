@@ -26,7 +26,7 @@ serviceAccount:
   name: dx-onboarding-api
 
 # NATS authentication: the onboarding lifecycle events go onto the platform's edc-events stream
-# under its shared `edc-events` identity, like the cx-onboarding-api's — which requires this chart's
+# under its shared `edc-events` identity — which requires this chart's
 # ServiceAccount in the platform's nats.auth.users.edc-events.serviceAccounts (the umbrella sets it).
 # The defaults match the umbrella's release name (cx-ve-vault).
 natsAuth:

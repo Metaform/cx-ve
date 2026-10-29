@@ -2,7 +2,7 @@
 
 This is the target model of the Verification Environment: a **system under test** (SUT, also
 "candidate" or "contestant") — any third-party dataspace implementation — connects to the VE
-from outside, and the VE (Core Platform + Catena-X profile) verifies the SUT purely over the
+from outside, and the VE (Core Platform + DECADE-X profile) verifies the SUT purely over the
 wire. In the retired dual-VE demo of the first iteration, "ve2" played the SUT's role and
 "ve1" the VE's; the text below keeps that vocabulary.
 
@@ -29,8 +29,7 @@ Because the harness may not introspect the SUT, the SUT declares:
 |---|---|
 | Participant DID (resolvable from ve1) | Counterparty identity in DSP requests; DID document must advertise the DSP `ProtocolEndpoint` and DCP `CredentialService` |
 | Issuer DID (if the SUT brings its own issuer) | ve1's trust anchor config: `edc.controlplane.trustedIssuers` **plus** the `supportedtypes` entry (see connect-ves.sh — without it presentations fail with "credential types not supported for issuer") |
-| BPN of the SUT participant | Pinning the `BusinessPartnerNumber` policy constraint in offers made to the SUT |
-| Supported DSP profile | Must include the dataspace profile in use (`cx-neptune`) |
+| Supported DSP profile | Must include the dataspace profile in use (`decade-x`) |
 | Network reachability + DNS | ve1 must resolve and reach the SUT's endpoints **from inside its cluster** — see below |
 
 Conversely the harness publishes ve1's participant DID, issuer DID and gateway-independent
@@ -84,7 +83,7 @@ its business), what ve1 does, and which wire exchanges occur (numbers reference 
   ve1 can discover where to reach a SUT, so an advertised endpoint that does not answer is a
   conformance failure and is reported as one — ve1 offers no way to override the address by
   hand. Note that the DSP endpoint's path identifies a dataspace profile, and the profile in
-  use here is `cx-neptune`: a connector advertising a different binding than it serves (the EDC
+  use here is `decade-x`: a connector advertising a different binding than it serves (the EDC
   default `http-dsp-profile-2025-1` is the easy mistake) fails this checkpoint.
 - Issuer DID document resolvable from ve1 (#3), if the SUT brings its own issuer.
 
@@ -95,14 +94,12 @@ immediately, naming the address dialled, rather than being waited out as a slow 
 ### Checkpoint 1 — credentials & trust
 
 **SUT obligations (state):**
-- The SUT participant *holds* the three Catena-X credentials — `MembershipCredential`
-  (`memberOf == "Catena-X"`), `BpnCredential` (matching its declared BPN) and
-  `DataExchangeGovernanceCredential` (`contractVersion == "1.0"`) — issued by an issuer ve1
-  trusts. Topology is the SUT's choice: its own (registered) issuer, or credentials issued by
-  ve1's issuer service via DCP issuance (the more complete conformance target, not yet part of
-  the harness).
+- The SUT participant *holds* the DECADE-X credentials — the `dx:DX_LegalEntity_VC` (its
+  partner: the legal entity, under the DECADE-X-ID the TSP assigned) and, for a member that
+  declared a business site, the `dx:DX_Site_VC` — issued by ve1's issuer service via DCP issuance
+  once the TSP approved its onboarding.
 - Its CredentialService answers DCP presentation queries (#5) for those credentials under the
-  Catena-X scope mapping.
+  DECADE-X scope mapping (`org.eclipse.dspace.dcp.vc.type:dx:DX_LegalEntity_VC:read`).
 - The SUT trusts ve1's issuer in return, so it can verify ve1's presentations (#6, #4).
 
 **Verified by:** implicitly in every subsequent scenario — presentation exchange happens on
@@ -118,9 +115,9 @@ verifies ve1's VP and vice versa) before asserting anything content-related.
   value for pull, which is also the `endpointType` of the DataAddress its data plane hands out —
   and a backing data source. The asset itself carries no address: the data plane owns the
   endpoint.
-- Access + contract policy gate the asset on the three CX credential constraints
-  (`Membership`, `FrameworkAgreement == DataExchangeGovernance:1.0`,
-  `BusinessPartnerNumber == <ve1 participant's BPN>`).
+- Access + contract policy as the dataspace defines them. DECADE-X has no policy vocabulary yet,
+  so its offers are unconstrained (the access policy an empty Set, the contract policy one `use`
+  permission); the DSP profile's DCP scope still requires the consumer's `DX_LegalEntity_VC`.
 - A contract definition exposes the asset in the catalog for authorized consumers.
 - Its data plane can mint/serve EDR tokens and (if advertised) support token refresh.
 
@@ -165,30 +162,28 @@ from the picture once ve2 is replaced by a real SUT.
 
 The Verification UI implements this document for the CCM certificate exchange. A run is of a
 **use case** in a **dataspace**, both picked before the run form opens; what follows is the
-Catena-X CCM run (CX-0135) — another dataspace's profile changes the member-id format, DSP
+DECADE-X CCM run (the certificate exchange as DSAF SCE defines it and Certo implements it) — another dataspace's profile changes the member-id format, DSP
 profile, policies and CCM vocabulary, not the steps. Entering a **participant DID** on the run
 form switches it from onboarding a participant into the VE to verifying one that already exists
 elsewhere: nothing is provisioned for that DID, and only the VE's own half of the exchange is
 driven from here.
 
-**Declared up front** (run form): the participant DID, its member id in the dataspace (the BPN
-in Catena-X — mandatory: the VE issues the member credential for exactly that value, and it is
-agreed with the SUT's operator), and optionally the company name. DECADE-X differs: its member
-id, the DECADE-X-ID, is not declared but assigned by the `dx-onboarding-api` (the TSP) when it
-approves the SUT's onboarding request, and the issuer offers the `DX_LegalEntity_VC` for that
-id (and the `DX_Site_VC` for the request's first business site). The run form asks for none there, and the run shows it once the membership has it.
-DECADE-X runs use DECADE-X's own DSP profile, `decade-x` (cx-neptune's DCP scopes ask for the
-Catena-X credentials), which the SUT must serve.
+**Declared up front** (run form): the participant DID and optionally the company name. The
+member id, the DECADE-X-ID, is not declared but assigned by the `dx-onboarding-api` (the TSP)
+when it approves the SUT's onboarding request, and the issuer offers the `DX_LegalEntity_VC` for
+that id (and the `DX_Site_VC` for the request's first business site). The run shows it once the
+membership has it. DECADE-X runs use DECADE-X's own DSP profile, `decade-x`, which the SUT must
+serve.
 
 **What the VE does, in order** — each step waits for the SUT rather than acting on it:
 
 | # | VE | SUT obligation to proceed |
 |---|---|---|
 | 1 | Resolves the DID document | Served and reachable from the VE, advertising `ProtocolEndpoint` and `CredentialService` (Checkpoint 0) |
-| 2 | Registers the SUT through the dataspace's **onboarding API** (Catena-X: `cx-onboarding-api`), which registers the DID as a credential holder and then has the IssuerService send a DCP CredentialOffer to the advertised `CredentialService` | Accept the offer and request the credentials (Checkpoint 1). The VE waits for `events.issuance.credential.delivered` in its ledger — nothing else proves the SUT holds them |
-| 3 | Requests the SUT's catalog as the verification participant, negotiates and starts a `https://w3id.org/dspace-sig/profile/http-pull` transfer | An asset fronting its CCM API, declaring the CX-0135 provider API — `dct:type` `cx-taxo:CCMAPI`, `dct:subject` `cx-taxo:CompanyCertificateManagementProviderApi`, `cx-common:version` (the dataspace profile's `use-cases.ccm.ccm.api.version`, default `3.0`) — gated on the three CX credential constraints (Checkpoint 2). The VE finds it by those properties, whatever its id; a catalog offering the API twice fails the run, since CX-0135 allows one offer per API and version |
-| 4 | Waits for a certificate on the verification participant's inbox | Find the VE's permanent inbox offer — the dataset declaring the CX-0135 consumer API (`cx-taxo:CompanyCertificateManagementConsumerApi`) — consume it and push a certificate over that flow (Checkpoint 3 + CX-0135 Flow B) |
-| 5 | Retrieves the certificate over the pull flow and reports the `ACCEPTED` verdict | — |
+| 2 | Registers the SUT through the dataspace's **onboarding API** (DECADE-X: `dx-onboarding-api`), which registers the DID as a credential holder and then has the IssuerService send a DCP CredentialOffer to the advertised `CredentialService` | Accept the offer and request the credentials (Checkpoint 1). The VE waits for `events.issuance.credential.delivered` in its ledger — nothing else proves the SUT holds them |
+| 3 | Requests the SUT's catalog as the verification participant, negotiates and starts a `https://w3id.org/dspace-sig/profile/http-pull` transfer | A dataset fronting its SCE Certificate Provider API, declaring `dct:conformsTo` `https://w3id.org/dsaf/sce/v1/provider-api` (the dataspace profile's `use-cases.ccm.ccm.api.provider-api`) — under the dataspace's policies (Checkpoint 2). The VE finds it by that property, whatever its id; a catalog offering the API twice fails the run, since SCE has a participant publish one dataset per API |
+| 4 | Requests a certificate over that flow (`POST /exchanges`, protocol `sce-1.0`): type `iso9001`, certified for the SUT's DECADE-X-ID as `legalEntityId` | Fulfil it (Checkpoint 3): at once (`FULFILLED`) if it holds a matching certificate, otherwise leave it `RECEIVED` and fulfil it once issued — the VE polls the exchange for up to `verification.external.fulfillment-timeout`. `DECLINED` fails the run with the SUT's stated grounds. Notifying the VE's consumer API (its permanent inbox offer, `dct:conformsTo` `https://w3id.org/dsaf/sce/v1/consumer-api`) is optional |
+| 5 | Retrieves the certificate over the pull flow and reports the `ACCEPTED` verdict | Serve the certificate and its documents; accept the acceptance report |
 
 Two consequences worth stating plainly. The VE cannot compare the retrieved document against an
 original, since the SUT authored it; step 5 checks the delivery's internal consistency, and the

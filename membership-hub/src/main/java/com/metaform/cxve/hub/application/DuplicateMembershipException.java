@@ -1,7 +1,7 @@
 package com.metaform.cxve.hub.application;
 
 /**
- * A member whose DID or BPN a live membership already holds. Raised BEFORE anything is deployed or
+ * A member whose DID or member id a live membership already holds. Raised BEFORE anything is deployed or
  * submitted: the Onboarding API would decline the duplicate registration anyway, and by then a
  * member hosted here would already have its EDC resources, which nothing takes back.
  *

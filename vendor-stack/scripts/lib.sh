@@ -30,35 +30,24 @@ ENV_VENDOR_URL="${VENDOR_URL:-}"
 ENV_VE_HOST="${VE_HOST:-}"
 
 # The dataspace the stack's participant is a member of, and everything that follows from it: the
-# stack's default cluster, gateway and port (one stack per dataspace, side by side), the DSP
-# profile, what a member id is, the member credential the VE issues, and the VE's verification
-# participant of that dataspace. DECADE-X assigns member ids (the TSP, on approval), so there the
-# defaults are no ids to declare: DEFAULT_MEMBER_ID is only the provisional one the Certo tenant is
-# provisioned with, and the verification participant's is looked up (ve_member_id_of). Called below with VENDOR_DATASPACE (default catena-x), and again by
-# a script's -d/--dataspace — before init.
-use_dataspace() { # <catena-x|decade-x>
+# stack's default cluster, gateway and port, the DSP profile, what a member id is, the member
+# credential the VE issues, and the VE's verification participant of that dataspace. DECADE-X
+# assigns member ids (the TSP, on approval), so there are no ids to declare: DEFAULT_MEMBER_ID is
+# only the provisional one the Certo tenant is provisioned with. The verification participant
+# needs none here: Certo addresses counterparties by DID. Called below with VENDOR_DATASPACE
+# (default decade-x, the only one so far), and again by a script's -d/--dataspace — before init.
+use_dataspace() { # <decade-x>
   local cluster host port
   case "$1" in
-    catena-x)
-      cluster=vendor; host=vendor.localhost; port=8080
-      DSP_PROFILE=cx-neptune
-      MEMBER_ID_LABEL=BPN
-      DEFAULT_MEMBER_ID=BPNLVENDOR000001
-      MEMBER_CREDENTIAL=MembershipCredential
-      VP_SHORT_NAME=verification-participant
-      VP_MEMBER_ID=BPNLVERIFY000001
-      ;;
     decade-x)
       cluster=dx-vendor; host=dx-vendor.localhost; port=8081
-      # DECADE-X's own profile: cx-neptune's DCP scopes ask for the Catena-X credentials
       DSP_PROFILE=decade-x
       MEMBER_ID_LABEL=DECADE-X-ID
       DEFAULT_MEMBER_ID=DX-00009001
       MEMBER_CREDENTIAL=dx:DX_LegalEntity_VC
       VP_SHORT_NAME=verification-participant-dx
-      VP_MEMBER_ID=""
       ;;
-    *) die "unknown dataspace '$1' — catena-x or decade-x" ;;
+    *) die "unknown dataspace '$1' — decade-x" ;;
   esac
   VENDOR_DATASPACE="$1"
   VENDOR_CLUSTER="${ENV_VENDOR_CLUSTER:-$cluster}"
@@ -67,7 +56,8 @@ use_dataspace() { # <catena-x|decade-x>
   VENDOR_URL="${ENV_VENDOR_URL:-http://${VENDOR_HOST}:${VENDOR_PORT}}"
   KUBECONFIG_FILE="$HOME/.kube/${VENDOR_CLUSTER}.config"
   VE_HOST="${ENV_VE_HOST:-cxve.localhost}"
-  # The VE's verification participant of the dataspace — the counterparty of the certificate push
+  # The VE's verification participant of the dataspace — it requests the certificate, and is
+  # notified of it
   VP_DID="did:web:identity.${VE_HOST}:${VP_SHORT_NAME}"
 }
 
@@ -76,14 +66,14 @@ use_dataspace() { # <catena-x|decade-x>
 # It must equal the VE's verification.transfer-type.
 TRANSFER_TYPE="https://w3id.org/dspace-sig/profile/http-pull"
 
-# CX-0135 identifies a certificate management API offer by asset properties, not by asset id:
-# dct:type cx-taxo:CCMAPI, a dct:subject naming the API, and cx-common:version — one offer per
-# subject and version per business partner. Full IRIs: the management API accepts no inline
-# prefix definitions. The version must equal the VE's verification.ccm-api-version.
-CCM_TYPE="https://w3id.org/catenax/taxonomy#CCMAPI"
-CCM_PROVIDER_API="https://w3id.org/catenax/taxonomy#CompanyCertificateManagementProviderApi"
-CCM_CONSUMER_API="https://w3id.org/catenax/taxonomy#CompanyCertificateManagementConsumerApi"
-CCM_API_VERSION="${CCM_API_VERSION:-3.0}"
+# SCE identifies a certificate API offer by its dct:conformsTo, not by asset id: one IRI per API,
+# which also names the specification's major version — and a participant SHOULD publish one dataset
+# per API. Full IRIs: the management API accepts no inline prefix definitions.
+SCE_CONFORMS_TO="http://purl.org/dc/terms/conformsTo"
+SCE_PROVIDER_API="https://w3id.org/dsaf/sce/v1/provider-api"
+SCE_CONSUMER_API="https://w3id.org/dsaf/sce/v1/consumer-api"
+# The SCE wire protocol id Certo addresses a counterparty with
+SCE_PROTOCOL="sce-1.0"
 
 # The vendor participant a script acts for. EDC object ids are unique across ALL participant
 # contexts of a control plane, so the scripts derive every id they create from this short name.
@@ -98,10 +88,10 @@ participant_did() { echo "did:web:$(did_authority):${PARTICIPANT_SHORT_NAME}"; }
 log() { echo ">> $*" >&2; }
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-use_dataspace "${VENDOR_DATASPACE:-catena-x}"
+use_dataspace "${VENDOR_DATASPACE:-decade-x}"
 
 # The member credential the wallet holds, as JSON (type list and claims), or empty — what the VE
-# issued it in the stack's dataspace (MembershipCredential / dx:DX_LegalEntity_VC).
+# issued it in the stack's dataspace (dx:DX_LegalEntity_VC).
 member_credential_of() { # <participant context id>
   identity GET "/participants/$1/credentials"
   [[ "$HTTP_STATUS" == 200 ]] || return 0
@@ -109,20 +99,9 @@ member_credential_of() { # <participant context id>
     '[.[] | .verifiableCredential.credential // . | select((.type // []) | index($type))] | .[0] // empty'
 }
 
-# The member id the VE's Membership Hub holds for one of its hosted participants, by short name, or
-# empty — how the verification participant's DECADE-X-ID is found: the hub generated it when it
-# first onboarded the participant. Dead attempts are skipped, as the VE skips them.
-ve_member_id_of() { # <short name>
-  curl -s -m 10 -G "http://${VE_HOST}/hub/api/members" \
-      --data-urlencode "dataspace=${VENDOR_DATASPACE}" --data-urlencode "shortName=$1" 2>/dev/null \
-    | jq -r '[if type == "array" then .[] else empty end
-              | select(.memberId != null and (.state | IN("REJECTED", "FAILED", "REGISTERING") | not))]
-             | .[0].memberId // empty' 2>/dev/null || true
-}
-
 # The counterparty's DSP endpoint for the stack's DSP profile. A DID document advertises ONE
-# profile per platform (the VE's: cx-neptune, whatever the participant's dataspace), so the profile
-# segment of its ProtocolEndpoint is replaced with this stack's.
+# profile per platform, whatever the participant's dataspace, so the profile segment of its
+# ProtocolEndpoint is replaced with this stack's.
 dsp_endpoint_for_profile() { # <ProtocolEndpoint>
   echo "${1%/*}/${DSP_PROFILE}"
 }
@@ -250,29 +229,22 @@ participant_profile_of() { # <did>
   return 0
 }
 
-# Asset properties declaring a CX-0135 API: ccm_api_properties <subject-iri> -> JSON object
-ccm_api_properties() {
-  jq -n --arg type "$CCM_TYPE" --arg subject "$1" --arg version "$CCM_API_VERSION" '{
-    "http://purl.org/dc/terms/type": {"@id": $type},
-    "http://purl.org/dc/terms/subject": {"@id": $subject},
-    "https://w3id.org/catenax/ontology/common#version": $version
-  }'
+# Asset properties declaring an SCE API: sce_api_properties <conformsTo-iri> -> JSON object
+sce_api_properties() {
+  jq -n --arg conformsTo "$SCE_CONFORMS_TO" --arg api "$1" '{($conformsTo): {"@id": $api}}'
 }
 
-# The datasets of a catalog (on stdin) that declare a CX-0135 API, as a JSON array:
-# ccm_api_datasets <subject-iri>. Accepts the property under its full IRI or prefixed name, as a
-# string or an @id/@value object, possibly in an array — the catalog's compaction is the management
-# API's, not the counterparty's.
-ccm_api_datasets() {
-  jq -c --arg type "$CCM_TYPE" --arg subject "$1" --arg version "$CCM_API_VERSION" '
-    def prop($iri; $prefixed): (.[$iri] // .[$prefixed]) | if type == "array" then .[0] else . end;
-    def iri: if type == "object" then .["@id"] else . end
-             | if type == "string" and startswith("cx-taxo:") then "https://w3id.org/catenax/taxonomy#" + ltrimstr("cx-taxo:") else . end;
-    def literal: if type == "object" then .["@value"] else . end;
+# The datasets of a catalog (on stdin) that declare an SCE API, as a JSON array:
+# sce_api_datasets <conformsTo-iri>. Accepts the property under its full IRI, prefixed name or the
+# bare term the DSP 2025-1 context defines (`conformsTo`, which a catalog compacts to), as a string or
+# an @id object, possibly in an array — the catalog's compaction is the management API's, not the
+# counterparty's.
+sce_api_datasets() {
+  jq -c --arg conformsTo "$SCE_CONFORMS_TO" --arg api "$1" '
+    def prop_values($iri; $prefixed; $term): (.[$iri] // .[$prefixed] // .[$term]) | if type == "array" then .[] else . end;
+    def iri: if type == "object" then .["@id"] else . end;
     [.dataset | (if type == "array" then . elif . == null then [] else [.] end) | .[]
-     | select((prop("http://purl.org/dc/terms/type"; "dct:type") | iri) == $type
-          and (prop("http://purl.org/dc/terms/subject"; "dct:subject") | iri) == $subject
-          and (prop("https://w3id.org/catenax/ontology/common#version"; "cx-common:version") | literal) == $version)]'
+     | select(any(prop_values($conformsTo; "dct:conformsTo"; "conformsTo") | iri; . == $api))]'
 }
 
 # did:web -> URL of its DID document (http, per the environment's HTTP-only constraint)

@@ -46,21 +46,21 @@ class MembershipControllerTest {
 
     @Test
     void findByMemberId_returnsTheMatches() throws Exception {
-        when(membershipService.findByMemberId("catena-x", "BPNLONE000000001")).thenReturn(List.of(
-                Membership.submitted("ext-1", "catena-x", "Acme Corp", "did:web:acme", "BPNLONE000000001")));
+        when(membershipService.findByMemberId("decade-x", "DX-00000011")).thenReturn(List.of(
+                Membership.submitted("ext-1", "decade-x", "Acme Corp", "did:web:acme", "DX-00000011")));
 
-        mvc.perform(get("/api/members").param("dataspace", "catena-x").param("memberId", "BPNLONE000000001"))
+        mvc.perform(get("/api/members").param("dataspace", "decade-x").param("memberId", "DX-00000011"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].externalId").value("ext-1"))
-                .andExpect(jsonPath("$[0].dataspace").value("catena-x"))
-                .andExpect(jsonPath("$[0].memberId").value("BPNLONE000000001"))
+                .andExpect(jsonPath("$[0].dataspace").value("decade-x"))
+                .andExpect(jsonPath("$[0].memberId").value("DX-00000011"))
                 .andExpect(jsonPath("$[0].state").value("SUBMITTED"));
     }
 
     @Test
     void findByMemberId_requiresTheDataspace() throws Exception {
         // Member ids are only unique within their dataspace.
-        mvc.perform(get("/api/members").param("memberId", "BPNLONE000000001"))
+        mvc.perform(get("/api/members").param("memberId", "DX-00000011"))
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(membershipService);
@@ -69,8 +69,8 @@ class MembershipControllerTest {
     @Test
     void findByDid_narrowsToTheDataspaceWhenGiven() throws Exception {
         when(membershipService.findByDid("did:web:sut.example.com")).thenReturn(List.of(
-                Membership.submitted("ext-1", "catena-x", "SUT GmbH", "did:web:sut.example.com", "BPNL0000000000SU"),
-                Membership.submitted("ext-2", "decade-x", "SUT GmbH", "did:web:sut.example.com", "DX-1")));
+                Membership.submitted("ext-1", "other-x", "SUT GmbH", "did:web:sut.example.com", "OX-1"),
+                Membership.submitted("ext-2", "decade-x", "SUT GmbH", "did:web:sut.example.com", "DX-00000005")));
 
         mvc.perform(get("/api/members").param("did", "did:web:sut.example.com").param("dataspace", "decade-x"))
                 .andExpect(status().isOk())
@@ -83,7 +83,7 @@ class MembershipControllerTest {
         // The lookup an externally hosted member's operator can actually perform: it knows the
         // DID, not the external id this hub minted.
         when(membershipService.findByDid("did:web:sut.example.com")).thenReturn(List.of(
-                Membership.submitted("ext-9", "catena-x", "SUT GmbH", "did:web:sut.example.com", "BPNL0000000000SU")));
+                Membership.submitted("ext-9", "decade-x", "SUT GmbH", "did:web:sut.example.com", "DX-00000005")));
 
         mvc.perform(get("/api/members").param("did", "did:web:sut.example.com"))
                 .andExpect(status().isOk())
@@ -104,7 +104,7 @@ class MembershipControllerTest {
                 .andExpect(jsonPath("$[0].externalId").value("ext-3"))
                 .andExpect(jsonPath("$[0].memberId").value("DX-00000042"));
 
-        mvc.perform(get("/api/members").param("shortName", "dx-verifier").param("dataspace", "catena-x"))
+        mvc.perform(get("/api/members").param("shortName", "dx-verifier").param("dataspace", "other-x"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }
@@ -116,8 +116,8 @@ class MembershipControllerTest {
 
         // Two filters would leave the intended semantics of the combination ambiguous.
         mvc.perform(get("/api/members")
-                        .param("dataspace", "catena-x")
-                        .param("memberId", "BPNLONE000000001")
+                        .param("dataspace", "decade-x")
+                        .param("memberId", "DX-00000011")
                         .param("did", "did:web:sut.example.com"))
                 .andExpect(status().isBadRequest());
         mvc.perform(get("/api/members")
@@ -135,23 +135,18 @@ class MembershipControllerTest {
         // untouched — a dropped DID would silently turn a third-party system into a member this
         // environment tries to deploy.
         when(membershipService.onboard(any())).thenReturn(
-                Membership.submitted("ext-9", "catena-x", "SUT GmbH", "did:web:sut.example.com", "BPNL0000000000SU"));
+                Membership.submitted("ext-9", "decade-x", "SUT GmbH", "did:web:sut.example.com", "DX-00000005"));
 
         mvc.perform(post("/api/members")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "dataspace": "catena-x",
-                                  "name": "SUT GmbH", "shortName": "sut", "memberId": "BPNL0000000000SU",
+                                  "dataspace": "decade-x",
+                                  "name": "SUT GmbH", "shortName": "sut", "memberId": "DX-00000005",
                                   "did": "did:web:sut.example.com",
                                   "registration": {
-                                    "city": "Munich", "streetName": "Otto-Hahn-Ring",
-                                    "countryAlpha2Code": "DE", "region": "BY",
-                                    "uniqueIds": [ { "type": "VAT_ID", "value": "DE987654321" } ],
-                                    "companyRoles": [ "ACTIVE_PARTICIPANT" ],
-                                    "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
-                                    "userDetails": [ { "providerId": "prov-9", "firstName": "Jane",
-                                                       "lastName": "Doe", "email": "jane.doe@sut.example" } ]
+                                    "legalEntity": { "registrationCountry": "DE" },
+                                    "legalPerson": { "fullName": "Jane Doe", "email": "jane.doe@sut.example" }
                                   }
                                 }
                                 """))
@@ -162,7 +157,7 @@ class MembershipControllerTest {
         assertThat(submitted.getValue().did()).isEqualTo("did:web:sut.example.com");
         assertThat(submitted.getValue().hostedHere()).isFalse();
         // The dataspace-specific part is handed on as-is, for the dataspace to read.
-        assertThat(submitted.getValue().registration()).containsEntry("city", "Munich");
+        assertThat(submitted.getValue().registration()).containsKey("legalEntity");
     }
 
     @Test
@@ -170,7 +165,7 @@ class MembershipControllerTest {
         mvc.perform(post("/api/members")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content("""
-                                { "name": "SUT GmbH", "shortName": "sut", "memberId": "BPNL0000000000SU" }
+                                { "name": "SUT GmbH", "shortName": "sut", "memberId": "DX-00000005" }
                                 """))
                 .andExpect(status().isBadRequest());
 

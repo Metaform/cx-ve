@@ -24,31 +24,28 @@ class VerificationUiApplicationTest {
 
     @Test
     void contextLoadsAndPropertiesBind() {
-        var catenaX = properties.dataspace("catena-x");
-        assertEquals("BPNLVERIFY000001", catenaX.verificationParticipant().memberId());
-        assertEquals("cx-neptune", catenaX.dspProfile());
-        assertEquals(3, catenaX.contractConstraints().size());
-        var ccm = catenaX.useCase("ccm").ccm();
-        assertEquals("ccm-inbox-verification", ccm.inboxAssetId());
-        assertEquals("3.0", ccm.api().version());
-        assertEquals(2, ccm.expectedEvents().get("events.contract.negotiation.finalized"));
-        assertEquals("Company Certificate Management", catenaX.useCase("ccm").displayName());
-        assertEquals("Traceability", catenaX.useCase("traceability").displayName());
-        assertFalse(catenaX.useCase("traceability").enabled());
+        // DECADE-X is the only dataspace configured
+        assertEquals(1, properties.dataspaces().size());
         var decadeX = properties.dataspace("decade-x");
+        assertEquals("decade-x", decadeX.dspProfile());
         // DECADE-X assigns member ids: its verification participant declares none
         assertTrue(decadeX.memberId().assigned());
-        assertFalse(catenaX.memberId().assigned());
         assertNull(decadeX.verificationParticipant().memberId());
+        var ccm = decadeX.useCase("ccm").ccm();
+        assertEquals("ccm-inbox-verification-dx", ccm.inboxAssetId());
+        assertEquals("https://w3id.org/dsaf/sce/v1/provider-api", ccm.api().providerApi());
+        assertEquals("sce-1.0", ccm.protocol());
+        assertEquals("iso9001", ccm.certificateType());
+        assertEquals(2, ccm.expectedEvents().get("events.contract.negotiation.finalized"));
         assertEquals("Company Certificate Management", decadeX.useCase("ccm").displayName());
         assertEquals("Substance tracing", decadeX.useCase("substance-tracing").displayName());
         assertFalse(decadeX.useCase("substance-tracing").enabled());
         // a dataspace may leave its policies unset
-        assertEquals(0, properties.dataspace("decade-x").accessConstraints().size());
+        assertEquals(0, decadeX.accessConstraints().size());
         // DECADE-X's checklist: its own onboarding events and its credential's delivery
         assertEquals(Map.of("events.onboarding.started", 1, "events.onboarding.completed", 1,
                         "events.issuance.credential.delivered", 1),
-                properties.dataspace("decade-x").useCase("ccm").ccm().externalExpectedEvents());
+                ccm.externalExpectedEvents());
         assertFalse(properties.timeouts().onboarding().isZero());
     }
 }

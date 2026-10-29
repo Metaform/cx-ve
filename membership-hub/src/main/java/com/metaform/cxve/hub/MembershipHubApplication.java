@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * The Membership Hub: drives a partner's full path into a dataspace by combining the two halves
  * the platform deliberately keeps apart — the dataspace's own registration (its onboarding API,
- * e.g. CX-0006 for Catena-X) and the EDC resource provisioning (CFM Tenant Manager). It provisions a hosted partner's EDC
+ * e.g. DECADE-X's TSP onboarding intake) and the EDC resource provisioning (CFM Tenant Manager). It provisions a hosted partner's EDC
  * resources FIRST and registers it as an onboarding service provider second — the registration
  * ends with the issuer pushing a credential offer to the partner's wallet, which must exist by
  * then; the membership record correlates the registration's {@code externalId} with the

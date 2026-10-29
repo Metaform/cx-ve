@@ -12,9 +12,9 @@
 #                             identity surface is reachable the way an external dataspace
 #                             solution will reach it
 #   4. gradle e2e suite     — the black-box tests in membership-hub/src/e2e-test against the VE:
-#                             onboarding callback, credential-gated data exchange, and the
-#                             CX-0135 certificate exchanges (v3.0.0 Flows A and B, plus the
-#                             v2.4.0 legacy embedded push)
+#                             DECADE-X onboarding through the hub, data exchange, and the
+#                             SCE certificate exchanges (notify + request of a held
+#                             certificate, and a request fulfilled after issuance)
 #
 # On success the cluster is left running for inspection; remove it with
 #   kind delete cluster -n cxve
@@ -84,13 +84,10 @@ fi
 RUN_TS=$(date +%s)
 SHORT_NAME="verification-participant-${RUN_TS}"
 PARTICIPANT_DID="did:web:identity.${HOST}:${SHORT_NAME}"
-# bpn is a required field of the membership payload; derive a run-unique BPNL from the same
-# timestamp (duplicate BPNs are rejected, so it must differ between runs on a reused cluster)
-BPN="BPNL$(printf '%012d' "$RUN_TS")"
 
 step "Onboard the Verification Participant ($PARTICIPANT_DID)"
 FOLLOW=true ./scripts/onboard-participant.sh --name "Verification Participant" \
-  --short-name "$SHORT_NAME" --bpn "$BPN" \
+  --short-name "$SHORT_NAME" \
   --api-url "http://${HOST}/hub"
 
 step "Verify the participant DID resolves from OUTSIDE the cluster"
@@ -111,24 +108,6 @@ else
 fi
 
 step "Run the Gradle e2e suite (onboarding, data exchange, certificate exchange)"
-# The suite's registration-status callbacks are POSTed from in-cluster pods to a WireMock
-# server on THIS host. Its default callback hostname, host.docker.internal, only exists on
-# Docker Desktop (macOS/Windows); on plain Linux Docker (e.g. a CI runner) pods cannot resolve
-# it (UnresolvedAddressException). Derive the address the kind node reaches the host under —
-# its default gateway, i.e. the host side of the kind bridge — and hand it to the suite.
-if [[ "$(uname -s)" == "Linux" ]]; then
-  # NOTE the awk consumes ALL input on purpose (first match remembered, printed at END): an
-  # early `exit` would close the pipe while docker exec is still writing -> SIGPIPE -> the
-  # whole pipeline fails with 141 under pipefail.
-  E2E_CALLBACK_HOST=$(docker exec "${CLUSTER_NAME}-control-plane" ip route \
-    | awk '$1 == "default" && !gw {gw = $3} END {print gw}')
-  if [[ -z "$E2E_CALLBACK_HOST" ]]; then
-    echo "ERROR: could not derive the host address from ${CLUSTER_NAME}-control-plane's default route" >&2
-    exit 1
-  fi
-  export E2E_CALLBACK_HOST
-  echo "Linux host: in-cluster callbacks will target ${E2E_CALLBACK_HOST} (kind node default gateway)"
-fi
 # --rerun defeats Gradle's up-to-date check: the task's inputs don't change between runs, but
 # the cluster state does. KUBECONFIG pins the suite's kubectl calls to this run's cluster.
 KUBECONFIG="$HOME/.kube/${CLUSTER_NAME}.config" ./membership-hub/gradlew -p membership-hub e2eTest --rerun

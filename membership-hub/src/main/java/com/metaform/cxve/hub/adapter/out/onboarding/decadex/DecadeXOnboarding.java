@@ -47,7 +47,7 @@ import org.springframework.web.client.RestClientResponseException;
  * {@link IllegalStateException}; a draft that could not be submitted is deleted again.
  *
  * <p>The TSP has no status callbacks: the hub {@linkplain #pollsStatus() polls} the request's
- * status instead. {@code APPROVED} maps to the hub's CONFIRMED — like Catena-X's confirmation, it
+ * status instead. {@code APPROVED} maps to the hub's CONFIRMED — it
  * means the TSP registered the participant as credential holder and had the issuer offer it the
  * DECADE-X credentials (DX_LegalEntity_VC, DX_Site_VC) — and carries the participant's DECADE-X-ID;
  * {@code REJECTED} and {@code APPROVAL_FAILED} (the provisioning after an approval failed, which
@@ -129,7 +129,9 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
 
     /**
      * DECADE-X membership is the dataspace itself; the DECADE-X-ID is carried under {@code bpn}
-     * too, because that is the key the certo provisioning activity reads a member's id from.
+     * too, because that is the key the certo CFM agent reads a member's id from (it posts
+     * {@code {bpn, did, participantContextId, source}} to certo). Certo 0.0.8 ignores {@code bpn},
+     * so the tenant's {@code dataspaceIdentifier} stays unset.
      */
     @Override
     public Map<String, Object> issuerProperties(String did, MemberData data) {

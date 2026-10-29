@@ -111,8 +111,8 @@ config:
     dsp-base-url: http://cxve.localhost/api/dsp
     # Runs against a third-party system under test. The timeouts and the ledger checklist keep the
     # app's packaged defaults (see its application.yaml) unless a deployment needs otherwise. The
-    # SUT's certificate offer needs no agreed id: it is found by the CX-0135 provider API it
-    # declares (dct:subject + cx-common:version, see verification.ccm-api-version).
+    # SUT's certificate offer needs no agreed id: it is found by the SCE provider API it declares
+    # (dct:conformsTo, see verification.dataspaces.*.use-cases.ccm.ccm.api).
     external:
       # Must follow the platform's own did:web resolution (edc.iam.did.web.use.https), or this
       # app would accept a participant the runtimes cannot reach.

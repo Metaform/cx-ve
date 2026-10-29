@@ -38,8 +38,8 @@ type EventRecord struct {
 	// OccurredAt is the CloudEvent time; the zero value (producer sent none) is stored as NULL.
 	OccurredAt time.Time
 	// Envelope is the raw structured-mode CloudEvent JSON exactly as delivered. Raw, because the
-	// typed envelope drops members it does not declare (the onboarding events' sourcebpn and
-	// participantdid extensions, for instance) — the ledger must not inherit that loss.
+	// typed envelope drops members it does not declare (the onboarding events'
+	// participantdid extension, for instance) — the ledger must not inherit that loss.
 	Envelope []byte
 	Keys     CorrelationKeys
 }

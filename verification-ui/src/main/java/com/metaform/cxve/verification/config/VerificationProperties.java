@@ -77,7 +77,7 @@ public record VerificationProperties(
             String didWebScheme,
             Duration credentialsTimeout,
             Duration providerOfferTimeout,
-            Duration publishTimeout) {
+            Duration fulfillmentTimeout) {
     }
 
     /** The jwtlet mapping (RFC 8693 {@code resource}) and scope a token is exchanged under. */
@@ -96,8 +96,8 @@ public record VerificationProperties(
     /**
      * One dataspace, as a verification run sees it.
      *
-     * @param displayName             e.g. "Catena-X"
-     * @param memberId                how the dataspace names and formats a member's id (Catena-X: the BPN)
+     * @param displayName             e.g. "DECADE-X"
+     * @param memberId                how the dataspace names and formats a member's id (DECADE-X: the DECADE-X-ID)
      * @param dspProfile              the DSP dataspace profile catalog, negotiation and transfer requests
      *                                use, and the last segment of a provider's DSP address
      * @param policyContext           the JSON-LD context the dataspace's policy vocabulary lives in
@@ -138,7 +138,7 @@ public record VerificationProperties(
     }
 
     /**
-     * @param label    what the dataspace calls a member id, e.g. "BPN"
+     * @param label    what the dataspace calls a member id, e.g. "DECADE-X-ID"
      * @param pattern  a regular expression a member id must match in full; blank accepts anything
      * @param example  a sample value, shown as the input's placeholder
      * @param assigned whether the dataspace ASSIGNS its members' ids rather than having them
@@ -175,7 +175,10 @@ public record VerificationProperties(
      *
      * @param inboxAssetId           the verification participant's permanent CCM inbox asset
      * @param api                    how the dataspace identifies a CCM API offer in a catalog
-     * @param certificate            the sample certificate a managed run publishes
+     * @param protocol               the certificate-exchange wire protocol Certo speaks to the
+     *                               counterparty (SCE: {@code sce-1.0})
+     * @param certificateType        the certificate type a run requests (and a managed run issues)
+     * @param certificate            the sample certificate a managed run issues
      * @param expectedEvents         a managed run's ledger checklist
      * @param externalExpectedEvents an external run's ledger checklist — deliberately short: the
      *                               identity events belong to wallets THIS environment provisions,
@@ -185,6 +188,8 @@ public record VerificationProperties(
     public record Ccm(
             String inboxAssetId,
             CcmApiVocabulary api,
+            String protocol,
+            String certificateType,
             SampleCertificate certificate,
             Map<String, Integer> expectedEvents,
             Map<String, Integer> externalExpectedEvents) {
@@ -196,26 +201,18 @@ public record VerificationProperties(
     }
 
     /**
-     * The catalog vocabulary a dataspace's CCM standard identifies an API offer by (Catena-X:
-     * CX-0135 — {@code dct:type} {@code <taxonomy>CCMAPI}, a {@code dct:subject} naming the
-     * provider or consumer API, and a version property).
+     * How a dataspace's CCM standard identifies an API offer in a catalog: SCE declares each API by
+     * the {@code dct:conformsTo} value of the dataset offering it, which names the API and the
+     * specification's major version.
      *
-     * @param taxonomy        the namespace of the API type and subjects
-     * @param taxonomyPrefix  the prefix a compacted catalog may write the taxonomy as
-     * @param versionProperty the full IRI of the version property
-     * @param versionPrefix   the prefix a compacted catalog may write the version property's namespace as
-     * @param version         the API version this environment offers and looks for
+     * @param providerApi the conformance IRI of the Certificate Provider API
+     * @param consumerApi the conformance IRI of the Certificate Consumer API
      */
-    public record CcmApiVocabulary(
-            String taxonomy,
-            String taxonomyPrefix,
-            String versionProperty,
-            String versionPrefix,
-            String version) {
+    public record CcmApiVocabulary(String providerApi, String consumerApi) {
     }
 
-    /** The issuer and site of the sample certificate a managed run publishes. */
-    public record SampleCertificate(String issuerName, String issuerId, String siteId) {
+    /** The issuer of the sample certificate a managed run issues. */
+    public record SampleCertificate(String issuerName, String issuerId) {
     }
 
     /** @throws NoSuchElementException for a dataspace this environment has no profile of */

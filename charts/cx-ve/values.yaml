@@ -20,27 +20,25 @@ global:
 # <release>-nats-auth Secret, vault-bootstrap creates a `nats-<component>` policy + k8s-auth role
 # per service account, and each pod gets a fetch-nats-nkey init container that pulls its own seed.
 #
-# TURNING IT OFF IS ALL-OR-NOTHING — there are EIGHT switches across five charts and no single
+# TURNING IT OFF IS ALL-OR-NOTHING — there are SIX switches across four charts and no single
 # global flag (a parent chart cannot drive a subchart value from a template, so they cannot be
 # collapsed). Flip ALL of them together, or leave them all alone:
 #
 #   1. core-platform-distribution.nats.auth.enabled  -> false   (below)
 #   2. certoAgent.natsAuth.enabled                   -> false   (see certoAgent, further down)
-#   3. cx-onboarding-api.natsAuth.enabled               -> false   (see cx-onboarding-api, below)
-#   4. cx-onboarding-api.config.nats.nkey-seed-path     -> ""      (see cx-onboarding-api, below)
-#   5. complianceTracker.natsAuth.enabled            -> false   (see complianceTracker, at the end)
-#   6. certo.natsAuth.enabled                        -> false   (see certo, below)
-#   7. dx-onboarding-api.natsAuth.enabled            -> false   (see dx-onboarding-api, below)
-#   8. dx-onboarding-api.config.nats.nkey-seed-path  -> ""      (see dx-onboarding-api, below)
+#   3. complianceTracker.natsAuth.enabled            -> false   (see complianceTracker, at the end)
+#   4. certo.natsAuth.enabled                        -> false   (see certo, below)
+#   5. dx-onboarding-api.natsAuth.enabled            -> false   (see dx-onboarding-api, below)
+#   6. dx-onboarding-api.config.nats.nkey-seed-path  -> ""      (see dx-onboarding-api, below)
 #
 # Flipping only #1 is the dangerous half-measure: it removes the PROVISIONING (no
 # nats-auth-bootstrap job -> no <release>-nats-auth Secret; vault-bootstrap skips the nats-*
-# policies and roles) while #2/#3/#5/#6/#7 still CONSUME it. Their init containers and seed jobs retry
+# policies and roles) while #2-#5 still CONSUME it. Their init containers and seed jobs retry
 # forever by design, so the pods sit in Init:0/1 indefinitely instead of failing — certo-agent and
 # compliance-tracker loop on `invalid role name "nats-cfm-agents"` (hidden by a 2>/dev/null in the
-# templates) and the cx-onboarding-api nats-auth-seed loops waiting for the users.conf Secret.
+# templates).
 #
-# #4 (and #8, its DECADE-X twin) is easy to miss: it is NOT gated by #3 (#7). It is a plain value rendered through
+# #6 is easy to miss: it is NOT gated by #5. It is a plain value rendered through
 # `toYaml .Values.config` into the app's application.yaml, so leaving it set makes the app attempt
 # NKey auth against a seed file no init container writes any more. "" is the documented
 # connect-unauthenticated value (NatsProperties.hasNkeyAuth() is false for blank).
@@ -48,10 +46,10 @@ global:
 # With auth off the platform renders nats.conf without an `authorization` block at all, so NATS
 # accepts unauthenticated connections and nothing else needs changing.
 #
-# #6 additionally has to be off REGARDLESS of the others, until the platform provisions a certo NATS
+# #4 additionally has to be off REGARDLESS of the others, until the platform provisions a certo NATS
 # identity: nats-auth-bootstrap mints users from a fixed list (controlplane, identityhub,
 # issuerservice, cfm-agents, nats-admin) with no certo entry, so even with #1 left ON there is no
-# `nats-certo` role or seed for certo's init container to fetch. Note that switching #6 off does not
+# `nats-certo` role or seed for certo's init container to fetch. Note that switching #4 off does not
 # stop certo publishing — certo.events.nats stays on and connects unauthenticated, which is exactly
 # what scripts/install-ve.sh sets up.
 # ===============================================================================================
@@ -64,8 +62,8 @@ core-platform-distribution:
   # system:serviceaccount:edc-v:* identities are unaffected, so nothing here or in the app
   # charts needs to follow suit. Requires core-platform-distribution >= 0.0.25.
   prefixWorkloadNames: true
-  # NATS auth switch 1 of 4 — see the NATS authentication block above. Uncomment together with
-  # switches 2-4. Covers EVERY platform component at once: the init containers, volumes and
+  # NATS auth switch 1 of 6 — see the NATS authentication block above. Uncomment together with
+  # switches 2-6. Covers EVERY platform component at once: the init containers, volumes and
   # nats.auth.method / edc.nats.auth.nkey.seed.path config keys for controlplane, identityhub,
   # issuerservice, tenant-manager, provision-manager, cfm-agents, cfm-lifecycle-agents and
   # kmagent, plus the authorization include in nats.conf, the nats-auth-bootstrap job, the nats-*
@@ -89,7 +87,6 @@ core-platform-distribution:
             - identityhub
             - issuerservice
             - certo
-            - cx-onboarding-api
             - dx-onboarding-api
   edc:
     controlplane:
@@ -98,29 +95,22 @@ core-platform-distribution:
       # chart itself under the reserved alias `issuer` (edc.iam.trusted-issuer.issuer.id,
       # derived from global.host) — do NOT repeat it here, and never reuse the `issuer` alias
       # (it would render a duplicate config key). Keep this list in sync with
-      # catenax-profile.issuer.trustedIssuers below, e.g.:
+      # decadex-profile.issuer.trustedIssuers below, e.g.:
       #   trustedIssuers:
-      #     - name: cxtck
-      #       id: "did:web:cx-tck.edc-v.svc.cluster.local:issuer"
+      #     - name: vendor
+      #       id: "did:web:issuer.vendor.example.com:issuer"
       trustedIssuers: []
       dataspaceProfiles:
         # The profile name each participant's DID document advertises its DSP endpoint under
         # (the `ProtocolEndpoint` service entry). The controlplane serves one protocol context
         # per REGISTERED profile at /api/dsp/<participantContextId>/<profile name>, and the only
-        # profile this VE registers is the Catena-X one the catenax-profile chart seeds —
-        # `cx-neptune`. Left at the platform default (`http-dsp-profile-2025-1`, the built-in
+        # profile this VE registers is the DECADE-X one the decadex-profile chart seeds —
+        # `decade-x`. Left at the platform default (`http-dsp-profile-2025-1`, the built-in
         # profile this VE does not register) every participant would publish an endpoint that
         # 404s. Harmless between participants of THIS environment, which address each other by
         # the profile they both know they use, and fatal for an external counterparty, whose
         # only way to find the endpoint is the DID document.
-        advertisedProfile: cx-neptune
-    identityhub:
-      scopes:
-        - name: membership
-          pattern: 'org\.eclipse\.tractusx\.vc\.type:(.+):(read|\*|all)'
-          leftOperand: "verifiableCredential.credential.type"
-          operator: "contains"
-          rightOperand: "$1"
+        advertisedProfile: decade-x
     siglet:
       refreshEndpointPolicy:
         allowHttp: true
@@ -150,10 +140,7 @@ core-platform-distribution:
     # Helm replaces lists wholesale, so this list must repeat the platform defaults in full —
     # the `certo`, `event_tracker` and `hydra` entries are the CX-VE-specific additions (certo's
     # database, the compliance tracker's event ledger and the OSP IdP's store live in the
-    # platform's Postgres). The Catena-X onboarding API's `cx_onboarding` database is deliberately NOT here:
-    # the cx-onboarding-api chart provisions it itself (its postgres-seed job), so it works against
-    # a platform release this list never touched — an option the components deployed from THIS
-    # chart don't need.
+    # platform's Postgres).
     databases:
       - { db: controlplane,  user: cp,      password: cp }
       - { db: identityhub,   user: ih,      password: ih }
@@ -166,78 +153,36 @@ core-platform-distribution:
       - { db: event_tracker, user: event_tracker, password: event_tracker }
       - { db: hydra,         user: hydra,   password: hydra }
 
-# ---- Catena-X profile seeding ----------------------------------------------------------------
-catenax-profile:
-  issuer:
-    # Must equal the DID the platform mints for the issuer participant context — it is pinned
-    # into the dataspace profile's credentialSpecs, and a mismatch only surfaces at credential
-    # verification during onboarding. The platform derives it from its gateway hostname as
-    # did:web:issuer.<host>:issuer.
-    did: "did:web:issuer.cxve.localhost:issuer"
-    # ADDITIONAL issuer DIDs trusted in the cx-neptune dataspace profile — the PER-PROFILE
-    # registry credential verification actually consults; one entry covers all participants.
-    # `issuer.did` above is always the first trusted entry (supportedTypes ["*"], cannot be
-    # dropped), so this list is for extra issuers only. Keep in sync with
-    # core-platform-distribution.edc.controlplane.trustedIssuers above, e.g.:
-    #   trustedIssuers:
-    #     - "did:web:cx-tck.edc-v.svc.cluster.local:issuer"
-    # NOTE requires catenax-profile > 0.0.9: the published 0.0.9 predates profile-level
-    # trustedIssuers entirely (its edc-seed writes none — the cause of "Credential types ...
-    # are not supported for issuer ..."). Publish the current profile-edc-cx working tree and
-    # bump the pin in Chart.yaml.
-    trustedIssuers: []
-
-# ---- Catena-X onboarding API -----------------------------------------------------------------
-# The app chart's own defaults already target this umbrella (cx-ve-* infra names, cxve.localhost
-# hostnames); only deltas belong here.
-cx-onboarding-api:
-  # Goes together with the hub's membership-hub.config.dataspaces.catena-x.enabled: a hub serving
-  # Catena-X without this API fails every registration, and this API without the hub is idle.
-  enabled: true
-  image:
-    pullPolicy: IfNotPresent
-  # NATS auth switches 3 and 4 of 4 — see the NATS authentication block at the top of this file.
-  # Uncomment BOTH together with switches 1-2. #3 gates the pod's fetch-nats-nkey init container,
-  # its volume/mount and the whole nats-auth-seed job (Vault policy + role, NKey generation,
-  # users.conf merge). #4 is separate on purpose: it is not gated by #3, and leaving it set makes
-  # the app keep trying NKey auth against a seed file that is no longer delivered.
-  # natsAuth:
-  #   enabled: false
-  # config:
-  #   nats:
-  #     nkey-seed-path: ""
-
 # ---- DECADE-X onboarding API -------------------------------------------------------------------
 # The TSP onboarding intake. There is no TSP operator yet: requests are approved automatically —
 # those of participants hosted here, and for now those of external ones too
 # (dx-onboarding-api.config.dx-onboarding.review). On approval it registers the participant as a
 # credential holder and has the platform's issuer offer it the DX_LegalEntity_VC and DX_Site_VC (see
-# decadex-profile below), as the cx-onboarding-api does for Catena-X. Goes together with the hub's
-# membership-hub.config.dataspaces.decade-x.enabled, like the Catena-X switch above.
+# decadex-profile below).
 dx-onboarding-api:
-  enabled: true
   image:
     pullPolicy: IfNotPresent
 
 # ---- DECADE-X profile ---------------------------------------------------------------------------
-# DECADE-X's dataspace seeding (charts/decadex-profile), the catenax-profile's counterpart: the
-# DX_LegalEntity_VC's and DX_Site_VC's definitions on the platform's issuer, and the EDC dataspace
-# profile DECADE-X participants run DSP under (`decade-x`, trusting the platform's issuer, with a DCP
-# scope asking for the Legal Entity VC). Goes together with dx-onboarding-api.enabled; its credential
-# definition ids must match the dx-onboarding-api's issuer-service.credential-definitions, and its
-# dspProfile the hub's and the verification UI's DECADE-X DSP profile.
+# DECADE-X's dataspace seeding (charts/decadex-profile): the DX_LegalEntity_VC's and DX_Site_VC's
+# definitions on the platform's issuer, and the EDC dataspace profile DECADE-X participants run DSP
+# under (`decade-x`, trusting the platform's issuer, with a DCP scope asking for the Legal Entity
+# VC). Its credential definition ids must match the dx-onboarding-api's
+# issuer-service.credential-definitions, and its dspProfile the connector's advertised profile above
+# and the hub's and the verification UI's DECADE-X DSP profile.
 decadex-profile:
-  enabled: true
   dspProfile: decade-x
   issuer:
     # host-derived: the install scripts override it
     did: "did:web:issuer.cxve.localhost:issuer"
+    # ADDITIONAL issuer DIDs trusted in the decade-x dataspace profile. Keep in sync with
+    # core-platform-distribution.edc.controlplane.trustedIssuers above.
+    trustedIssuers: []
 
 # ---- Membership Hub ---------------------------------------------------------------------------
 # Drives the full member journey in each dataspace it serves: EDC resource provisioning via the
 # CFM Tenant Manager for a member this VE hosts, then registration via the dataspace's onboarding
-# API (as OSP client membership-hub, seeded under ospIdp.clients below) — for Catena-X it
-# registers the credential holder and offers it the credentials. All URLs in the subchart's
+# API (as OSP client membership-hub, seeded under ospIdp.clients below). All URLs in the subchart's
 # defaults already point at the umbrella's in-cluster services.
 membership-hub:
   image:
@@ -245,7 +190,7 @@ membership-hub:
 
 # ---- Verification UI -------------------------------------------------------------------------
 # Angular dashboard + BFF driving the full verification journey (onboard a participant under
-# test, establish the CCM flows, run the CX-0135 certificate exchange, judge the run against
+# test, establish the CCM flows, run the certificate exchange, judge the run against
 # the compliance tracker's eventlog through the hub's read API). All URLs in the subchart's
 # defaults already point at the umbrella's in-cluster services.
 verification-ui:
@@ -253,7 +198,7 @@ verification-ui:
     pullPolicy: IfNotPresent
 
 
-# ---- Certo (CX-0135 certificate exchange) ----------------------------------------------------
+# ---- Certo (DSAF SCE certificate exchange) ---------------------------------------------------
 certo:
   enabled: true
   gateway:
@@ -274,20 +219,19 @@ certo:
     url: http://jwtlet.edc-v.svc.cluster.local:8080/token
     audience: edcv
     scope: siglet-token
-    verifyResource: sudo
     subjectTokenAudience: https://kubernetes.default.svc.cluster.local
-  # Certificate-exchange status changes (CX-0135 §2.1.3) published as CloudEvents onto the platform's
+  # Certificate-exchange status changes published as CloudEvents onto the platform's
   # edc-events stream, on subjects events.certificate.exchange.* — the same stream and envelope shape
   # the EDC runtimes use, so the compliance tracker and any other events.> consumer sees them
   # alongside the connector's.
   #
-  # ON by default. natsAuth below is NATS auth switch 6 of 6 (see the block at the top of this file);
+  # ON by default. natsAuth below is NATS auth switch 4 of 6 (see the block at the top of this file);
   # publishing itself stays on when auth is switched off, over an unauthenticated connection.
   #
   # CAVEAT: the platform's nats-auth-bootstrap mints users from a fixed list (controlplane,
   # identityhub, issuerservice, cfm-agents, nats-admin) with NO certo entry, so until certo has an
   # identity there, natsAuth.enabled=true against an auth-ON platform leaves the pod in Init:0/1
-  # with nothing to fetch. scripts/install-ve.sh disables it (along with the other five switches)
+  # with nothing to fetch. scripts/install-ve.sh disables it (along with the other switches)
   # for exactly this reason.
   #
   # NOTE these keys need a certo chart NEWER than the pinned 0.0.2, which has no NATS templates at
@@ -303,8 +247,8 @@ certo:
       # Never in-cluster: the stream is the platform's, and certo's user may not manage streams.
       createStream: false
   natsAuth:
-    # NATS auth switch 6 of 6 — see the NATS authentication block at the top of this file. Set to
-    # false only together with switches 1-5.
+    # NATS auth switch 4 of 6 — see the NATS authentication block at the top of this file. Set to
+    # false only together with switches 1-3, 5 and 6.
     enabled: true
     vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200
     # Certo REUSES the platform's shared `edc-events` identity — it publishes on events.>, which is
@@ -339,7 +283,7 @@ certo:
 # OAuth2 issuer for EXTERNAL callers of the Onboarding API (the onboarding service provider
 # role): client_credentials tokens, validated by the API against this IdP's JWKS. See
 # templates/osp-idp.yaml — the issuer/token URL is http://<global.host>/auth/osp, so it follows
-# the host automatically; the cx-onboarding-api subchart's issuer-uri must be overridden alongside
+# the host automatically; the dx-onboarding-api subchart's issuer-uri must be overridden alongside
 # a non-default host (install-ve.sh does).
 ospIdp:
   enabled: true
@@ -352,28 +296,18 @@ ospIdp:
     # The `hydra` database comes from the postgresql.databases list above (its CX-VE entry)
     dsn: postgres://hydra:hydra@cx-ve-postgresql.edc-v.svc.cluster.local:5432/hydra?sslmode=disable
   # OSP clients seeded into the IdP (osp-idp-seed-job.yaml; upserted on upgrade). `scope` is the
-  # space-separated maximum a client may request. configure_partner_registration is the CX-0009
-  # umbrella role sufficient for every administration endpoint; the fine-grained scopes
-  # (registration:read/write, callback-config:read/write) are BEYOND-SPEC least-privilege
-  # alternatives the Onboarding API accepts per operation class — seeded here so clients CAN
-  # request them.
+  # space-separated maximum a client may request; the DECADE-X onboarding API requires an
+  # authenticated caller, no particular scope.
   clients:
+    # For callers outside the hub, e.g. an operator or a test submitting onboarding requests directly.
     - id: osp-client
       secret: osp-secret
-      scope: "configure_partner_registration registration:read registration:write callback-config:read callback-config:write"
-    # The Membership Hub's own OSP identity — a separate client, so its callback registration
-    # cannot collide with osp-client's (e.g. the e2e suite's). Must agree with the
-    # membership-hub chart's config dataspaces.catena-x.onboarding.auth.*
+      scope: ""
+    # The Membership Hub's own OSP identity. Must agree with the membership-hub chart's config
+    # dataspaces.decade-x.onboarding.auth.*
     - id: membership-hub
       secret: membership-hub-secret
-      scope: "configure_partner_registration registration:read registration:write callback-config:read callback-config:write"
-    # The credentials the hub registers ALONGSIDE its callback URL: the Onboarding API uses them
-    # (client_credentials) to authenticate the status callbacks it sends BACK to the hub, whose
-    # callback endpoint validates the bearer against this IdP. Must agree with the membership-hub
-    # chart's config dataspaces.catena-x.onboarding.callback.*
-    - id: membership-hub-callback
-      secret: membership-hub-callback-secret
-      scope: "callback"
+      scope: ""
   resources: {}
 
 # ---- jwtlet endpoints for the umbrella's own seed jobs and the certo agent -------------------
@@ -414,8 +348,8 @@ certoAgent:
   # secret/nats/cfm-agents and registers its public key in users.conf — nothing to seed from
   # this release, the init container only fetches the ready-made seed.
   natsAuth:
-    # NATS auth switch 2 of 4 — see the NATS authentication block at the top of this file. Set to
-    # false only together with switches 1, 3 and 4. Because this consumes what switch 1 provisions,
+    # NATS auth switch 2 of 6 — see the NATS authentication block at the top of this file. Set to
+    # false only together with switches 1 and 3-6. Because this consumes what switch 1 provisions,
     # leaving it true while 1 is false parks the pod in Init:0/1 forever: the init container loops
     # on `invalid role name "nats-cfm-agents"`, and the template's 2>/dev/null hides that error
     # behind a generic "Vault or its bootstrap not ready yet" message.
@@ -475,8 +409,8 @@ complianceTracker:
   # platform-provisioned cfm-agents component, so the init container only fetches a ready-made
   # seed and there is nothing to seed from this release.
   natsAuth:
-    # NATS auth switch 5 of 5 — see the NATS authentication block at the top of this file. Set to
-    # false only together with switches 1-4; leaving it true while switch 1 is false parks the pod
+    # NATS auth switch 3 of 6 — see the NATS authentication block at the top of this file. Set to
+    # false only together with switches 1, 2 and 4-6; leaving it true while switch 1 is false parks the pod
     # in Init:0/1 forever.
     enabled: true
     vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200

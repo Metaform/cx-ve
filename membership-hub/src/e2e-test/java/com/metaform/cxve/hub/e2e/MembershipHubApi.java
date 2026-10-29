@@ -16,10 +16,10 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * Minimal client for the Membership Hub through the VE gateway ({@code /hub}) — the full member
- * journey: {@code POST /api/members} into the Catena-X dataspace runs the CX-0006 registration (CX
- * onboarding API) and deploys
- * the participant profile (CFM Tenant Manager); {@code GET /api/members/<externalId>} reads the
- * correlated record, refreshing the provisioning state from the Tenant Manager on every call.
+ * journey: {@code POST /api/members} into the DECADE-X dataspace deploys the participant profile
+ * (CFM Tenant Manager) and submits the onboarding request to the DECADE-X onboarding API;
+ * {@code GET /api/members/<externalId>} reads the correlated record, refreshing the provisioning
+ * state from the Tenant Manager on every call.
  * The hub's API is unauthenticated (operator surface); the wire shapes are mirrored inline, like
  * everywhere else in this suite.
  */
@@ -38,31 +38,36 @@ public class MembershipHubApi {
      * a member it hosts, which it deploys before registering); the rest lands asynchronously —
      * poll {@link #awaitProvisioned}. A membership already dead on arrival fails here.
      */
-    public JsonNode onboard(String name, String shortName, String bpn, String vatId) {
+    public JsonNode onboard(String name, String shortName, String vatId) {
+        // The TSP's onboarding request data, minus what the hub fills in itself (legal name, DID,
+        // applicantReference) — the verification UI's DECADE-X registration template. No memberId:
+        // the TSP assigns the DECADE-X-ID, and the hub generates one for a member it hosts.
         var response = given()
                 .baseUri(baseUrl)
                 .contentType(ContentType.JSON)
                 .body("""
                         {
-                          "dataspace": "catena-x",
+                          "dataspace": "decade-x",
                           "name": "%s",
                           "shortName": "%s",
-                          "memberId": "%s",
                           "registration": {
-                            "city": "Munich",
-                            "streetName": "Otto-Hahn-Ring",
-                            "countryAlpha2Code": "DE",
-                            "region": "BY",
-                            "uniqueIds": [ { "type": "VAT_ID", "value": "%s" } ],
-                            "companyRoles": [ "ACTIVE_PARTICIPANT" ],
-                            "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
-                            "userDetails": [ {
-                              "providerId": "e2e-user-%s",
-                              "firstName": "E2e", "lastName": "Tester",
-                              "email": "e2e-%s@example.com"
-                            } ]
+                            "legalEntity": {
+                              "registrationCountry": "DE",
+                              "companyType": "LIMITED_LIABILITY_COMPANY",
+                              "registrationNumbers": [ { "scheme": "vatID", "value": "%s" } ],
+                              "legalAddress": { "street": "Otto-Hahn-Ring 6", "postalCode": "81739", "locality": "Munich",
+                                                "countryCode": "DE", "countryName": "Germany" }
+                            },
+                            "businessSites": [ { "siteName": "E2e Site",
+                                                 "mainAddress": { "street": "Otto-Hahn-Ring 6", "postalCode": "81739",
+                                                                  "locality": "Munich", "countryCode": "DE",
+                                                                  "countryName": "Germany" } } ],
+                            "legalPerson": { "fullName": "E2e Tester", "email": "e2e-%s@example.com", "role": "Operator" },
+                            "gtc": { "versionNumber": "1.0" },
+                            "ucas": [ { "useCaseId": "product-conformity", "versionNumber": "1.0" } ],
+                            "declarations": { "informationAccurate": true, "authorisedToAct": true, "evidenceMayBeRequested": true }
                           }
-                        }""".formatted(name, shortName, bpn, vatId, vatId, vatId))
+                        }""".formatted(name, shortName, vatId, vatId))
                 .post("/api/members");
         assertThat(response.statusCode())
                 .withFailMessage("membership submission for '%s' failed: %s", name, response.asString())

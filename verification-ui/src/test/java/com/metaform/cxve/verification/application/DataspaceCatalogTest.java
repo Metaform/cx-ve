@@ -47,15 +47,15 @@ class DataspaceCatalogTest {
 
     @Test
     void list_marksAServedDataspacesImplementedUseCasesAvailable() {
-        when(hub.servedDataspaces()).thenReturn(List.of("catena-x"));
+        when(hub.servedDataspaces()).thenReturn(List.of("example-x"));
 
         var dataspaces = catalog().list();
 
         assertThat(dataspaces).hasSize(1);
-        var catenaX = dataspaces.get(0);
-        assertThat(catenaX.available()).isTrue();
-        assertThat(catenaX.memberId().label()).isEqualTo("BPN");
-        assertThat(catenaX.useCases())
+        var example = dataspaces.get(0);
+        assertThat(example.available()).isTrue();
+        assertThat(example.memberId().label()).isEqualTo("Member ID");
+        assertThat(example.useCases())
                 .extracting(DataspaceCatalog.UseCase::id, DataspaceCatalog.UseCase::available)
                 .containsExactlyInAnyOrder(
                         org.assertj.core.groups.Tuple.tuple("ccm", true),
@@ -67,39 +67,39 @@ class DataspaceCatalogTest {
     void list_showsADataspaceTheHubDoesNotServe_asUnavailable() {
         when(hub.servedDataspaces()).thenReturn(List.of());
 
-        var catenaX = catalog().list().get(0);
+        var example = catalog().list().get(0);
 
-        assertThat(catenaX.available()).isFalse();
-        assertThat(catenaX.useCases()).noneMatch(DataspaceCatalog.UseCase::available);
+        assertThat(example.available()).isFalse();
+        assertThat(example.useCases()).noneMatch(DataspaceCatalog.UseCase::available);
     }
 
     @Test
     void resolve_returnsTheUseCasesFlow() {
-        when(hub.servedDataspaces()).thenReturn(List.of("catena-x"));
+        when(hub.servedDataspaces()).thenReturn(List.of("example-x"));
 
-        assertThat(catalog().resolve("catena-x", "ccm", "BPNLACME00000001")).isSameAs(ccm);
+        assertThat(catalog().resolve("example-x", "ccm", "EX-00000004")).isSameAs(ccm);
     }
 
     @Test
     void resolve_refusesWhatCannotBeVerified() {
-        when(hub.servedDataspaces()).thenReturn(List.of("catena-x"));
+        when(hub.servedDataspaces()).thenReturn(List.of("example-x"));
         var catalog = catalog();
 
         assertThatThrownBy(() -> catalog.resolve("decade-x", "ccm", "DX-1"))
                 .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("decade-x");
-        assertThatThrownBy(() -> catalog.resolve("catena-x", "traceability", "BPNLACME00000001"))
+        assertThatThrownBy(() -> catalog.resolve("example-x", "traceability", "EX-00000004"))
                 .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("Traceability");
-        assertThatThrownBy(() -> catalog.resolve("catena-x", "ccm", "ACME"))
-                .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("BPN");
+        assertThatThrownBy(() -> catalog.resolve("example-x", "ccm", "ACME"))
+                .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class).hasMessageContaining("Member ID");
     }
 
     @Test
     void resolve_requiresAMemberIdWhereTheDataspaceDoesNotAssignIt() {
-        when(hub.servedDataspaces()).thenReturn(List.of("catena-x"));
+        when(hub.servedDataspaces()).thenReturn(List.of("example-x"));
 
-        assertThatThrownBy(() -> catalog().resolve("catena-x", "ccm", null))
+        assertThatThrownBy(() -> catalog().resolve("example-x", "ccm", null))
                 .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class)
-                .hasMessageContaining("BPN is required");
+                .hasMessageContaining("Member ID is required");
     }
 
     /** DECADE-X assigns a member's id on onboarding: a run comes without one, and is refused with one. */
@@ -128,7 +128,7 @@ class DataspaceCatalogTest {
     void resolve_refusesADataspaceTheHubDoesNotServe() {
         when(hub.servedDataspaces()).thenReturn(List.of());
 
-        assertThatThrownBy(() -> catalog().resolve("catena-x", "ccm", "BPNLACME00000001"))
+        assertThatThrownBy(() -> catalog().resolve("example-x", "ccm", "EX-00000004"))
                 .isInstanceOf(DataspaceCatalog.InvalidRunRequestException.class)
                 .hasMessageContaining("Membership Hub");
     }

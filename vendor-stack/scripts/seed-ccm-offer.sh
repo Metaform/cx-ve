@@ -1,22 +1,17 @@
 #!/bin/bash
 
 # Seeds the vendor participant's certificate offer: the asset the VE's verification participant
-# consumes to establish its pull flow to this stack's Certo (CX-0135 Flow B — the consumer
-# retrieves the certificate over it and reports its acceptance back). This is the vendor's
-# Checkpoint 2 obligation from docs/sut-verification.md.
+# consumes to establish its pull flow to this stack's Certo (DSAF SCE Certificate Provider API — the
+# consumer requests the certificate over it, retrieves it and reports its acceptance back). This is
+# the vendor's Checkpoint 2 obligation from docs/sut-verification.md.
 #
-# The asset declares the CX-0135 provider API (dct:type cx-taxo:CCMAPI, dct:subject
-# cx-taxo:CompanyCertificateManagementProviderApi, cx-common:version 3.0) — that is what the VE finds
-# the offer by. Its id is free; CX-0135 allows only one such offer per business partner, and a VE run
-# fails when the catalog offers the same API twice.
+# The asset declares the SCE provider API (dct:conformsTo https://w3id.org/dsaf/sce/v1/provider-api)
+# — that is what the VE finds the offer by. Its id is free; SCE has a participant publish one
+# dataset per API, and a VE run fails when the catalog offers the same API twice.
 #
 # The policies mirror the offers the VE itself makes in the stack's dataspace (verification-ui's
-# verification.dataspaces.<id>): in Catena-X, catalog visibility requires a Catena-X membership, a
-# contract requires the data exchange governance framework agreement plus the usage purpose and usage
-# end definitions — the Catena-X profile's CEL expressions evaluate them against the consumer's
-# credentials, which, for the VE's verification participant, the VE's issuer signed and this stack
-# trusts. DECADE-X has no policy vocabulary yet: its offers are unconstrained, as the VE's are — the
-# access policy an empty Set (a rule without constraints is refused for `access`, which is bound to
+# verification.dataspaces.<id>). DECADE-X has no policy vocabulary yet: its offers are
+# unconstrained, as the VE's are — the access policy an empty Set (a rule without constraints is refused for `access`, which is bound to
 # no scope), the contract policy one `use` permission without constraints (a contract request needs
 # a rule; `use` is bound). Its DSP profile's DCP scope still requires the consumer to present its
 # DX_LegalEntity_VC.
@@ -28,18 +23,16 @@
 #   ./vendor-stack/scripts/seed-ccm-offer.sh [-d|--dataspace <dataspace>] [-s|--short-name <name>]
 #                                            [--asset <id>] [-h|--help]
 #
-#   -d, --dataspace    catena-x (default) or decade-x — the dataspace of the stack
+#   -d, --dataspace    decade-x (default, the only one so far) — the dataspace of the stack
 #   -s, --short-name   the vendor participant (default: vendor-participant)
 #   --asset            asset id (default: <short name>-ccm-provider-api)
 #
-# Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh),
-# CCM_API_VERSION (default 3.0)
+# Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh)
 
 source "$(dirname "$0")/lib.sh"
 
 ASSET_ID=""
 MANAGEMENT_CONTEXT="https://w3id.org/edc/connector/management/v2"
-CX_POLICY_CONTEXT="https://w3id.org/catenax/2025/9/policy/context.jsonld"
 
 usage() { awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -85,13 +78,8 @@ create_once() {
   log "$what '$id' created"
 }
 
-# constraint <leftOperand> <operator> <rightOperand> -> ODRL constraint (compacted, CX policy context)
-constraint() {
-  jq -n --arg l "$1" --arg o "$2" --arg r "$3" '{leftOperand: $l, operator: $o, rightOperand: $r}'
-}
-
-# An unconstrained policy, without the Catena-X policy context: for `access` an empty Set, for `use`
-# one permission without constraints (see the header).
+# An unconstrained policy: for `access` an empty Set, for `use` one permission without constraints
+# (see the header).
 open_policy() { # <id> <action>
   jq -n --arg mctx "$MANAGEMENT_CONTEXT" --arg id "$1" --arg action "$2" '{
     "@context": [$mctx],
@@ -101,34 +89,19 @@ open_policy() { # <id> <action>
   }'
 }
 
-policy() { # <id> <action> <constraint-json...>
-  local id="$1" action="$2"
-  shift 2
-  jq -n --arg mctx "$MANAGEMENT_CONTEXT" --arg cxctx "$CX_POLICY_CONTEXT" --arg id "$id" \
-        --arg action "$action" --argjson constraints "$(printf '%s\n' "$@" | jq -s .)" '{
-    "@context": [$mctx, $cxctx],
-    "@type": "PolicyDefinition",
-    "@id": $id,
-    "policy": {
-      "@type": "Set",
-      "permission": [{action: $action, constraint: [{and: $constraints}]}]
-    }
-  }'
-}
-
 ACCESS_POLICY_ID="${PARTICIPANT_SHORT_NAME}-ccm-access-policy"
 CONTRACT_POLICY_ID="${PARTICIPANT_SHORT_NAME}-ccm-contract-policy"
 CONTRACT_DEFINITION_ID="${PARTICIPANT_SHORT_NAME}-ccm-cd"
 
-# The asset declares the CX-0135 provider API and carries no address: under Data Plane Signaling
+# The asset declares the SCE provider API and carries no address: under Data Plane Signaling
 # the data plane owns the endpoint — the participant's transfer-type mapping points the pull flows
 # at Certo's protocol API, and the data plane hands it to the consumer as the DataAddress of the
 # started transfer.
-ASSET=$(jq -n --arg ctx "$MANAGEMENT_CONTEXT" --arg id "$ASSET_ID" --argjson api "$(ccm_api_properties "$CCM_PROVIDER_API")" '{
+ASSET=$(jq -n --arg ctx "$MANAGEMENT_CONTEXT" --arg id "$ASSET_ID" --argjson api "$(sce_api_properties "$SCE_PROVIDER_API")" '{
   "@context": [$ctx],
   "@type": "Asset",
   "@id": $id,
-  "properties": ($api + {"http://purl.org/dc/terms/description": "vendor CCM provider API (CX-0135)"})
+  "properties": ($api + {"http://purl.org/dc/terms/description": "vendor certificate provider API (DSAF SCE)"})
 }')
 mgmt POST "/participants/$PCID/assets" "$ASSET"
 if [[ "$HTTP_STATUS" == 409 ]]; then
@@ -136,21 +109,13 @@ if [[ "$HTTP_STATUS" == 409 ]]; then
   [[ "$HTTP_STATUS" == 200 ]] || die "asset id '$ASSET_ID' is taken by another participant on this control plane — pass --asset"
   mgmt PUT "/participants/$PCID/assets" "$ASSET"
   expect_2xx "updating asset '$ASSET_ID'"
-  log "asset '$ASSET_ID' updated (CX-0135 provider API $CCM_API_VERSION)"
+  log "asset '$ASSET_ID' updated (SCE provider API)"
 else
   expect_2xx "creating asset '$ASSET_ID'"
-  log "asset '$ASSET_ID' created (CX-0135 provider API $CCM_API_VERSION)"
+  log "asset '$ASSET_ID' created (SCE provider API)"
 fi
 
 case "$VENDOR_DATASPACE" in
-  catena-x)
-    create_once "access policy" policydefinitions "$ACCESS_POLICY_ID" "$(policy "$ACCESS_POLICY_ID" access \
-      "$(constraint Membership eq active)")"
-    create_once "contract policy" policydefinitions "$CONTRACT_POLICY_ID" "$(policy "$CONTRACT_POLICY_ID" use \
-      "$(constraint FrameworkAgreement eq DataExchangeGovernance:1.0)" \
-      "$(constraint UsagePurpose isAnyOf cx.pcf.base:1)" \
-      "$(constraint DataUsageEndDefinition eq cx.dataUsageEnd.unlimited:1)")"
-    ;;
   decade-x)
     create_once "access policy" policydefinitions "$ACCESS_POLICY_ID" "$(open_policy "$ACCESS_POLICY_ID" access)"
     create_once "contract policy" policydefinitions "$CONTRACT_POLICY_ID" "$(open_policy "$CONTRACT_POLICY_ID" use)"
@@ -169,5 +134,5 @@ create_once "contract definition" contractdefinitions "$CONTRACT_DEFINITION_ID" 
 }')"
 
 echo
-echo "Offer '$ASSET_ID' seeded on $DID as the CX-0135 provider API $CCM_API_VERSION — the VE's"
-echo "ESTABLISH_PULL_FLOW step finds it by that."
+echo "Offer '$ASSET_ID' seeded on $DID as the SCE provider API ($SCE_PROVIDER_API) — the"
+echo "VE's ESTABLISH_PULL_FLOW step finds it by that."

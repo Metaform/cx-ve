@@ -84,7 +84,7 @@ func TestComplianceTracker_Integration(t *testing.T) {
 		"specversion": "1.0",
 		"id":          "ce-0",
 		"source":      "/cxve/test",
-		"type":        "org.catena-x.onboarding.started.v1",
+		"type":        "org.decade-x.onboarding.OnboardingStarted.v1",
 		"time":        "2026-08-18T12:00:00Z",
 		"data":        map[string]string{"processId": "proc-e2e", "externalId": "ext-1", "did": "did:web:acme"},
 	})
