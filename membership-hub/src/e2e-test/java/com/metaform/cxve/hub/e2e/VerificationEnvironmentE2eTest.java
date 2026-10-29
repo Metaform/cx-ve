@@ -1,11 +1,6 @@
 package com.metaform.cxve.hub.e2e;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
-import io.restassured.http.ContentType;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -13,110 +8,55 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Base64;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
-import static com.github.tomakehurst.wiremock.client.WireMock.post;
-import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
-import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
-import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static com.metaform.cxve.hub.e2e.TestLog.log;
-import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.InstanceOfAssertFactories.LIST;
 import static org.awaitility.Awaitility.await;
 
 /**
  * End-to-end tests against a running VE (stood up by scripts/install-ve.sh) through its
  * gateway — black box, no dependency on the app modules' classes; wire payloads are mirrored
- * locally (see {@link NewParticipantData}). Participants are onboarded through the Membership
- * Hub — the full journey: CX-0006 registration via the Onboarding API, then EDC resource
- * provisioning via the CFM Tenant Manager (see {@link MembershipHubApi}); the direct OSP-facing
- * surface of the Onboarding API keeps its own contract test. The suite is not part of
+ * locally. Participants are onboarded into DECADE-X through the Membership Hub — the full
+ * journey: EDC resource provisioning via the CFM Tenant Manager, then the onboarding request to
+ * the DECADE-X onboarding API, approved automatically (see {@link MembershipHubApi}). The suite is not part of
  * {@code check}/{@code build}; run it with {@code ./gradlew e2eTest}.
  */
 class VerificationEnvironmentE2eTest {
-    public static final ManagementApi.Constraint MEMBERSHIP_CONSTRAINT = new ManagementApi.Constraint("Membership", "eq", "active");
-    public static final ManagementApi.Constraint FRAMEWORK_AGREEMENT_CONSTRAINT = new ManagementApi.Constraint("FrameworkAgreement", "eq", "DataExchangeGovernance:1.0");
-    public static final ManagementApi.Constraint USAGE_PURPOSE_CONSTRAINT = new ManagementApi.Constraint("UsagePurpose", "isAnyOf", "cx.pcf.base:1");
-    public static final ManagementApi.Constraint DATA_USAGE_DEFINITION_CONSTRAINT = new ManagementApi.Constraint("DataUsageEndDefinition", "eq", "cx.dataUsageEnd.unlimited:1");
-
-    private static final String ONBOARDING_API_URL = "http://cxve.localhost/cx-onboarding";
     private static final String MEMBERSHIP_HUB_URL = "http://cxve.localhost/hub";
-    // Hostname under which the in-cluster Onboarding API can reach THIS test process: the
-    // callback receiver (WireMock) runs on the host. Docker Desktop (macOS/Windows) resolves
-    // host.docker.internal to it from inside pods; on plain Linux Docker (e.g. a CI runner)
-    // that name does NOT exist — set E2E_CALLBACK_HOST to an address the kind node routes to
-    // the host (e2e.sh derives the kind bridge gateway). Plain localhost would loop back to
-    // the pod.
-    private static final String CALLBACK_HOST =
-            System.getenv().getOrDefault("E2E_CALLBACK_HOST", "host.docker.internal");
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
-    // The external registration-status consumer: WireMock listens on a dynamic port and serves
-    // POST /registration/status, receiving the Onboarding API's status callbacks. The
-    // ServeEventListener counts the latch down on every served /registration/status request.
-    // h2c is disabled because the app's JDK HttpClient upgrades plain-http connections to
-    // HTTP/2, and that path fails against Jetty with "Received RST_STREAM: Stream cancelled".
-    @RegisterExtension
-    static WireMockExtension wiremock = WireMockExtension.newInstance()
-            .options(wireMockConfig().dynamicPort().http2PlainDisabled(true))
-            .build();
-
     private static final String TOKEN_EXCHANGE_URL = "http://cxve.localhost/api/auth/token";
-    private static final String TENANT_MANAGER_URL = "http://cxve.localhost/api/tm";
     private static final String MANAGEMENT_API_URL = "http://cxve.localhost/api/management/v5";
     private static final String CERTO_API_URL = "http://cxve.localhost/api/certo/management/v1";
     // Transfer type of the CCM flows: the Data Plane Signaling HTTP transfer profile's pull value.
     // It keys the participant's siglet transfer-type mapping (installed at provisioning from
     // participant.ccm.* config), the dataplane registration, and the transfer request.
     private static final String CCM_TRANSFER_TYPE = "https://w3id.org/dspace-sig/profile/http-pull";
+    // SCE certificate types are lowercase identifiers (certo rejects "ISO9001" with 400)
+    private static final String CERTIFICATE_TYPE = "iso9001";
     // kubectl must target the VE cluster regardless of the current kubectl context
     private static final String KUBECONFIG = System.getenv().getOrDefault("KUBECONFIG",
             System.getProperty("user.home") + "/.kube/cxve.config");
 
     private final TokenExchange tokenExchange = new TokenExchange(TOKEN_EXCHANGE_URL, KUBECONFIG);
     private final MembershipHubApi hub = new MembershipHubApi(MEMBERSHIP_HUB_URL);
-    private final TenantManagerApi tenantManager = new TenantManagerApi(TENANT_MANAGER_URL, tokenExchange);
 
     /**
-     * Bearer token of the OSP caller, obtained exactly as an external onboarding service
-     * provider obtains one: OAuth2 client_credentials against the VE's OSP IdP (Ory Hydra)
-     * through the gateway, with the osp-client the umbrella chart seeds. Deliberately NOT
-     * jwtlet: its only grant exchanges Kubernetes SA tokens, which external parties don't have.
-     * Fetched per call: tokens expire, the suite runs for minutes.
-     */
-    private static String ospAccessToken() {
-        return given()
-                .auth().preemptive().basic("osp-client", "osp-secret")
-                .formParam("grant_type", "client_credentials")
-                .formParam("scope", "configure_partner_registration")
-                .post("http://cxve.localhost/auth/osp/oauth2/token")
-                .then().statusCode(200)
-                .extract().path("access_token");
-    }
-
-    /**
-     * CX-0135 CCM Flow B (certo docs/FLOWS.md): provider-initiated certificate push, full B1
-     * loop. Certo resolves every outbound CCM call's token + counterparty endpoint from Siglet's
-     * flow cache, populated when a data transfer of the CCM transfer type reaches STARTED — and
-     * only ever on the DSP-consumer side of a flow. So each side that PLACES CCM calls first
-     * becomes the DSP consumer of a flow on the OTHER side's CCM asset:
+     * DSAF SCE provider-notified exchange, full loop: the provider issues a certificate and
+     * notifies the consumer, the consumer requests it (fulfilled at once — the provider holds it),
+     * retrieves it and accepts. Certo resolves every outbound SCE call's token + counterparty
+     * endpoint from Siglet's flow cache, populated when a data transfer of the CCM transfer type
+     * reaches STARTED — and only ever on the DSP-consumer side of a flow. So each side that PLACES
+     * SCE calls first becomes the DSP consumer of a flow on the OTHER side's SCE asset:
      * <ul>
-     *   <li>flow "push": cert-provider consumes the cert-consumer's inbox asset — its transfer
-     *       id is the {@code flowId} of the publish (provider -> consumer notification);</li>
-     *   <li>flow "pull": cert-consumer consumes the cert-provider's api asset — its transfer id
-     *       is the {@code flowId} of retrieve + accept (consumer -> provider calls).</li>
+     *   <li>flow "push": cert-provider consumes the cert-consumer's consumer-API asset — its
+     *       transfer id is the {@code flowId} of the notify (provider -> consumer);</li>
+     *   <li>flow "pull": cert-consumer consumes the cert-provider's provider-API asset — its
+     *       transfer id is the {@code flowId} of request, retrieve + accept (consumer -> provider).</li>
      * </ul>
-     * Each CCM asset carries the counterparty's BPN as a dataplane-metadata property: Siglet
-     * stamps it into the flow token as the {@code bpn} claim certo's inbound verification
-     * requires (alongside sub = caller DID, aud = receiving tenant DID).
+     * Siglet stamps the caller's DECADE-X-ID (from its Legal Entity VC) into the flow token as the
+     * optional {@code dataspaceidentifier} claim (alongside sub = caller DID, aud = receiving
+     * tenant DID — the identities certo correlates on).
      */
     @Test
     void certificateExchange() {
@@ -132,17 +72,15 @@ class VerificationEnvironmentE2eTest {
                 tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"));
         log("management-API token obtained (seed-jobs -> issuer, scope admin)");
 
-        // both sides offer their CCM asset (certo's protocol API behind the CCM transfer
-        // type), each stamped with the OTHER side's BPN — the asset owner's siglet
-        // context mints the flow token, and its claims must describe the caller
-        var providerAssetId = "ccm-api-" + runId;
-        var consumerAssetId = "ccm-inbox-" + runId;
-        seedCcmOffer(mgmt, providerPcid, providerAssetId, "p-" + runId);
-        seedCcmOffer(mgmt, consumerPcid, consumerAssetId, "c-" + runId);
+        // both sides offer their SCE API asset (certo's protocol API behind the CCM transfer type)
+        var providerAssetId = "sce-provider-api-" + runId;
+        var consumerAssetId = "sce-consumer-api-" + runId;
+        seedSceOffer(mgmt, providerPcid, providerAssetId, ManagementApi.SCE_PROVIDER_API, "p-" + runId);
+        seedSceOffer(mgmt, consumerPcid, consumerAssetId, ManagementApi.SCE_CONSUMER_API, "c-" + runId);
 
-        // "pull" flow: cert-consumer -> cert-provider (used for retrieve + acceptance report)
+        // "pull" flow: cert-consumer -> cert-provider (request, retrieve + acceptance report)
         var flowIdPull = establishCcmFlow(mgmt, consumerPcid, providerPcid, provider.holderId(), providerAssetId);
-        // "push" flow: cert-provider -> cert-consumer (used for the publish notification)
+        // "push" flow: cert-provider -> cert-consumer (the lifecycle notification)
         var flowIdPush = establishCcmFlow(mgmt, providerPcid, consumerPcid, consumer.holderId(), consumerAssetId);
 
         // the certo SA is mapped (resource "sudo") to the certo-mgmt-api scopes by the
@@ -153,14 +91,24 @@ class VerificationEnvironmentE2eTest {
         certo.awaitParticipantContext(providerPcid, Duration.ofMinutes(2));
         certo.awaitParticipantContext(consumerPcid, Duration.ofMinutes(2));
 
-        // Flow B: backend issues the certificate (state only), then publish opens a FULFILLED
-        // exchange and pushes the lifecycle CREATED event to the consumer. The document is the
+        // the backend issues the certificate (state only), then the provider notifies the consumer
+        // that it is AVAILABLE — lifecycle only, no exchange is opened. The document is the
         // checked-in sample PDF from the suite's resources; the later download is compared
         // against it byte-for-byte to prove a real content round-trip.
         var documentContent = certificateDocument();
         var documentId = certo.addDocument(providerPcid, "application/pdf", documentContent);
-        var certificateId = certo.addCertificate(providerPcid, provider.bpn(), documentId);
-        var exchangeId = certo.publish(providerPcid, certificateId, consumer.bpn(), consumer.holderId(), flowIdPush);
+        var certificateId = certo.addCertificate(providerPcid, provider.memberId(), documentId);
+        certo.notify(providerPcid, certificateId, consumer.holderId(), flowIdPush);
+
+        // the consumer requests the certificate it was told about; the provider holds it, so the
+        // exchange is FULFILLED at once and discloses the issued certificate
+        var request = certo.requestCertificate(consumerPcid, provider.holderId(), CERTIFICATE_TYPE,
+                provider.memberId(), flowIdPull);
+        assertThat(request.path("fulfillmentStatus").asText())
+                .withFailMessage("a request for a held certificate must be fulfilled immediately: %s", request)
+                .isEqualTo("FULFILLED");
+        assertThat(request.path("certificateId").asText()).isEqualTo(certificateId);
+        var exchangeId = request.path("exchangeId").asText();
 
         // client-driven tail: retrieve pulls the certificate metadata AND the document binary
         // from the provider over the pull flow — download it and verify it byte-for-byte
@@ -191,15 +139,16 @@ class VerificationEnvironmentE2eTest {
     }
 
     /**
-     * The consumer-INITIATED pull, the mirror of {@link #certificateExchange()}'s provider-initiated
-     * push.
+     * The consumer-INITIATED request, the counterpart of {@link #certificateExchange()}'s
+     * notified one.
      *
-     * <p>The distinction matters beyond coverage. A publish constructs its exchange already
-     * {@code FULFILLED}, so it never holds the early Fulfillment states and never reports them. Only
-     * this flow walks the CX-0135 §2.1.3 state machine from the start: the consumer asks for a
-     * certificate the provider does not yet hold, the exchange waits with <b>no certificate identity
-     * at all</b>, and a later fulfillment binds one. That is also the only flow in which certo emits
-     * {@code events.certificate.exchange.certificationRequested}.
+     * <p>The distinction matters beyond coverage. A request for a certificate the provider already
+     * holds is {@code FULFILLED} on creation, so it never holds the waiting state. Only this flow
+     * walks the SCE fulfillment state machine from the start: the consumer asks for a certificate
+     * the provider does not yet hold, the exchange waits in {@code RECEIVED} with <b>no certificate
+     * identity at all</b>, and a later fulfillment binds one. That is also the only flow in which
+     * certo emits {@code org.metaform.certo.CertificateExchangeReceived.v1} (subject
+     * {@code events.certificate.exchange.received}).
      *
      * <p>Both directions are exercised: the pull flow carries the consumer's request and its later
      * retrieve/verdict, the push flow carries the provider's fulfillment notification.
@@ -218,10 +167,10 @@ class VerificationEnvironmentE2eTest {
                 tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"));
         log("management-API token obtained (seed-jobs -> issuer, scope admin)");
 
-        var providerAssetId = "ccm-api-" + runId;
-        var consumerAssetId = "ccm-inbox-" + runId;
-        seedCcmOffer(mgmt, providerPcid, providerAssetId, "p-" + runId);
-        seedCcmOffer(mgmt, consumerPcid, consumerAssetId, "c-" + runId);
+        var providerAssetId = "sce-provider-api-" + runId;
+        var consumerAssetId = "sce-consumer-api-" + runId;
+        seedSceOffer(mgmt, providerPcid, providerAssetId, ManagementApi.SCE_PROVIDER_API, "p-" + runId);
+        seedSceOffer(mgmt, consumerPcid, consumerAssetId, ManagementApi.SCE_CONSUMER_API, "c-" + runId);
 
         // pull: cert-consumer -> cert-provider (the request itself, then retrieve + verdict)
         var flowIdPull = establishCcmFlow(mgmt, consumerPcid, providerPcid, provider.holderId(), providerAssetId);
@@ -235,15 +184,15 @@ class VerificationEnvironmentE2eTest {
         certo.awaitParticipantContext(consumerPcid, Duration.ofMinutes(2));
 
         // 1. the consumer asks for a certificate the provider does not hold yet
-        var certificateType = "ISO9001";
-        var site = provider.bpn();
-        var exchangeId = certo.initiateRequest(consumerPcid, provider.bpn(), provider.holderId(),
-                certificateType, List.of(site), flowIdPull);
+        var request = certo.requestCertificate(consumerPcid, provider.holderId(), CERTIFICATE_TYPE,
+                provider.memberId(), flowIdPull);
+        assertThat(request.path("fulfillmentStatus").asText()).isEqualTo("RECEIVED");
+        var exchangeId = request.path("exchangeId").asText();
 
         // the provider's record exists and is waiting, with NO certificate bound — the property that
-        // distinguishes a pull from a publish
+        // distinguishes it from a request for a held certificate
         var pending = certo.getExchange(providerPcid, exchangeId);
-        assertThat(pending.path("fulfillmentStatus").asText()).isIn("REQUESTED", "CERTIFICATION_REQUESTED");
+        assertThat(pending.path("fulfillmentStatus").asText()).isEqualTo("RECEIVED");
         assertThat(pending.path("certificateId").isNull() || pending.path("certificateId").asText().isEmpty())
                 .withFailMessage("a request the provider cannot yet satisfy must carry no certificate: %s", pending)
                 .isTrue();
@@ -253,7 +202,7 @@ class VerificationEnvironmentE2eTest {
         // 2. the backend issues the certificate, which now covers the waiting request
         var documentContent = certificateDocument();
         var documentId = certo.addDocument(providerPcid, "application/pdf", documentContent);
-        var certificateId = certo.addCertificate(providerPcid, provider.bpn(), documentId);
+        var certificateId = certo.addCertificate(providerPcid, provider.memberId(), documentId);
 
         await().atMost(Duration.ofMinutes(2)).pollInterval(Duration.ofSeconds(5)).untilAsserted(() -> {
             var fulfillable = certo.fulfillableRequests(providerPcid, certificateId);
@@ -277,7 +226,7 @@ class VerificationEnvironmentE2eTest {
         });
         log("consumer mirrored FULFILLED for exchange %s (certificate %s)", exchangeId, certificateId);
 
-        // 5. same client-driven tail as the push flow: retrieve the content, then a terminal verdict
+        // 5. same client-driven tail as the notified flow: retrieve the content, then a terminal verdict
         var retrieved = certo.retrieve(consumerPcid, exchangeId, flowIdPull);
         assertThat(retrieved.path("certificate").path("certificateId").asText()).isEqualTo(certificateId);
         var downloaded = Base64.getDecoder().decode(retrieved.path("documents").path(0).path("contentBase64").asText());
@@ -295,216 +244,6 @@ class VerificationEnvironmentE2eTest {
     }
 
     /**
-     * CX-0135 <b>v2.4.0</b> legacy bridge (certo docs/FLOWS.md Flow F): the provider-initiated
-     * <b>embedded</b> push — the v2.4.0 counterpart of {@link #certificateExchange()}'s content round-trip.
-     * Everything else in this suite drives certo's native v3.0.0 CloudEvents protocol; here the publish names
-     * {@code protocolVersion 2.4.0}, so the provider renders a {@code BusinessPartnerCertificate} 3.1.0 and
-     * POSTs it to the consumer's {@code /companycertificate/push} over the same DSP flow and siglet-minted
-     * flow token. Embedded is the point: a by-reference v2.4.0 push ({@code /companycertificate/available})
-     * is acknowledged only — the content would have to come over the per-asset EDC pull, which is out of
-     * scope (certo docs/PROBLEM_NOTES.md §4.1/§4.2) — so an embedded push is the only v2.4.0 path that moves
-     * a document at all.
-     *
-     * <p>Two identities are consumer-LOCAL here, and the assertions pin exactly that: v2.4.0 has no exchange
-     * concept, so the receiving side mints a surrogate {@code exchangeId} the pushing side never learns; and
-     * a 3.1.0 certificate carries no {@code certificateId}, so the receiving side derives one from
-     * {@code issuerBpn|registrationNumber} (§5.3). The consumer is therefore found through its reconciliation
-     * query, not by the provider's exchange id.
-     *
-     * <p>Consequently the acceptance verdict is asserted on the CONSUMER only. The v2.4.0 report
-     * ({@code /companycertificate/status}) correlates by {@code (documentId = certificateId, verified DID)},
-     * and the two sides hold different certificate ids for the same artifact, so in a certo-to-certo
-     * deployment that report cannot bind to the provider's exchange (§4.3). {@code accept} is best-effort and
-     * post-commit, so it still succeeds; the provider's FULFILLED exchange is asserted, its acceptance
-     * deliberately is not.
-     */
-    @Test
-    void legacyV240EmbeddedPush() {
-        var runId = UUID.randomUUID().toString().substring(0, 8);
-
-        var pair = onboardProviderAndConsumer(runId);
-        var provider = pair.provider();
-        var consumer = pair.consumer();
-        var providerPcid = provider.participantContextId();
-        var consumerPcid = consumer.participantContextId();
-
-        var mgmt = new ManagementApi(MANAGEMENT_API_URL,
-                tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"));
-        log("management-API token obtained (seed-jobs -> issuer, scope admin)");
-
-        // the v2.4.0 endpoints live under the same certo root as the v3 ones, so the CCM offers and flows
-        // are seeded exactly as for a native exchange — only the publish body differs
-        var providerAssetId = "ccm-api-" + runId;
-        var consumerAssetId = "ccm-inbox-" + runId;
-        seedCcmOffer(mgmt, providerPcid, providerAssetId, "p-" + runId);
-        seedCcmOffer(mgmt, consumerPcid, consumerAssetId, "c-" + runId);
-
-        // pull: cert-consumer -> cert-provider (carries the acceptance report)
-        var flowIdPull = establishCcmFlow(mgmt, consumerPcid, providerPcid, provider.holderId(), providerAssetId);
-        // push: cert-provider -> cert-consumer (carries the /companycertificate/push)
-        var flowIdPush = establishCcmFlow(mgmt, providerPcid, consumerPcid, consumer.holderId(), consumerAssetId);
-
-        var certo = new CertoApi(CERTO_API_URL,
-                tokenExchange.getParticipantToken("certo", "sudo", "certo-mgmt-api:write"));
-        log("certo-API token obtained (certo -> sudo, scope certo-mgmt-api:write)");
-        certo.awaitParticipantContext(providerPcid, Duration.ofMinutes(2));
-        certo.awaitParticipantContext(consumerPcid, Duration.ofMinutes(2));
-
-        // the backend issues the certificate; the registration number is run-scoped because it is half of
-        // the identity the receiving side derives the certificateId from
-        var documentContent = certificateDocument();
-        var documentId = certo.addDocument(providerPcid, "application/pdf", documentContent);
-        var registrationNumber = "CXVE-E2E-" + runId;
-        var certificateId = certo.addCertificate(providerPcid, provider.bpn(), documentId, registrationNumber);
-
-        var exchangeId = certo.publish(providerPcid, certificateId, consumer.bpn(), consumer.holderId(),
-                flowIdPush, "2.4.0", true);
-        log("v2.4.0 embedded push delivered (provider exchange %s)", exchangeId);
-
-        // the consumer's record of the push: nothing on the wire identified it, so it is found through the
-        // reconciliation query — one fresh tenant, one delivery, one item
-        var pushed = new AtomicReference<JsonNode>();
-        await().atMost(Duration.ofMinutes(1)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
-            var items = certo.consumerExchanges(consumerPcid, true).path("items");
-            assertThat(items.size())
-                    .withFailMessage("expected exactly one exchange awaiting acceptance on the consumer: %s", items)
-                    .isEqualTo(1);
-            pushed.set(items.path(0));
-        });
-        var consumerExchangeId = pushed.get().path("exchangeId").asText();
-        assertThat(consumerExchangeId)
-                .withFailMessage("v2.4.0 assigns no exchangeId, so the consumer must hold a surrogate of its "
-                                 + "own — not the provider's %s", exchangeId)
-                .isNotEqualTo(exchangeId);
-        assertThat(pushed.get().path("embedded").asBoolean())
-                .withFailMessage("an embedded push must leave the content inline on the consumer: %s", pushed.get())
-                .isTrue();
-        assertThat(pushed.get().path("fulfillmentStatus").asText()).isEqualTo("FULFILLED");
-        assertThat(pushed.get().path("certificateId").asText())
-                .withFailMessage("a 3.1.0 certificate carries no id, so the consumer must derive its own — "
-                                 + "not reuse the provider's %s", certificateId)
-                .isNotEqualTo(certificateId);
-        log("consumer recorded the pushed certificate: surrogate exchange %s, derived certificate %s",
-                consumerExchangeId, pushed.get().path("certificateId").asText());
-
-        // retrieve WITHOUT a flow: the content came with the push, so nothing is pulled back
-        var retrieved = certo.retrieveEmbedded(consumerPcid, consumerExchangeId);
-        assertThat(retrieved.path("certificate").path("certificateType").asText()).isEqualTo("ISO9001");
-        assertThat(retrieved.path("certificate").path("registrationNumber").asText())
-                .withFailMessage("the up-converted certificate must carry the issued registration number: %s",
-                        retrieved.path("certificate"))
-                .isEqualTo(registrationNumber);
-        assertThat(retrieved.path("documents").size()).isEqualTo(1);
-        var document = retrieved.path("documents").path(0);
-        assertThat(document.path("documentId").asText()).isEqualTo(documentId);
-        assertThat(document.path("mediaType").asText()).isEqualTo("application/pdf");
-        var downloaded = Base64.getDecoder().decode(document.path("contentBase64").asText());
-        assertThat(downloaded)
-                .withFailMessage("the inlined document differs from the uploaded one")
-                .isEqualTo(documentContent);
-        var downloadPath = downloadDocument("certificate-document-v240-" + runId + ".pdf", downloaded);
-        log("document downloaded to %s (%d bytes, content verified)", downloadPath, downloaded.length);
-
-        // terminal verdict, rendered as a v2.4.0 /companycertificate/status over the pull flow. Only the
-        // consumer's own record is asserted — see the javadoc on why the provider cannot bind that report.
-        certo.accept(consumerPcid, consumerExchangeId, "ACCEPTED", flowIdPull);
-        await().atMost(Duration.ofMinutes(1)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
-            var recorded = findExchange(certo.consumerExchanges(consumerPcid, false), consumerExchangeId);
-            assertThat(recorded.path("acceptanceStatus").asText()).isEqualTo("ACCEPTED");
-        });
-        var providerExchange = certo.getExchange(providerPcid, exchangeId);
-        assertThat(providerExchange.path("fulfillmentStatus").asText()).isEqualTo("FULFILLED");
-        log("v2.4.0 exchange closed: provider %s FULFILLED, consumer %s ACCEPTED", exchangeId, consumerExchangeId);
-    }
-
-    /** One exchange out of a consumer exchange page, by id; fails the assertion if the page has no such row. */
-    private static JsonNode findExchange(JsonNode page, String exchangeId) {
-        for (var item : page.path("items")) {
-            if (exchangeId.equals(item.path("exchangeId").asText())) {
-                return item;
-            }
-        }
-        throw new AssertionError("exchange %s not in the consumer's exchange page: %s".formatted(exchangeId, page));
-    }
-
-    /**
-     * The regression test for the OSP-facing surface of the Onboarding API itself, exercised the
-     * way an external onboarding service provider uses it: register a status callback (the one
-     * call gated on the {@code configure_partner_registration} scope), submit a registration, and
-     * receive the CONFIRMED callback carrying the caller-supplied externalId.
-     *
-     * <p>The partner is deployed FIRST, straight through the Tenant Manager rather than through
-     * the hub (which would register it itself, and the Onboarding API declines a DID it already
-     * knows). That is not scaffolding: a registration ends with the issuer pushing a credential
-     * offer to the credential service the partner's DID document advertises, so an OSP registers a
-     * partner whose resources already run — a vendor's own, or, for a member the VE hosts, the
-     * ones the hub deployed before registering it. Registering a partner that has no wallet is
-     * declined, with the unresolvable DID as the reason.
-     */
-    @Test
-    void ospRegistrationStatusContract() {
-        wiremock.stubFor(post(urlPathEqualTo("/registration/status"))
-                .willReturn(okJson("{}")));
-        // The token endpoint MUST be stubbed before the callback config is registered: all four
-        // config fields are mandatory now, so the Onboarding API authenticates every status
-        // delivery — and a failed token fetch DROPS the update (no retry), which would burn the
-        // whole await budget below.
-        wiremock.stubFor(post(urlPathEqualTo("/token"))
-                .willReturn(okJson("{\"access_token\":\"e2e-callback-token\"}")));
-
-        // set the callback config: status updates land on the WireMock stub above, authenticated
-        // with a client-credentials token from the stubbed token endpoint
-        var callbackUrl = "http://%s:%d/registration/status".formatted(CALLBACK_HOST, wiremock.getPort());
-        var tokenUrl = "http://%s:%d/token".formatted(CALLBACK_HOST, wiremock.getPort());
-        given()
-                .baseUri(ONBOARDING_API_URL)
-                .header("Authorization", "Bearer " + ospAccessToken())
-                .contentType(ContentType.JSON)
-                .body(new SetCallbackRequest(callbackUrl, tokenUrl, "e2e-cb-client", "e2e-cb-secret"))
-                .post("/api/administration/registrationstatus/callback")
-                .then().statusCode(204);
-
-        var externalId = "osp-contract-" + UUID.randomUUID().toString().substring(0, 8);
-        var shortName = "ospcontract-" + externalId.substring(13);
-        var name = "OSP Contract Corp " + externalId;
-        // The DID the partner is registered under — under this VE's own did:web authority, since
-        // the suite deploys the partner here; an external OSP would name its own.
-        var did = "did:web:identity.cxve.localhost:" + shortName;
-        tenantManager.deployParticipant(name, did, bpnFor(externalId));
-        submitOspRegistration(name, shortName, externalId, did);
-
-        log("waiting for the CONFIRMED status callback (externalId=%s)...", externalId);
-        await().atMost(Duration.ofMinutes(2)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
-            var byExternalId = callbackResults();
-            assertThat(byExternalId).containsKey(externalId);
-            var callback = byExternalId.get(externalId);
-            // pin the status: a DECLINED callback must fail here, not as an opaque mismatch later
-            assertThat(callback.applicationStatus())
-                    .withFailMessage("registration not confirmed: %s", callback)
-                    .isEqualTo("CONFIRMED");
-            // the CX-0010 bpnl is mandatory on the callback and known at confirmation
-            assertThat(callback.bpnl())
-                    .withFailMessage("CONFIRMED callback carries no bpnl: %s", callback)
-                    .isNotBlank();
-        });
-        // the delivery was authenticated with the token from the stubbed endpoint
-        wiremock.verify(postRequestedFor(urlPathEqualTo("/registration/status"))
-                .withHeader("Authorization", com.github.tomakehurst.wiremock.client.WireMock.equalTo("Bearer e2e-callback-token")));
-        log("CONFIRMED callback received for %s", externalId);
-
-        // recovery read (BEYOND-SPEC extension): the registration's status is retrievable
-        // without a callback — the same applicationStatus/bpnl the callback carried
-        given()
-                .baseUri(ONBOARDING_API_URL)
-                .header("Authorization", "Bearer " + ospAccessToken())
-                .get("/api/administration/osp/v2/tenant-registration/{externalId}", externalId)
-                .then().statusCode(200)
-                .body("applicationStatus", org.hamcrest.Matchers.equalTo("CONFIRMED"))
-                .body("bpnl", org.hamcrest.Matchers.not(org.hamcrest.Matchers.emptyOrNullString()));
-        log("recovery GET confirms %s without a callback", externalId);
-    }
-
-    /**
      * Onboards a provider + consumer pair through the Membership Hub and waits until both have
      * been offered their credentials — the terminal state, and the point from which their wallets
      * can present anything. The returned {@link OnboardingResult}s carry the provisioned
@@ -514,16 +253,15 @@ class VerificationEnvironmentE2eTest {
     private OnboardedPair onboardProviderAndConsumer(String runId) {
         var provider = onboardMember("Provider " + runId, "provider-" + runId);
         var consumer = onboardMember("Consumer " + runId, "consumer-" + runId);
-        log("provider onboarded: pcid=%s did=%s bpn=%s", provider.participantContextId(), provider.holderId(), provider.bpn());
-        log("consumer onboarded: pcid=%s did=%s bpn=%s", consumer.participantContextId(), consumer.holderId(), consumer.bpn());
+        log("provider onboarded: pcid=%s did=%s DECADE-X-ID=%s", provider.participantContextId(), provider.holderId(), provider.memberId());
+        log("consumer onboarded: pcid=%s did=%s DECADE-X-ID=%s", consumer.participantContextId(), consumer.holderId(), consumer.memberId());
         return new OnboardedPair(provider, consumer);
     }
 
     private OnboardingResult onboardMember(String name, String shortName) {
-        // the BPN is required by the hub's API; derived deterministically from the run-unique
-        // short name, like the VAT id (duplicates of active registrations are rejected)
-        var bpn = bpnFor(shortName);
-        var submitted = hub.onboard(name, shortName, bpn, "DE" + String.format("%08X", Math.abs(shortName.hashCode())));
+        // no member id: the hub generates the DECADE-X-ID of a member it hosts. The VAT id is
+        // derived from the run-unique short name (duplicates of active registrations are rejected)
+        var submitted = hub.onboard(name, shortName, "DE" + String.format("%08X", Math.abs(shortName.hashCode())));
         var externalId = submitted.path("externalId").asText();
         var provisioned = hub.awaitProvisioned(externalId, Duration.ofMinutes(10));
         var pcid = provisioned.path("participantContextId").asText();
@@ -534,27 +272,31 @@ class VerificationEnvironmentE2eTest {
                 .withFailMessage("provisioned membership %s carries no participantContextId — "
                         + "is the deployed hub older than this suite? Response: %s", externalId, provisioned)
                 .isNotBlank();
-        return new OnboardingResult(externalId, bpn, provisioned.path("did").asText(), pcid);
+        var memberId = provisioned.path("memberId").asText();
+        assertThat(memberId)
+                .withFailMessage("provisioned membership %s carries no DECADE-X-ID: %s", externalId, provisioned)
+                .isNotBlank();
+        return new OnboardingResult(externalId, memberId, provisioned.path("did").asText(), pcid);
     }
 
     private record OnboardedPair(OnboardingResult provider, OnboardingResult consumer) {
     }
 
     /**
-     * Seeds one side's CCM offer: the asset fronting certo's protocol API (with the
-     * counterparty's BPN as a dataplane-metadata property, stamped into flow tokens as the
-     * {@code bpn} claim), plus access/contract policies requiring all three credentials and the
-     * contract definition. Ids are run-scoped; policy/definition ids may repeat across the two
-     * participant contexts (resources are context-scoped).
+     * Seeds one side's SCE offer: the asset fronting certo's protocol API, identified in the
+     * catalog by the SCE API it {@code dct:conformsTo}, constraint-free access/contract policies
+     * (DECADE-X has no policy vocabulary yet) and the contract definition. Ids are run-scoped;
+     * policy/definition ids may repeat across the two participant contexts (resources are
+     * context-scoped).
      */
-    private void seedCcmOffer(ManagementApi mgmt, String pcid, String assetId, String uniqueId) {
-        var accessPolicyId = "e2e-ccm-access-policy-" + uniqueId;
-        var contractPolicyId = "e2e-ccm-contract-policy-" + uniqueId;
+    private void seedSceOffer(ManagementApi mgmt, String pcid, String assetId, String conformsTo, String uniqueId) {
+        var accessPolicyId = "e2e-sce-access-policy-" + uniqueId;
+        var contractPolicyId = "e2e-sce-contract-policy-" + uniqueId;
 
-        mgmt.createAsset(pcid, assetId, Map.of());
-        mgmt.createPolicy(pcid, accessPolicyId, "access", List.of(MEMBERSHIP_CONSTRAINT));
-        mgmt.createPolicy(pcid, contractPolicyId, "use",List.of(FRAMEWORK_AGREEMENT_CONSTRAINT, USAGE_PURPOSE_CONSTRAINT, DATA_USAGE_DEFINITION_CONSTRAINT));
-        mgmt.createContractDefinition(pcid, "e2e-ccm-cd-" + uniqueId, accessPolicyId, contractPolicyId);
+        mgmt.createSceAsset(pcid, assetId, conformsTo);
+        mgmt.createPolicy(pcid, accessPolicyId, "access");
+        mgmt.createPolicy(pcid, contractPolicyId, "use");
+        mgmt.createContractDefinition(pcid, "e2e-sce-cd-" + uniqueId, accessPolicyId, contractPolicyId);
     }
 
     /**
@@ -565,7 +307,7 @@ class VerificationEnvironmentE2eTest {
      */
     private String establishCcmFlow(ManagementApi mgmt, String consumerPcid, String providerPcid,
                                     String providerDid, String assetId) {
-        var providerDsp = "http://cxve.localhost/api/dsp/%s/cx-neptune".formatted(providerPcid);
+        var providerDsp = "http://cxve.localhost/api/dsp/%s/%s".formatted(providerPcid, ManagementApi.DSP_PROFILE);
         var offer = mgmt.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, assetId, Duration.ofMinutes(2));
         var negotiationId = mgmt.startNegotiation(consumerPcid, providerDsp, providerDid, assetId, offer);
         var negotiation = mgmt.awaitState(
@@ -604,67 +346,5 @@ class VerificationEnvironmentE2eTest {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-    }
-
-    /** All registration-status callbacks recorded by WireMock, keyed by externalId. */
-    private Map<String, RegistrationStatusCallback> callbackResults() {
-        return wiremock.findAll(postRequestedFor(urlPathEqualTo("/registration/status"))).stream()
-                .map(request -> {
-                    try {
-                        return objectMapper.readValue(request.getBody(), RegistrationStatusCallback.class);
-                    } catch (IOException e) {
-                        throw new UncheckedIOException(e);
-                    }
-                })
-                .filter(result -> result.externalId() != null)
-                .collect(Collectors.toMap(RegistrationStatusCallback::externalId, result -> result, (first, second) -> second));
-    }
-
-    /**
-     * The BPN a registration is submitted under, derived deterministically from a run-unique
-     * seed — so the suite can restate it later without any response having to echo it.
-     */
-    private static String bpnFor(String seed) {
-        return ("BPNL" + String.format("%08X", Math.abs(seed.hashCode())) + "000000").substring(0, 16);
-    }
-
-    /**
-     * Submits a registration DIRECTLY to the Onboarding API, in the OSP role (osp-client), under
-     * the DID whose participant resources the caller has already deployed — the identity the
-     * credential holder is registered under and the credential offer is pushed to.
-     */
-    private static void submitOspRegistration(String name, String shortName, String runId, String did) {
-        // bpn is optional per spec but supplied here so the duplicate checks bite (see bpnFor);
-        // userDetails is spec-mandatory since the CX-0009 revision that reshaped the payload
-        var bpn = bpnFor(runId);
-        var newParticipant = NewParticipantData.builder()
-                .name(name)
-                .shortName(shortName)
-                .bpn(bpn)
-                .externalId(runId)
-                .city("Munich")
-                .streetName("Otto-Hahn-Ring")
-                .streetNumber("6")
-                .zipCode("81739")
-                .region("BY")
-                .countryAlpha2Code("DE")
-                .uniqueId("VAT_ID", "DE" + runId)
-                .companyRole("ACTIVE_PARTICIPANT")
-                .did(did)
-                .userDetail(new NewParticipantData.UserDetail(
-                        null, "e2e-user-" + runId, null, "E2e", "Tester", "e2e-" + runId + "@example.com"))
-                .autoSubmit(true)
-                .build();
-
-        // kick off the registration; the caller observes the outcome via the status callback
-        given()
-                .baseUri(VerificationEnvironmentE2eTest.ONBOARDING_API_URL)
-                .header("Authorization", "Bearer " + ospAccessToken())
-                .contentType("application/json")
-                .body(newParticipant)
-                .post("/api/administration/registration/network/partnerregistration")
-                .then()
-                .statusCode(200);
-        log("onboarding submitted: \"%s\" (shortName=%s, externalId=%s, did=%s)", name, shortName, runId, did);
     }
 }

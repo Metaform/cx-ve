@@ -116,15 +116,13 @@ class ManagementApiClientTest {
     }
 
     /** A catalog dataset as the management API compacts it (shape taken from a live catalog). */
-    private static String dataset(String id, String subject, String version) {
-        var api = subject == null ? "" : """
-                "dct:type": {"@id": "https://w3id.org/catenax/taxonomy#CCMAPI"},
-                "dct:subject": {"@id": "https://w3id.org/catenax/taxonomy#%s"},
-                "https://w3id.org/catenax/ontology/common#version": "%s",
-                """.formatted(subject, version);
+    private static String dataset(String id, String api, String version) {
+        var conformsTo = api == null ? "" : """
+                "conformsTo": "https://w3id.org/dsaf/sce/%s/%s",
+                """.formatted(version, api);
         return """
                 {"@id": "%s", "@type": "Dataset", %s "hasPolicy": [{"@id": "offer-%s", "@type": "Offer"}]}"""
-                .formatted(id, api, id);
+                .formatted(id, conformsTo, id);
     }
 
     private static String catalog(String... datasets) {
@@ -139,8 +137,8 @@ class ManagementApiClientTest {
         fixture.server().expect(MockRestRequestMatchers.requestTo("http://cp/participants/pctx-vp/catalog/request"))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(catalog(
                         dataset("some-data", null, null),
-                        dataset("vendor-inbox", "CompanyCertificateManagementConsumerApi", "3.0"),
-                        dataset("acme-ccm-provider-api", "CompanyCertificateManagementProviderApi", "3.0"))));
+                        dataset("vendor-inbox", "consumer-api", "v1"),
+                        dataset("acme-ccm-provider-api", "provider-api", "v1"))));
 
         var offer = fixture.client().awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE,
                 CcmApi.provider(TestFixtureAccess.CCM_API), Duration.ofSeconds(30));
@@ -157,8 +155,8 @@ class ManagementApiClientTest {
         var fixture = fixture();
         fixture.server().expect(MockRestRequestMatchers.requestTo("http://cp/participants/pctx-vp/catalog/request"))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(catalog(
-                        dataset("ccm-a", "CompanyCertificateManagementProviderApi", "3.0"),
-                        dataset("ccm-b", "CompanyCertificateManagementProviderApi", "3.0"))));
+                        dataset("ccm-a", "provider-api", "v1"),
+                        dataset("ccm-b", "provider-api", "v1"))));
 
         assertThatThrownBy(() -> fixture.client()
                 .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE,
@@ -179,15 +177,15 @@ class ManagementApiClientTest {
                         "http://cp/participants/pctx-vp/catalog/request"))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(catalog(
                         dataset("foobar-ccm-api", null, null),
-                        dataset("old-ccm", "CompanyCertificateManagementProviderApi", "2.0"))));
+                        dataset("old-ccm", "provider-api", "v0"))));
 
         assertThatThrownBy(() -> fixture.client()
                 .awaitCatalogOffer("pctx-vp", DSP, DID, TestFixtureAccess.DSP_PROFILE,
                 CcmApi.provider(TestFixtureAccess.CCM_API), Duration.ofMillis(300)))
                 .isInstanceOf(VerificationException.class)
                 .hasMessageContaining("timed out")
-                .hasMessageContaining("foobar-ccm-api (no CCM API subject)")
-                .hasMessageContaining("old-ccm (CompanyCertificateManagementProviderApi 2.0)");
+                .hasMessageContaining("foobar-ccm-api (no dct:conformsTo)")
+                .hasMessageContaining("old-ccm (https://w3id.org/dsaf/sce/v0/provider-api)");
     }
 
     @Test

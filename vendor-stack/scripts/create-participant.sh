@@ -4,7 +4,7 @@
 # Manager — the same profile shape the VE's Membership Hub deploys for its own members
 # (membership-hub/.../adapter/out/cfm/CfmTenantManager.java) — and waits until it is provisioned:
 # control plane and IdentityHub participant contexts, the DID document, the Siglet data plane with
-# the CCM transfer-type mapping, and the Certo tenant.
+# the certificate-exchange transfer-type mapping, and the Certo tenant.
 #
 # It gets NO credentials here. The stack's orchestration has no credential activities (see
 # chart/templates/certo-activity-seed-job.yaml): the credentials come from the VE, which offers
@@ -20,18 +20,15 @@
 #                                                [-s|--short-name <name>] [-m|--member-id <id>]
 #                                                [-h|--help]
 #
-#   -d, --dataspace    catena-x (default) or decade-x — the dataspace of the stack (see install.sh)
+#   -d, --dataspace    decade-x (default, the only one so far) — the dataspace of the stack (see
+#                      install.sh)
 #   -n, --name         company name (default: "Vendor Participant")
 #   -s, --short-name   last DID segment (default: vendor-participant) — it alone identifies the
 #                      participant: a new short name creates another one, an existing one is reused
-#   -m, --member-id    the participant's member id in the dataspace — its BPNL in Catena-X (default
-#                      BPNLVENDOR000001; -b/--bpn is an alias). Enter the SAME id on the VE's run
-#                      form: the VE issues the member credential for the id it is given
-#                      (BpnCredential), and Certo on both sides checks certificates against the id in
-#                      that credential. DECADE-X assigns the DECADE-X-ID itself when it approves the
-#                      onboarding, and the run form takes none; the id given here (default
-#                      DX-00009001) only provisions the Certo tenant, and push-certificate.sh uses the
-#                      assigned one from the DX_LegalEntity_VC.
+#   -m, --member-id    a provisional member id (default DX-00009001). DECADE-X assigns the
+#                      DECADE-X-ID itself when it approves the onboarding, and the VE's run form
+#                      takes none; the id given here only provisions the Certo tenant, and
+#                      push-certificate.sh uses the assigned one from the DX_LegalEntity_VC.
 #
 # Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), TIMEOUT
 # (seconds, default 600)
@@ -48,13 +45,13 @@ usage() { awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p' "$0" | sed 's/^# \{0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -d|--dataspace|-n|--name|-s|--short-name|-m|--member-id|-b|--bpn)
+    -d|--dataspace|-n|--name|-s|--short-name|-m|--member-id)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
         -d|--dataspace) use_dataspace "$2" ;;
         -n|--name) NAME="$2"; NAME_GIVEN=true ;;
         -s|--short-name) PARTICIPANT_SHORT_NAME="$2" ;;
-        -m|--member-id|-b|--bpn) MEMBER_ID="$2" ;;
+        -m|--member-id) MEMBER_ID="$2" ;;
       esac
       shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -94,18 +91,15 @@ else
   expect_2xx "tenant creation"
   TENANT_ID=$(printf '%s' "$HTTP_BODY" | jq -r .id)
 
-  # The certo activity reads the member id from cfm.issuer (under `bpn`, whatever the dataspace —
-  # the VE's Membership Hub deploys its members the same way); the ccm mapping makes Certo's
-  # protocol API the endpoint of the participant's pull flows, with the counterparty's member id
-  # stamped into the flow token from its member credential (certo requires it, as `bpn`). The
-  # endpoint is counterparty-facing, hence the external address. The transfer type is the Data
+  # The certo activity (the Certo CFM agent) reads the member id from cfm.issuer under `bpn`,
+  # whatever the dataspace — the VE's Membership Hub deploys its members the same way; Certo itself
+  # no longer uses it. The mapping makes Certo's protocol API the endpoint of the participant's
+  # pull flows, with the counterparty's member id stamped into the flow token from its member
+  # credential as `dataspaceidentifier` — the optional claim Certo reads it from; Certo correlates
+  # counterparties by the token subject, their DID. The endpoint is counterparty-facing, hence the
+  # external address. The transfer type is the Data
   # Plane Signaling HTTP transfer profile's pull value, which the DataAddress endpointType MUST equal.
   case "$VENDOR_DATASPACE" in
-    catena-x)
-      ISSUER_PROPERTIES=$(jq -n --arg did "$DID" --arg id "$MEMBER_ID" \
-        '{id: $did, contractVersion: "1.0", memberOf: "Catena-X", bpn: $id}')
-      FLOW_CLAIM="flow.claims.vc.withType('BpnCredential').claim('bpn')"
-      ;;
     decade-x)
       ISSUER_PROPERTIES=$(jq -n --arg did "$DID" --arg id "$MEMBER_ID" \
         '{id: $did, memberOf: "DECADE-X", decadeXId: $id, bpn: $id}')
@@ -123,7 +117,7 @@ else
         transferTypeMappings: {
           ($tt): {
             transferType: $tt, endpointType: $tt, endpoint: $ccm, tokenSource: "provider",
-            claimMappings: [{from: $claim, to: "bpn"}]
+            claimMappings: [{from: $claim, to: "dataspaceidentifier"}]
           }
         }
       },
@@ -172,15 +166,11 @@ cat <<EOF
 
 $HEADLINE
   DID:                  $DID
-  $(printf '%-21s' "$MEMBER_ID_LABEL:") $MEMBER_ID$([[ "$VENDOR_DATASPACE" == decade-x ]] && echo " (provisional — the TSP assigns it on approval)")
+  $(printf '%-21s' "$MEMBER_ID_LABEL:") $MEMBER_ID (provisional — the TSP assigns it on approval)
   participant context:  $PCID
   DID document:         $DID_URL
   DSP endpoint:         $DSP
 
 The short name '$PARTICIPANT_SHORT_NAME' identifies this participant; a different -s/--short-name creates another one.
-$(if [[ "$VENDOR_DATASPACE" == decade-x ]]; then
-  echo "Enter the DID on the VE's run form (DECADE-X assigns the $MEMBER_ID_LABEL on approval), then run seed-ccm-offer.sh."
-else
-  echo "Enter the DID and the $MEMBER_ID_LABEL on the VE's run form, then run seed-ccm-offer.sh."
-fi)
+Enter the DID on the VE's run form (DECADE-X assigns the $MEMBER_ID_LABEL on approval), then run seed-ccm-offer.sh.
 EOF

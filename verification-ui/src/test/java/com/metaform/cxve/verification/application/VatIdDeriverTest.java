@@ -6,8 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Pins the exact derivation (values produced by the e2e suite's original formula) so any drift
- * in the formula — including in the FRONTEND's mirror (frontend/src/app/core/bpn.ts), which
- * derives the same way client-side — is caught against these literals.
+ * in the formula is caught against these literals.
  */
 class VatIdDeriverTest {
 

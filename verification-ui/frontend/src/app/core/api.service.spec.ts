@@ -25,11 +25,11 @@ describe('ApiService', () => {
   });
 
   it("reads the status of one dataspace's verification participant", () => {
-    api.vpStatus('catena-x').subscribe();
+    api.vpStatus('decade-x').subscribe();
     const request = http.expectOne(candidate => candidate.url === 'api/verification-participant');
     expect(request.request.method).toBe('GET');
-    expect(request.request.urlWithParams).toBe('api/verification-participant?dataspace=catena-x');
-    request.flush({ dataspace: 'catena-x', exists: false, membership: null, offerSeeded: false });
+    expect(request.request.urlWithParams).toBe('api/verification-participant?dataspace=decade-x');
+    request.flush({ dataspace: 'decade-x', exists: false, membership: null, offerSeeded: false });
   });
 
   it("ensures one dataspace's verification participant", () => {
@@ -41,7 +41,7 @@ describe('ApiService', () => {
   });
 
   it('starts a run with the request as its body', () => {
-    const run: StartRunRequest = { dataspace: 'catena-x', useCase: 'ccm', memberId: 'BPNL000000000001' };
+    const run: StartRunRequest = { dataspace: 'decade-x', useCase: 'ccm', memberId: 'DX-00000001' };
     api.startRun(run).subscribe();
     const request = http.expectOne({ method: 'POST', url: 'api/runs' });
     expect(request.request.body).toEqual(run);

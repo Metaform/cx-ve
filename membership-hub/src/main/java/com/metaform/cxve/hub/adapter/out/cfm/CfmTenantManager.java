@@ -90,7 +90,7 @@ public class CfmTenantManager implements TenantManager {
         // Siglet and registers the participant's data-plane instance with the control plane — the
         // prerequisite for the participant's assets to carry catalog distributions. Without any,
         // provisioning still succeeds but no transfers are possible. The ccm mapping points at
-        // Certo's protocol API, so CCM certificate exchanges (CX-0135) can ride on data flows.
+        // Certo's protocol API, so SCE certificate exchanges can ride on data flows.
         var transferTypeMappings = new HashMap<String, Object>();
         if (!dataplaneEndpoint.isBlank()) {
             transferTypeMappings.put(dataplaneTransferType,
@@ -123,9 +123,9 @@ public class CfmTenantManager implements TenantManager {
                 "endpoint", endpoint,
                 "tokenSource", tokenSource));
         if (memberIdClaim != null) {
-            // Siglet stamps the caller's member id (Catena-X: the BPN from its BpnCredential) into
-            // the flow token — certo's inbound verification requires the claim; no static asset
-            // property needed.
+            // Siglet stamps the caller's member id (DECADE-X: the DECADE-X-ID from its Legal Entity VC) into
+            // the flow token — certo reads the (optional) claim as the caller's dataspace identifier;
+            // no static asset property needed.
             mapping.put("claimMappings", List.of(Map.of(
                     "from", "flow.claims.vc.withType('%s').claim('%s')"
                             .formatted(memberIdClaim.credentialType(), memberIdClaim.claim()),

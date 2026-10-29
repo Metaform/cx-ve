@@ -12,22 +12,23 @@ import "encoding/json"
 // payload — NOT the EventEnvelope, so the envelope's id/at do not appear here. The NATS subject is
 // "events." + the event's Event.name() value, which is what the Subject* constants below spell out.
 //
-// The onboarding family instead comes from cx-ve's own onboarding APIs: the Catena-X one
-// (com.metaform.cxve.adapter.out.nats.NatsOnboardingEventPublisher) and the DECADE-X one
-// (com.metaform.dxonboarding.adapter.out.nats.NatsOnboardingEventPublisher), on the same subjects.
-// Their `type` is a reverse-DNS name per CX-0000 §2.3 ("org.catena-x.onboarding.<name>.v1",
-// "org.decade-x.onboarding.<name>.v1") rather than a class name, and their `subject` carries the
-// onboarding process id. The Catena-X envelope also repeats the BPN and DID as the `sourcebpn` and
-// `participantdid` extensions (the DECADE-X one only the DID), not modelled here:
-// lifecycleagent.CloudEvent drops top-level members it does not declare, and the payload carries
-// the fields anyway. A DECADE-X payload has no `bpn` (its member id travels as `decadeXId`, which
-// is not a correlation key), so Bpn stays empty for its participants.
+// The onboarding family instead comes from cx-ve's own onboarding API, DECADE-X's
+// (com.metaform.dxonboarding.adapter.out.nats.NatsOnboardingEventPublisher), on dataspace-neutral
+// subjects. Its `type` is a reverse-DNS name ("org.decade-x.onboarding.<name>.v1") rather than a
+// class name, and its `subject` carries the onboarding process id. The envelope also repeats the
+// DID as the `participantdid` extension, not modelled here: lifecycleagent.CloudEvent drops
+// top-level members it does not declare, and the payload carries the field anyway. A DECADE-X
+// payload has no `bpn` (its member id travels as `decadeXId`, which is not a correlation key), so
+// Bpn stays empty for its participants.
 //
-// The certificate exchange family comes from Certo, the CX-0135 (CCM) certificate exchange
-// service. Same reverse-DNS convention ("org.catena-x.ccm.CertificateExchange<Status>.v1"), and
-// one payload shape for every leaf — the exchange's status change — so the family struct below IS
-// the leaf payload; the subject (and the status field) say which occurrence it was. The envelope's
-// `subject` carries the exchange id and `sourcebpn` the publishing side's BPN.
+// The certificate exchange family comes from Certo, the certificate exchange service implementing
+// DSAF SCE. Same reverse-DNS convention ("org.metaform.certo.CertificateExchange<Status>.v1",
+// Certo's own naming), and one payload shape for every leaf — the exchange's status change — so the
+// family struct below IS the leaf payload; the subject (and the status field) say which occurrence
+// it was. The envelope's `subject` carries the exchange id and the optional `dataspaceidentifier`
+// extension the publishing tenant's dataspace id — not modelled here, and in the VE usually absent
+// anyway: the Certo CFM agent creates its tenants without one, so ParticipantContextID in the
+// payload is what identifies the publishing side.
 //
 // The Java hierarchy is two levels deep: an abstract per-family base (KeyPairEvent, IssuanceEvent,
 // ...) carrying the shared fields, and a concrete leaf per occurrence. That is mirrored here by
@@ -119,19 +120,14 @@ const (
 	SubjectOnboardingStarted   = "events.onboarding.started"
 	SubjectOnboardingCompleted = "events.onboarding.completed"
 
-	// CertificateExchange — Certo (CX-0135/CCM, not EDC). One leaf per exchange status, split
-	// over the two CX-0135 §2.1.3 state machines: Fulfillment (the certificate being produced)
-	// and Acceptance (the certificate being reviewed by its receiver).
-	SubjectCertificateExchangeRequested              = "events.certificate.exchange.requested"
-	SubjectCertificateExchangeAcknowledged           = "events.certificate.exchange.acknowledged"
-	SubjectCertificateExchangeCertificationRequested = "events.certificate.exchange.certificationRequested"
-	SubjectCertificateExchangeFulfilled              = "events.certificate.exchange.fulfilled"
-	SubjectCertificateExchangeDeclined               = "events.certificate.exchange.declined"
-	SubjectCertificateExchangeFailed                 = "events.certificate.exchange.failed"
-	SubjectCertificateExchangeRetrieved              = "events.certificate.exchange.retrieved"
-	SubjectCertificateExchangeAccepted               = "events.certificate.exchange.accepted"
-	SubjectCertificateExchangeRejected               = "events.certificate.exchange.rejected"
-	SubjectCertificateExchangeErrored                = "events.certificate.exchange.errored"
+	// CertificateExchange — Certo (DSAF SCE, not EDC). One leaf per exchange status, split over
+	// the two SCE state machines: Fulfillment (owned by the provider: the certificate being
+	// produced) and Acceptance (owned by the consumer: the certificate being reviewed).
+	SubjectCertificateExchangeReceived  = "events.certificate.exchange.received"
+	SubjectCertificateExchangeFulfilled = "events.certificate.exchange.fulfilled"
+	SubjectCertificateExchangeDeclined  = "events.certificate.exchange.declined"
+	SubjectCertificateExchangeAccepted  = "events.certificate.exchange.accepted"
+	SubjectCertificateExchangeRejected  = "events.certificate.exchange.rejected"
 )
 
 // ---------------------------------------------------------------------------------------------
@@ -474,23 +470,33 @@ type OnboardingCompletedEvent struct {
 // one record shape, the exchange's status change, for all of them. In the VE a single Certo
 // instance serves both sides of an exchange, so the same logical exchange produces one event per
 // side: Role says whose perspective this is, and ParticipantContextID is that side's own context.
-// The counterparty fields identify the OTHER side — a different participant, which is why the
-// handler must not promote them as this event's correlation keys.
+// CounterpartyID identifies the OTHER side — a different participant, which is why the handler
+// must not promote it as this event's correlation key.
 type CertificateExchangeEvent struct {
-	Role                 string `json:"role,omitempty"`  // PROVIDER | CONSUMER
-	Phase                string `json:"phase,omitempty"` // FULFILLMENT | ACCEPTANCE
+	Role  string `json:"role,omitempty"`  // PROVIDER | CONSUMER
+	Phase string `json:"phase,omitempty"` // FULFILLMENT | ACCEPTANCE
+	// EventType is Certo's catalogue entry as its constant name (e.g. FULFILLED) — the same
+	// occurrence the subject leaf names.
+	EventType            string `json:"eventType,omitempty"`
 	ExchangeID           string `json:"exchangeId,omitempty"`
 	ParticipantContextID string `json:"participantContextId,omitempty"`
-	CounterpartyBpn      string `json:"counterpartyBpn,omitempty"`
-	CounterpartyDid      string `json:"counterpartyDid,omitempty"`
+	// CounterpartyID is the other party's DID — the consumer's seen from the provider, and vice versa.
+	CounterpartyID string `json:"counterpartyId,omitempty"`
 	// CertificateID is empty while the exchange has not produced one (pending request).
 	CertificateID string `json:"certificateId,omitempty"`
-	Revision      int    `json:"revision,omitempty"`
+	// Revision is a pointer because 0 is a real revision: it is nil only alongside an unknown
+	// CertificateID, which is also when Certo omits it from the wire.
+	Revision *int `json:"revision,omitempty"`
 	// PreviousStatus is empty when the exchange was just opened rather than transitioned.
 	PreviousStatus string `json:"previousStatus,omitempty"`
 	// Status repeats what the subject leaf says, as the state machine's constant name
-	// (e.g. FULFILLED, CERTIFICATION_REQUESTED).
+	// (e.g. FULFILLED, REJECTED).
 	Status string `json:"status,omitempty"`
+	// Errors carries the grounds of a DECLINED or REJECTED status, if any.
+	Errors []StatusError `json:"errors,omitempty"`
+	// OccurredAt stays the wire string (an ISO-8601 OffsetDateTime): this struct only feeds
+	// correlation, and a timestamp format mismatch must not make the whole payload undecodable.
+	OccurredAt string `json:"occurredAt,omitempty"`
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -566,6 +572,13 @@ type ParticipantManifest struct {
 	Key              *KeyDescriptor  `json:"key,omitempty"`
 	Roles            []string        `json:"roles,omitempty"`
 	ServiceEndpoints json.RawMessage `json:"serviceEndpoints,omitempty"`
+}
+
+// StatusError is one error detail on a certificate exchange status. Specifier scopes it to an
+// element of the certificate (e.g. a certified location); empty means the certificate as a whole.
+type StatusError struct {
+	Message   string `json:"message,omitempty"`
+	Specifier string `json:"specifier,omitempty"`
 }
 
 // DataAddress is the destination on TransferProcessStartedEvent. Its schema is open — the concrete

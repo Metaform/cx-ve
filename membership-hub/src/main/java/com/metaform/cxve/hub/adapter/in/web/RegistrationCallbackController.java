@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * The status-callback endpoints this app registers with the dataspaces' onboarding APIs — one
  * per dataspace, {@code /api/callbacks/{dataspace}/registration-status}. The body is in the
- * dataspace's own wire format (Catena-X: the spec's {@code OspRegistrationCallbackData}) and is
+ * dataspace's own wire format and is
  * read by that dataspace's onboarding; it always carries the {@code externalId} the hub minted at
  * submission. Answers 200 on receipt.
  *

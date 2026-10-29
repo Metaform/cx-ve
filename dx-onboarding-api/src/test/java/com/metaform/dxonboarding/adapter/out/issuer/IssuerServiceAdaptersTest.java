@@ -150,17 +150,17 @@ class IssuerServiceAdaptersTest {
         server.expect(requestTo(API + "/v1/participants/issuer/holders/" + DID.replace(":", "%3A")))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess("""
-                        {"holderId": "%s", "did": "%s", "holderName": "Acme (Catena-X)", "anonymous": false,
-                         "properties": {"id": "%s", "bpn": "BPNL0000000000XY", "memberOf": "Catena-X",
+                        {"holderId": "%s", "did": "%s", "holderName": "Acme (Other-X)", "anonymous": false,
+                         "properties": {"id": "%s", "otherId": "OX-1", "memberOf": "Other-X",
                                         "contractVersion": "1.0", "dxSite": {"partnerID": "S-STALE"}},
                          "lastModifiedAt": 0}""".formatted(DID, DID, DID), MediaType.APPLICATION_JSON));
-        // the Catena-X claims and name stay: the DECADE-X ones are added, and a site this request
+        // the other dataspace's claims and name stay: the DECADE-X ones are added, and a site this request
         // no longer declares is dropped
         server.expect(requestTo(API + "/v1/participants/issuer/holders"))
                 .andExpect(method(HttpMethod.PUT))
                 .andExpect(content().json("""
-                        {"holderId": "%s", "did": "%s", "name": "Acme (Catena-X)",
-                         "properties": {"id": "%s", "bpn": "BPNL0000000000XY", "memberOf": "Catena-X",
+                        {"holderId": "%s", "did": "%s", "name": "Acme (Other-X)",
+                         "properties": {"id": "%s", "otherId": "OX-1", "memberOf": "Other-X",
                                         "contractVersion": "1.0", "dxSubjectType": "dx:Wallet",
                                         "dxLegalEntity": %s}}"""
                         .formatted(DID, DID, DID, LEGAL_ENTITY), true))

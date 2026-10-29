@@ -1,4 +1,4 @@
-## CFM orchestration agent for Certo (CX-0135 certificate exchange): subscribes to the platform's
+## CFM orchestration agent for Certo (SCE certificate exchange): subscribes to the platform's
 ## CFM activity stream on NATS and creates a participant context in Certo for every provisioned
 ## participant. Deployed with this umbrella rather than the platform because Certo is CX-VE-specific.
 ## The agent authenticates to certo's management API by exchanging its projected SA token at

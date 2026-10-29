@@ -315,7 +315,7 @@ class DefaultOnboardingRequestServiceTest {
         assertThat(external.data().declaredLegalEntityId()).isEmpty();
         assertThat(hosted.data().declaredLegalEntityId()).contains("DX-87654321");
         var refusal = problem(ProblemCode.INVALID_REQUEST,
-                () -> service.create(HOSTED, declaring(data(HOSTED), "BPNL000000000001"), null));
+                () -> service.create(HOSTED, declaring(data(HOSTED), "ACME-0001"), null));
         assertThat(refusal.errors()).extracting(FieldError::field).containsExactly("legalEntity.legalEntityId");
     }
 

@@ -18,10 +18,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Publishes the onboarding lifecycle as structured-mode CloudEvents onto the platform's
- * {@code edc-events} stream — on the SAME subjects as the cx-onboarding-api, since the compliance
- * tracker follows a participant from {@code events.onboarding.started} whatever its dataspace, but
- * as DECADE-X's own events: their {@code type} is DECADE-X's, and they carry nothing of Catena-X's
- * (no BPN, no CX-0000 {@code sourcebpn} extension) — the DECADE-X-ID travels as {@code decadeXId}.
+ * {@code edc-events} stream, on the dataspace-neutral subjects the compliance tracker follows a
+ * participant by from {@code events.onboarding.started}, as DECADE-X's own events: their
+ * {@code type} is DECADE-X's, and the DECADE-X-ID travels as {@code decadeXId}.
  * The CloudEvent {@code subject} is the onboarding request's id, the correlation key.
  */
 public class NatsOnboardingEventPublisher implements OnboardingEventPublisher {

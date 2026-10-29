@@ -26,7 +26,7 @@ public class MembershipEntity {
     @Column(name = "external_id", nullable = false)
     private String externalId;
 
-    /** The dataspace the membership is of, e.g. {@code catena-x}. */
+    /** The dataspace the membership is of, e.g. {@code decade-x}. */
     @Column(name = "dataspace")
     private String dataspace;
 
@@ -36,7 +36,7 @@ public class MembershipEntity {
     @Column(name = "did")
     private String did;
 
-    /** The member's id within its dataspace — the BPN in Catena-X. */
+    /** The member's id within its dataspace — the DECADE-X-ID in DECADE-X. */
     @Column(name = "member_id")
     private String memberId;
 

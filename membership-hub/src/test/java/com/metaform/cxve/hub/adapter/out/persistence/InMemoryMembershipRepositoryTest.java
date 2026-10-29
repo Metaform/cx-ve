@@ -21,12 +21,12 @@ class InMemoryMembershipRepositoryTest {
     private final InMemoryMembershipRepository repository = new InMemoryMembershipRepository();
 
     private static MemberData payload() {
-        return new MemberData("catena-x", "Acme Corp", "Acme", "BPNL0000000000XY", null, Map.of("city", "Berlin"));
+        return new MemberData("decade-x", "Acme Corp", "Acme", "DX-00000001", null, Map.of("city", "Berlin"));
     }
 
     @Test
     void save_bumpsTheVersionAndRejectsStaleSnapshots() {
-        repository.create(Membership.submitted("ext-1", "catena-x", "Acme Corp", "did:web:acme", "BPNL0000000000XY"), payload());
+        repository.create(Membership.submitted("ext-1", "decade-x", "Acme Corp", "did:web:acme", "DX-00000001"), payload());
         var snapshot = repository.findByExternalId("ext-1").orElseThrow();
         assertThat(snapshot.version()).isEqualTo(0L);
 

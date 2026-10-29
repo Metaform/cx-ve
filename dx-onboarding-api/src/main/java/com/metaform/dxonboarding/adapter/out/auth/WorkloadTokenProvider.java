@@ -15,7 +15,7 @@ import org.springframework.web.client.RestClient;
 
 /**
  * Exchanges the pod's Kubernetes workload token for a scoped token at the jwtlet (RFC 8693 Token
- * Exchange), as the Catena-X onboarding API does. The token file is re-read on every call: the
+ * Exchange). The token file is re-read on every call: the
  * projected token rotates, and the jwtlet mapping is seeded after the pod starts, so nothing about
  * it is resolved at startup.
  */

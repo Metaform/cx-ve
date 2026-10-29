@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Installs the complete Verification Environment (VE) on an EXISTING cluster on a VPS: ONE
-# umbrella helm release (charts/cx-ve) containing the Core Platform Distribution, the Catena-X
-# profile seeding, the Onboarding API, Certo and the Certo CFM agent. Run from the repository
-# root.
+# umbrella helm release (charts/cx-ve) containing the Core Platform Distribution, the DECADE-X
+# profile seeding and onboarding API, the Membership Hub, the Verification UI, Certo and the Certo
+# CFM agent. Run from the repository root.
 #
 # VPS variant of install-ve.sh: no kind cluster is created (the target cluster is reached
 # through the kubeconfig passed in), and NO DNS magic is applied — the hostname is expected to
@@ -14,8 +14,8 @@
 # gateway hostnames derived from it (did:web:identity.<host>:<participant>,
 # did:web:issuer.<host>:issuer).
 #
-# Unlike install-ve.sh, nothing is built from source: every image — including the Catena-X and
-# DECADE-X onboarding APIs, the Compliance Tracker, the Membership Hub and the Verification UI —
+# Unlike install-ve.sh, nothing is built from source: every image — including the DECADE-X
+# onboarding API, the Compliance Tracker, the Membership Hub and the Verification UI —
 # is pulled from its registry (the published images from .github/workflows/publish.yml).
 #
 # Traefik is installed from traefik-values.yaml, which already carries the VPS-relevant
@@ -97,18 +97,16 @@ kubectl cluster-info >/dev/null || { echo "Error: cannot reach the cluster with 
 # documents exactly which values follow the host.
 HOST_OVERRIDES=(
   --set "global.host=${HOST}"
-  --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
-  --set "cx-onboarding-api.httpRoute.hostnames={${HOST}}"
-  --set-string "cx-onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
   --set "dx-onboarding-api.httpRoute.hostnames={${HOST}}"
-  # Like the cx-onboarding-api, the dx-onboarding-api validates tokens against the OSP IdP's iss.
+  # The OSP IdP's issuer is http://<host>/auth/osp (derived from global.host in the umbrella);
+  # the dx-onboarding-api validates tokens against exactly that iss value, so it must follow too.
   --set-string "dx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set-string "dx-onboarding-api.config.dx-onboarding.review.hosted-did-prefix=did:web:identity.${HOST}:"
   --set-string "decadex-profile.issuer.did=did:web:issuer.${HOST}:issuer"
-  # The hub resolves member DIDs by the same rule the cx-onboarding-api does; both must follow the host.
+  # The hub mints member DIDs under the host.
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   --set "membership-hub.httpRoute.hostnames={${HOST}}"
-  # The hub validates the Onboarding API's callback bearers against the OSP IdP's external issuer URL.
+  # The hub validates onboarding-API callback bearers against the OSP IdP's external issuer URL.
   --set-string "membership-hub.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "certo.gateway.hostnames={${HOST}}"
   # NOTE certo.sigletBaseUrl is deliberately NOT host-derived: certo calls siglet without a
@@ -126,14 +124,13 @@ helm upgrade --install --namespace traefik traefik traefik/traefik --create-name
 kubectl rollout status deployment/traefik -n traefik --timeout=120s
 kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
 
-# Resolve the umbrella's dependencies (platform, catenax-profile, certo from OCI; the local
-# cx-onboarding-api and membership-hub charts are vendored from ../cx-onboarding-api / ../membership-hub)
+# Resolve the umbrella's dependencies (platform and certo from OCI; the local app charts are
+# vendored from ../dx-onboarding-api, ../membership-hub etc.)
 helm dependency update "$UMBRELLA_CHART"
 
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
-# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> decadex-profile (140 issuer
-# credential definition, 150 EDC dataspace profile) -> cx-onboarding-api jwtlet mapping (200) ->
-# dx-onboarding-api jwtlet mapping (205) -> certo jwtlet mappings (210) -> certo
+# space: platform seeds (weights 10/20) -> decadex-profile (140 issuer credential definitions, 145
+# Tenant Manager dataspace profile, 150 EDC dataspace profile) -> dx-onboarding-api jwtlet mapping (205) -> certo jwtlet mappings (210) -> certo
 # activity/orchestration (220) -> membership-hub jwtlet mapping (230). The seed hooks dereference
 # gateway-hostname URLs while the install is still running — on a VPS that works without CoreDNS
 # patching because <host> resolves through public DNS to the VPS itself.

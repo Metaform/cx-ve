@@ -1,11 +1,11 @@
 /** TS mirrors of the BFF's wire shapes (see the Java records in com.metaform.cxve.verification). */
 
 /**
- * How a dataspace names and formats a member's id (Catena-X: the BPN) — the run form's label,
+ * How a dataspace names and formats a member's id (DECADE-X: the DECADE-X-ID) — the run form's label,
  * placeholder and validation.
  */
 export interface MemberIdFormat {
-  /** What the dataspace calls a member id, e.g. "BPN". */
+  /** What the dataspace calls a member id, e.g. "DECADE-X-ID". */
   label: string;
   /** A regular expression a member id must match in full; blank (or unset) accepts anything. */
   pattern: string | null;
@@ -106,7 +106,7 @@ export interface ParticipantInfo {
   name: string;
   shortName: string;
   /**
-   * The participant's id within the run's dataspace — the BPN in Catena-X, the DECADE-X-ID in
+   * The participant's id within the run's dataspace — the DECADE-X-ID in
    * DECADE-X. Null until assigned, in a dataspace that assigns it.
    */
   memberId: string | null;
@@ -182,12 +182,13 @@ export const STEP_LABELS: Record<string, string> = {
   AWAIT_PROVISIONED: 'Await provisioning',
   AWAIT_CREDENTIAL_OFFER: 'Offer credentials',
   AWAIT_CREDENTIALS: 'Await credential delivery',
-  AWAIT_PUBLISHED_CERTIFICATE: 'Await pushed certificate',
   AWAIT_CERTO_CONTEXT: 'Await certificate tenant',
   SEED_PROVIDER_OFFER: 'Seed provider offer',
   ESTABLISH_PULL_FLOW: 'Establish pull flow',
   ESTABLISH_PUSH_FLOW: 'Establish push flow',
-  PUBLISH_CERTIFICATE: 'Publish certificate',
+  ISSUE_CERTIFICATE: 'Issue certificate',
+  NOTIFY_AVAILABLE: 'Notify certificate available',
+  REQUEST_CERTIFICATE: 'Request certificate',
   RETRIEVE_AND_VERIFY: 'Retrieve & verify document',
   ACCEPT: 'Accept certificate',
   EVALUATE_EVENTS: 'Evaluate event ledger'

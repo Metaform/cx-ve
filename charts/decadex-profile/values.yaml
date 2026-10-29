@@ -31,7 +31,7 @@ credentialDefinitions:
     id: dx-legal-entity-credential-def
     credentialType: "dx:DX_LegalEntity_VC"
     holderProperty: dxLegalEntity
-    # a placeholder, like the catenax-profile's: no DECADE-X credential schema exists yet
+    # a placeholder: no DECADE-X credential schema exists yet
     jsonSchemaUrl: https://example.com/schema/dx-legal-entity-vc.json
   site:
     id: dx-site-credential-def
@@ -40,7 +40,7 @@ credentialDefinitions:
     jsonSchemaUrl: https://example.com/schema/dx-site-vc.json
 # Common to both: the holder attestation turning the registered properties into claims, the
 # format — VC 2.0 (validFrom/validUntil) as the examples are, enveloped in a JOSE JWT — and the
-# validity, one week like the Catena-X credentials'.
+# validity, one week.
 credentialAttestationId: decadex-holder-attestation-def
 credentialFormat: VC2_0_JOSE
 credentialValidity: "604800"
@@ -50,6 +50,7 @@ services:
   issuerService: issuerservice
   controlPlane: controlplane
   jwtlet: jwtlet
+  tenantManager: tenant-manager
   clusterDomain: svc.cluster.local
 tokenExchangeAudience: edcv
 
@@ -68,3 +69,10 @@ seedJobs:
   # The EDC dataspace profile and its DCP scope — on every platform with DECADE-X participants.
   edcSeed:
     enabled: true
+  # The CFM Tenant Manager's DECADE-X dataspace profile, deployed onto the platform's cell — on
+  # every platform that provisions DECADE-X participants (the Tenant Manager deploys a participant
+  # only into a cell a dataspace profile is deployed to).
+  tenantManagerProfile:
+    enabled: true
+    # The issuer its credential specs name; empty = issuer.did. On a vendor stack, the VE's issuer.
+    credentialIssuer: ""

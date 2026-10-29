@@ -7,11 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.time.Duration;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -30,7 +26,13 @@ import static org.awaitility.Awaitility.await;
 public class ManagementApi {
 
     static final String MANAGEMENT_CONTEXT = "https://w3id.org/edc/connector/management/v2";
-    static final String CX_POLICY_CONTEXT = "https://w3id.org/catenax/2025/9/policy/context.jsonld";
+    /** The DSP dataspace profile every catalog, negotiation and transfer request runs under. */
+    static final String DSP_PROFILE = "decade-x";
+    static final String DCT_CONFORMS_TO = "http://purl.org/dc/terms/conformsTo";
+    /** Catalog identity of an asset fronting certo's SCE provider API. */
+    static final String SCE_PROVIDER_API = "https://w3id.org/dsaf/sce/v1/provider-api";
+    /** Catalog identity of an asset fronting certo's SCE consumer API. */
+    static final String SCE_CONSUMER_API = "https://w3id.org/dsaf/sce/v1/consumer-api";
 
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(2);
 
@@ -97,96 +99,46 @@ public class ManagementApi {
         log("   Management API:  CEL expression '%s' ready (leftOperand %s)", id, leftOperand);
     }
 
-    public void createAsset(String pcid, String assetId) {
-        createAsset(pcid, assetId, Map.of());
-    }
-
     /**
-     * Asset with dataplane-metadata properties. On every data flow for this asset, Siglet copies
-     * these properties verbatim into the claims of the flow token it mints (the flow's metadata
-     * comes from the PROVIDER-side transfer process, which carries the asset's
-     * dataplaneMetadata) — the way to stamp e.g. the {@code bpn} claim Certo requires into the
-     * counterparty's token. A PLAIN properties object, verified against the deployed
-     * controlplane: it stores the keys raw ("bpn" stays "bpn" in edc_asset.dataplane_metadata,
-     * no vocab expansion), while the {@code "@type": "@json"} literal form silently drops the
-     * properties altogether.
+     * An asset fronting one of certo's SCE APIs, identified in the catalog by the API it
+     * {@code dct:conformsTo} ({@link #SCE_PROVIDER_API} or {@link #SCE_CONSUMER_API}) — what a
+     * counterparty looks the offer up by. The full IRI keeps the property independent of the
+     * management context's vocabulary.
      */
-    public void createAsset(String pcid, String assetId, Map<String, String> dataplaneProperties) {
-        var metadata = "";
-        if (!dataplaneProperties.isEmpty()) {
-            var props = mapper.createObjectNode();
-            dataplaneProperties.forEach(props::put);
-            metadata = """
-                    ,
-                      "dataplaneMetadata": {
-                        "@type": "DataplaneMetadata",
-                        "properties": %s
-                      }""".formatted(props.toString());
-        }
+    public void createSceAsset(String pcid, String assetId, String conformsTo) {
         var body = """
                 {
                   "@context": ["%s"],
                   "@type": "Asset",
                   "@id": "%s",
-                  "properties": {"name": "cxve e2e asset"}%s
-                }""".formatted(MANAGEMENT_CONTEXT, assetId, metadata);
+                  "properties": {
+                    "name": "cxve e2e SCE API asset",
+                    "%s": {"@id": "%s"}
+                  }
+                }""".formatted(MANAGEMENT_CONTEXT, assetId, DCT_CONFORMS_TO, conformsTo);
         expect2xx(post("/participants/%s/assets".formatted(pcid), body), "asset " + assetId);
-        if (!dataplaneProperties.isEmpty()) {
-            verifyDataplaneProperties(pcid, assetId, dataplaneProperties);
-        }
-        log("   Management API:  asset '%s' created in participant context %s", assetId, pcid);
+        log("   Management API:  asset '%s' (conformsTo %s) created in participant context %s", assetId, conformsTo, pcid);
     }
 
     /**
-     * Reads the asset back and asserts the dataplane-metadata property keys survived JSON-LD
-     * processing unexpanded — if the deployed controlplane handles the {@code @json} literal
-     * differently and the keys come back as IRIs, the flow tokens would carry wrong claim names
-     * and every CCM call would fail with 401 much later; fail fast here instead.
+     * A constraint-free policy: DECADE-X has no policy vocabulary yet. An access policy without
+     * a permission admits everyone; a contract policy needs one, for the action.
      */
-    private void verifyDataplaneProperties(String pcid, String assetId, Map<String, String> expected) {
-        var response = get("/participants/%s/assets/%s".formatted(pcid, assetId));
-        assertThat(response.statusCode()).isEqualTo(200);
-        try {
-            var stored = mapper.readTree(response.asString()).path("dataplaneMetadata").path("properties");
-            expected.forEach((key, value) -> assertThat(stored.path(key).asText())
-                    .withFailMessage("asset '%s': dataplaneMetadata property '%s' did not survive JSON-LD "
-                                     + "round-tripping (stored: %s) — flow tokens would carry wrong claim names", assetId, key, stored)
-                    .isEqualTo(value));
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
-    /**
-     * Policy whose constraints reference the given leftOperand IRIs (each backed by a CEL
-     * expression). The rightOperand is a placeholder — the e2e CEL expressions check fixed
-     * credential claims and ignore it.
-     */
-    public void createPolicy(String pcid, String policyId, String action, List<Constraint> constraints) {
-        var policyConstraints = mapper.createArrayNode();
-        constraints.forEach(op -> {
-            var c = mapper.createObjectNode();
-            c.put("leftOperand", op.leftOperand);
-            c.put("operator", op.operator);
-            c.put("rightOperand", op.rightOperand);
-            policyConstraints.add(c);
-        });
-        var and = mapper.createObjectNode().set("and", policyConstraints);
+    public void createPolicy(String pcid, String policyId, String action) {
+        var permission = "access".equals(action) ? "" : """
+                ,
+                    "permission": [{ "action": "%s" }]""".formatted(action);
         var body = """
                 {
-                  "@context": ["%s", "%s"],
+                  "@context": ["%s"],
                   "@type": "PolicyDefinition",
                   "@id": "%s",
                   "policy": {
-                    "@type": "Set",
-                    "permission": [{
-                      "action": "%s",
-                      "constraint": [%s]
-                    }]
+                    "@type": "Set"%s
                   }
-                }""".formatted(MANAGEMENT_CONTEXT, CX_POLICY_CONTEXT,  policyId, action, and.toString());
+                }""".formatted(MANAGEMENT_CONTEXT, policyId, permission);
         expect2xx(post("/participants/%s/policydefinitions".formatted(pcid), body), "policy " + policyId);
-        log("   Management API:  policy '%s' (%d credential constraints) created", policyId, constraints.size());
+        log("   Management API:  policy '%s' created", policyId);
     }
 
     public void createContractDefinition(String pcid, String id, String accessPolicyId, String contractPolicyId) {
@@ -221,8 +173,8 @@ public class ManagementApi {
                   "@type": "CatalogRequest",
                   "counterPartyAddress": "%s",
                   "counterPartyId": "%s",
-                  "protocol": "cx-neptune"
-                }""".formatted(MANAGEMENT_CONTEXT, providerDsp, providerDid);
+                  "protocol": "%s"
+                }""".formatted(MANAGEMENT_CONTEXT, providerDsp, providerDid, DSP_PROFILE);
         log("   Management API:  requesting provider catalog as consumer %s, waiting for dataset '%s'...", consumerPcid, assetId);
         var result = new AtomicReference<CatalogOffer>();
         await().atMost(timeout).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
@@ -259,7 +211,7 @@ public class ManagementApi {
         body.set("@context", context);
         body.put("@type", "ContractRequest");
         body.put("counterPartyAddress", providerDsp);
-        body.put("protocol", "cx-neptune");
+        body.put("protocol", DSP_PROFILE);
         body.set("policy", policy);
 
         var response = post("/participants/%s/contractnegotiations".formatted(consumerPcid), body.toString());
@@ -276,9 +228,9 @@ public class ManagementApi {
                   "@type": "TransferRequest",
                   "contractId": "%s",
                   "counterPartyAddress": "%s",
-                  "protocol": "cx-neptune",
+                  "protocol": "%s",
                   "transferType": "%s"
-                }""".formatted(MANAGEMENT_CONTEXT, agreementId, providerDsp, transferType);
+                }""".formatted(MANAGEMENT_CONTEXT, agreementId, providerDsp, DSP_PROFILE, transferType);
         var response = post("/participants/%s/transferprocesses".formatted(consumerPcid), body);
         expect2xx(response, "transfer process");
         var id = idOf(response);
@@ -351,6 +303,4 @@ public class ManagementApi {
         }
     }
 
-    public record Constraint(String leftOperand, String operator, String rightOperand) {
-    }
 }

@@ -7,9 +7,11 @@ import com.metaform.cxve.verification.adapter.out.management.ManagementApiClient
 import com.metaform.cxve.verification.config.VerificationProperties;
 import com.metaform.cxve.verification.domain.model.RunStep;
 import com.metaform.cxve.verification.domain.model.VerificationRun;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -23,7 +25,7 @@ import static com.metaform.cxve.verification.application.ChecklistEvaluator.sati
  * What both run flows do identically, whether the participant-under-test lives in this
  * environment or elsewhere: record a step on the run, become DSP consumer of a counterparty's CCM
  * asset, and judge the run against the compliance tracker's ledger. Everything that differs —
- * who seeds which offer, who publishes, who is merely waited for — stays in the flows.
+ * who seeds which offer, who issues, who is merely waited for — stays in the flows.
  */
 @Component
 public class RunFlowSupport {
@@ -139,5 +141,13 @@ public class RunFlowSupport {
                     + String.join(", ", missing(run.checklist())), e);
         }
         return "all %d expected event subjects present".formatted(expectedEvents.size());
+    }
+
+    /**
+     * A message id stable for the run: Certo de-duplicates on it, so a retry of the same call — or a
+     * re-drive of the run's step — repeats the message instead of sending a new one.
+     */
+    static String messageId(VerificationRun run, String purpose) {
+        return UUID.nameUUIDFromBytes("%s:%s".formatted(run.id(), purpose).getBytes(StandardCharsets.UTF_8)).toString();
     }
 }

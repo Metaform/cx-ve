@@ -18,13 +18,14 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Client for Certo's management API (CX-0135 CCM), ported from the e2e suite's {@code CertoApi}
- * — the retry semantics are preserved exactly: a 5xx is transient (typically certo's siglet
- * flow-token resolution right after provisioning) and retried within the poll budget, a 4xx is a
- * real request error and aborts immediately. {@code flowId} parameters name the LIVE data flow
- * (an EDC transfer process of the CCM transfer type, in STARTED) whose Siglet cache entry
- * supplies the token + endpoint for the outbound CCM call — the caller side must be the DSP
- * consumer of that flow. Certo validates the jwtlet bearer itself (no clearglass on this route).
+ * Client for Certo's management API (DSAF SCE), ported from the e2e suite's {@code CertoApi} — the
+ * retry semantics are preserved exactly: a 5xx is transient (typically certo's siglet flow-token
+ * resolution right after provisioning) and retried within the poll budget, a 4xx is a real request
+ * error and aborts immediately. {@code flowId} parameters name the LIVE data flow (an EDC transfer
+ * process of the CCM transfer type, in STARTED) whose Siglet cache entry supplies the token +
+ * endpoint for the outbound SCE call — the caller side must be the DSP consumer of that flow.
+ * Counterparties are addressed by their DID, and every outbound call names the counterparty's wire
+ * protocol. Certo validates the jwtlet bearer itself (no clearglass on this route).
  */
 @Component
 public class CertoClient {
@@ -77,64 +78,96 @@ public class CertoClient {
     }
 
     /**
-     * Issues a sample ISO9001 certificate in the provider tenant referencing the uploaded
-     * document (state change only, notifies no one). Returns the certificateId. Certo names member
-     * ids after Catena-X's BPNs on its API; the values are the run's dataspace's member ids, and
-     * the issuer and site come from the dataspace's CCM settings.
+     * Issues a sample certificate of {@code certificateType} in the provider tenant referencing the
+     * uploaded document (state change only, notifies no one), certified for the holder's legal
+     * entity — the member id the run's dataspace assigned it. Returns the certificateId.
      */
-    public String addCertificate(String pcid, String holderMemberId, String documentId, String registrationNumber,
-                                 VerificationProperties.SampleCertificate sample) {
+    public String addCertificate(String pcid, String certificateType, String holderMemberId, String documentId,
+                                 String registrationNumber, VerificationProperties.SampleCertificate sample) {
         var body = """
                 {
-                  "certificateType": "ISO9001",
+                  "certificateType": "%s",
                   "certificateTypeVersion": "2015",
                   "registrationNumber": "%s",
                   "validFrom": "2026-01-01",
                   "validUntil": "2030-01-01",
-                  "trustLevel": "high",
                   "certifiedLocations": [{
-                    "bpnl": "%s",
-                    "bpna": "%s",
+                    "legalEntityId": "%s",
                     "locationRole": "MAIN_LOCATION"
                   }],
-                  "issuer": {"issuerName": "%s", "issuerBpn": "%s"},
+                  "issuer": {"issuerName": "%s", "issuerId": "%s"},
                   "documentIds": ["%s"]
-                }""".formatted(registrationNumber, holderMemberId, sample.siteId(), sample.issuerName(),
+                }""".formatted(certificateType, registrationNumber, holderMemberId, sample.issuerName(),
                 sample.issuerId(), documentId);
         var response = post("/participant-contexts/%s/certificates".formatted(pcid), body);
         expect2xx(response, "certificate issuance");
         var certificateId = json(response.body()).path("certificateId").asText();
-        log.info("certificate issued: {} (ISO9001, holder {})", certificateId, holderMemberId);
+        log.info("certificate issued: {} ({}, holder {})", certificateId, certificateType, holderMemberId);
         return certificateId;
     }
 
     /**
-     * Flow B publish (v3.0.0, not embedded): opens a FULFILLED exchange and pushes the lifecycle
-     * CREATED event to the named consumer over {@code flowId}. Returns the exchangeId once the
-     * consumer was actually notified; retried on 5xx and on consumerNotified=false — the stable
-     * idempotencyKey makes a repeat reuse the SAME exchange and just re-notify.
+     * Pushes the certificate's current lifecycle state (AVAILABLE) to the one named consumer over
+     * {@code flowId}. Purely informational — it opens no exchange. Retried on 5xx and on
+     * consumerNotified=false; {@code messageId} becomes the pushed event's id, so a repeat is one
+     * the consumer de-duplicates.
      */
-    public String publish(String pcid, String certificateId, String consumerMemberId, String consumerDid, String flowId) {
+    public void notify(String pcid, String certificateId, String messageId, String protocol, String consumerDid,
+                       String flowId) {
         var body = """
-                {"consumerBpn": "%s", "consumerDid": "%s", "flowId": "%s", "idempotencyKey": "vui-%s", \
-                "protocolVersion": "3.0.0", "embedded": false}"""
-                .formatted(consumerMemberId, consumerDid, flowId, certificateId);
-        var publication = Poller.poll("publish of certificate " + certificateId,
+                {"messageId": "%s", "protocol": "%s", "consumerId": "%s", "flowId": "%s"}"""
+                .formatted(messageId, protocol, consumerDid, flowId);
+        var notification = Poller.poll("notification about certificate " + certificateId,
                 properties.timeouts().certo(), properties.pollInterval(), () -> {
                     var response = postPolled(
-                            "/participant-contexts/%s/certificates/%s/publish".formatted(pcid, certificateId),
-                            body, "publish");
-                    expectSuccessOrRetry(response, "publish of certificate " + certificateId);
+                            "/participant-contexts/%s/certificates/%s/notify".formatted(pcid, certificateId),
+                            body, "notify");
+                    expectSuccessOrRetry(response, "notification about certificate " + certificateId);
                     var result = json(response.body());
                     if (!result.path("consumerNotified").asBoolean()) {
-                        throw new Poller.RetryException("publish accepted but the consumer was NOT notified — "
-                                + "the push CloudEvent to the consumer failed (flow token / siglet cache): " + result);
+                        throw new Poller.RetryException("notify accepted but the consumer was NOT notified — "
+                                + "the lifecycle CloudEvent to the consumer failed (flow token / siglet cache): " + result);
                     }
                     return result;
                 });
-        var exchangeId = publication.path("exchangeId").asText();
-        log.info("certificate published, consumer notified (exchange {})", exchangeId);
-        return exchangeId;
+        log.info("consumer {} notified: certificate {} r{} {}", consumerDid, certificateId,
+                notification.path("revision").asInt(), notification.path("lifecycleStatus").asText());
+    }
+
+    /**
+     * Consumer-initiated request on the consumer tenant: asks the provider over {@code flowId} for a
+     * certificate of {@code certificateType} certified for {@code legalEntityId}. The provider answers
+     * FULFILLED at once when it holds one, RECEIVED when its backend still has to issue it, or
+     * DECLINED. Retried on 5xx; exchange creation is idempotent on (counterparty, {@code messageId}),
+     * so a repeat with the SAME messageId returns the already-opened exchange.
+     */
+    public JsonNode requestCertificate(String pcid, String messageId, String protocol, String providerDid,
+                                       String certificateType, String legalEntityId, String flowId) {
+        var body = """
+                {"messageId": "%s", "protocol": "%s", "providerId": "%s", "certificateType": "%s", \
+                "certifiedLocations": [{"legalEntityId": "%s"}], "flowId": "%s"}"""
+                .formatted(messageId, protocol, providerDid, certificateType, legalEntityId, flowId);
+        var request = Poller.poll("certificate request to " + providerDid,
+                properties.timeouts().certo(), properties.pollInterval(), () -> {
+                    var response = postPolled("/participant-contexts/%s/consumer/certificate-requests".formatted(pcid),
+                            body, "certificate request");
+                    expectSuccessOrRetry(response, "certificate request to " + providerDid);
+                    return json(response.body());
+                });
+        log.info("certificate requested from {}: exchange {} {}", providerDid,
+                request.path("exchangeId").asText(), request.path("fulfillmentStatus").asText());
+        return request;
+    }
+
+    /**
+     * Polls the provider over {@code flowId} for the fulfillment status of a request this tenant
+     * placed, and returns the consumer's refreshed view. Same 4xx-abort/5xx-retry contract, single-shot.
+     */
+    public JsonNode pollRequest(String pcid, String exchangeId, String flowId) {
+        var response = postEmptyPolled("/participant-contexts/%s/consumer/certificate-requests/%s/poll?flowId=%s"
+                .formatted(pcid, exchangeId, flowId), "fulfillment poll");
+        expectSuccessOrRetry(response, "fulfillment poll of exchange " + exchangeId);
+        return json(response.body());
     }
 
     /**
@@ -175,12 +208,8 @@ public class CertoClient {
     /**
      * The consumer's reconciliation query: with {@code awaitingAcceptanceOnly} the exchanges still
      * needing this client's action (fulfilled and undecided, or decided but whose report never
-     * landed), otherwise every exchange of the tenant.
-     *
-     * <p>This is the only way to find an exchange that a push OPENED on this side: nothing on the
-     * wire hands the receiving tenant an identifier it could be looked up by. When the provider is
-     * a third-party system, it is therefore also the only way to observe that the push happened at
-     * all.
+     * landed), otherwise every exchange of the tenant. When the provider is a third-party system,
+     * this is the only record of the verdict this environment can read.
      */
     public JsonNode consumerExchanges(String pcid, boolean awaitingAcceptanceOnly) {
         var body = """

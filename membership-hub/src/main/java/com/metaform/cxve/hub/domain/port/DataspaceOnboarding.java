@@ -10,7 +10,7 @@ import java.util.Optional;
  * One dataspace's onboarding, as the hub drives it. Everything dataspace-specific about getting a
  * member registered lives behind this port: the shape of the {@link MemberData#registration()}
  * object, the onboarding API's endpoints, payloads and authentication, and how it reports a
- * registration's outcome: through status callbacks in its own wire format (Catena-X), or as a
+ * registration's outcome: through status callbacks in its own wire format, or as a
  * status the hub polls ({@link #pollsStatus()}, DECADE-X). The hub's own choreography (deploy
  * first, register second, the reported outcome as the terminal signal) is the same for every
  * dataspace.
@@ -21,7 +21,7 @@ import java.util.Optional;
  */
 public interface DataspaceOnboarding {
 
-    /** The dataspace id, e.g. {@code catena-x} — the key under {@code dataspaces.*}. */
+    /** The dataspace id, e.g. {@code decade-x} — the key under {@code dataspaces.*}. */
     String dataspace();
 
     /**

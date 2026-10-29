@@ -99,9 +99,9 @@ public class ManagementApiClient {
 
     /**
      * Policy whose constraints reference leftOperands of the dataspace's policy vocabulary
-     * ({@code policyContext}; in Catena-X each is backed by a CEL expression the catenax-profile
-     * seeds). The rightOperand is a placeholder there — the CEL expressions check fixed credential
-     * claims and ignore it.
+     * ({@code policyContext}; each backed by a CEL expression the dataspace's profile seeds). The
+     * rightOperand is typically a placeholder — the CEL expressions check fixed credential claims
+     * and ignore it.
      *
      * <p>Without constraints (a dataspace without a settled policy vocabulary, e.g. DECADE-X) the
      * policy permits unconditionally, in the one shape the control plane takes for the action:
@@ -199,8 +199,8 @@ public class ManagementApiClient {
      * assets as it likes, so the dataset is found by the CCM API it offers. The wait is for the
      * counterparty's operator to seed the offer at all, not for a contract definition to settle.
      *
-     * <p>More than one dataset offering the same API and version fails immediately: the CCM
-     * standard allows one per business partner, and picking one would verify an arbitrary offer.
+     * <p>More than one dataset offering the same API fails immediately: the CCM standard has a
+     * participant publish one dataset per API, and picking one would verify an arbitrary offer.
      */
     public CatalogOffer awaitCatalogOffer(String consumerPcid, String providerDsp, String providerDid,
                                           String protocol, CcmApi api, Duration timeout) {
@@ -209,7 +209,7 @@ public class ManagementApiClient {
                     var matches = datasets.stream().filter(api::offeredBy).toList();
                     if (matches.size() > 1) {
                         throw new VerificationException(("the catalog at %s offers %s %d times (%s) — the CCM "
-                                + "standard allows one asset per API and version, so the offer under test is ambiguous")
+                                + "standard has one dataset per API, so the offer under test is ambiguous")
                                 .formatted(providerDsp, api, matches.size(), describe(matches, api)));
                     }
                     return matches.isEmpty() ? null : matches.get(0);

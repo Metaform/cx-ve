@@ -6,8 +6,8 @@ package com.metaform.cxve.verification.application;
  * registration side rejects duplicates of ACTIVE unique ids, which is what makes a
  * derived-but-stable value workable.
  *
- * <p>The BPN is deliberately NOT derived here any more. It is mandatory on the run request and
- * adjudicated by the issuing side, so nothing in this environment may substitute one. The VAT id
+ * <p>The member id is deliberately NOT derived here. It is the dataspace's to assign (DECADE-X:
+ * the TSP's DECADE-X-ID), so nothing in this environment may substitute one. The VAT id
  * has no such authority behind it yet, which is the only reason this placeholder survives.
  */
 public final class VatIdDeriver {

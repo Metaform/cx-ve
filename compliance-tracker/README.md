@@ -65,15 +65,14 @@ catch-all, *any* configured subject overlaps it and makes NATS reject the consum
 `launcher.DefaultSubjects`.
 
 Two of the routed families are not EDC events. The `events.onboarding.*` subjects come from
-cx-ve's own onboarding APIs — the Catena-X one and the DECADE-X one, which publish on the same
-subjects, each with its own `type` (`org.catena-x.onboarding.*` / `org.decade-x.onboarding.*`), so a
-participant of either dataspace is followed alike — and the `events.certificate.exchange.*` subjects
-from Certo (CX-0135 certificate exchange); both follow the reverse-DNS `type` convention rather than
+cx-ve's own onboarding API — DECADE-X's, which publishes on dataspace-neutral subjects with its
+own `type` (`org.decade-x.onboarding.*`), so another dataspace's onboarding could join alike — and the `events.certificate.exchange.*` subjects
+from Certo (its DSAF SCE certificate exchange); both follow the reverse-DNS `type` convention rather than
 EDC's Java-class-name one — see the header of `handler/event_types.go`, which documents all three
 producers. A certificate exchange event carries the publishing side's own participant context
-(its correlation key) plus the counterparty's BPN and DID, which deliberately do NOT become keys:
-Certo publishes each side of an exchange separately, so promoting the counterparty would
-attribute one side's activity to the other. The onboarding started event is where a BPN and a DID first
+(its correlation key) plus the counterparty's DID (`counterpartyId`), which deliberately does NOT
+become a key: Certo publishes each side of an exchange separately, so promoting the counterparty
+would attribute one side's activity to the other. The onboarding started event is where a BPN and a DID first
 appear together, before any provisioning — which is what lets the participant-context and issuance
 events that follow be attributed to a partner. Caveat: the BPN is optional on registration, so a
 started event may carry only the DID; the assigned BPN then arrives on the completed event. The

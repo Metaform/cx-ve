@@ -37,7 +37,7 @@ public record DataspaceProperties(Map<String, Dataspace> dataspaces) {
 
     /**
      * @param enabled           whether members can be onboarded into this dataspace
-     * @param displayName       the human-readable name, e.g. "Catena-X"
+     * @param displayName       the human-readable name, e.g. "DECADE-X"
      * @param onboarding        the dataspace's onboarding API
      * @param dataspaceProfiles the connector's DSP dataspace profiles a hosted member is deployed with
      * @param memberIdClaim     where flow tokens take the caller's member id from

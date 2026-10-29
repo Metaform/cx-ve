@@ -7,8 +7,8 @@ import { RunDetail } from './run-detail';
 
 const CATALOG: CatalogDataspace[] = [
   {
-    id: 'catena-x', displayName: 'Catena-X', available: true,
-    memberId: { label: 'BPN', pattern: 'BPNL[0-9A-Z]{12}', example: 'BPNL000000000001' },
+    id: 'decade-x', displayName: 'DECADE-X', available: true,
+    memberId: { label: 'DECADE-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001', assigned: true },
     useCases: [
       { id: 'ccm', displayName: 'Company Certificate Management', available: true },
       { id: 'traceability', displayName: 'Traceability', available: false }
@@ -19,13 +19,13 @@ const CATALOG: CatalogDataspace[] = [
 function snapshot(overrides: Partial<RunSnapshot> = {}): RunSnapshot {
   return {
     id: 'r1',
-    dataspace: 'catena-x',
+    dataspace: 'decade-x',
     useCase: 'ccm',
     state: 'SUCCEEDED',
     startedAt: '2026-10-01T10:00:00Z',
     finishedAt: '2026-10-01T10:05:00Z',
     participant: {
-      name: 'ACME', shortName: 'acme', memberId: 'BPNL002D993A0000', uniqueId: 'DE002D993A',
+      name: 'ACME', shortName: 'acme', memberId: 'DX-00000004', uniqueId: 'DE002D993A',
       externalId: 'x1', did: 'did:web:acme', participantContextId: 'pc1', onboardingProcessId: 'p1',
       externallyHosted: false
     },
@@ -74,9 +74,9 @@ describe('RunDetail', () => {
   it('names the dataspace and use case, and labels the member id as the dataspace does', fakeAsync(() => {
     render();
 
-    expect(text('.scope')).toBe('Catena-X · Company Certificate Management');
-    expect(text('.idlabel')).toBe('BPN');
-    expect(text('.idline')).toContain('BPNL002D993A0000');
+    expect(text('.scope')).toBe('DECADE-X · Company Certificate Management');
+    expect(text('.idlabel')).toBe('DECADE-X-ID');
+    expect(text('.idline')).toContain('DX-00000004');
     fixture.destroy();
   }));
 
@@ -93,7 +93,7 @@ describe('RunDetail', () => {
     api.catalog.and.returnValue(throwError(() => new Error('unreachable')));
     render();
 
-    expect(text('.scope')).toBe('catena-x · ccm');
+    expect(text('.scope')).toBe('decade-x · ccm');
     expect(text('.idlabel')).toBe('Member ID');
     fixture.destroy();
   }));

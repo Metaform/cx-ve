@@ -9,15 +9,16 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Matching a catalog dataset against a CCM API identity, in Catena-X's (CX-0135) vocabulary. The compaction of a catalog is the
- * management API's business and may differ between its versions, so the match must hold for every
- * way JSON-LD lets the same three properties be written.
+ * Matching a catalog dataset against a CCM API identity, in DSAF SCE's vocabulary (the dataset's
+ * {@code dct:conformsTo}). The compaction of a catalog is the management API's business and may
+ * differ between its versions, so the match must hold for every way JSON-LD lets the property be
+ * written.
  */
 class CcmApiTest {
 
-    private static final CcmApiVocabulary CX = TestFixtureAccess.CCM_API;
-    private static final CcmApiVocabulary CX_4 = new CcmApiVocabulary(CX.taxonomy(), CX.taxonomyPrefix(),
-            CX.versionProperty(), CX.versionPrefix(), "4.0");
+    private static final CcmApiVocabulary SCE = TestFixtureAccess.CCM_API;
+    private static final CcmApiVocabulary SCE_2 = new CcmApiVocabulary(
+            "https://w3id.org/dsaf/sce/v2/provider-api", "https://w3id.org/dsaf/sce/v2/consumer-api");
 
     private final JsonMapper mapper = new JsonMapper();
 
@@ -29,64 +30,58 @@ class CcmApiTest {
     void matchesTheCompactedFormTheManagementApiReturns() {
         var dataset = json("""
                 {"@id": "x",
-                 "dct:type": {"@id": "https://w3id.org/catenax/taxonomy#CCMAPI"},
-                 "dct:subject": {"@id": "https://w3id.org/catenax/taxonomy#CompanyCertificateManagementProviderApi"},
-                 "https://w3id.org/catenax/ontology/common#version": "3.0"}""");
+                 "dct:conformsTo": {"@id": "https://w3id.org/dsaf/sce/v1/provider-api"}}""");
 
-        assertThat(CcmApi.provider(CX).offeredBy(dataset)).isTrue();
-        assertThat(CcmApi.consumer(CX).offeredBy(dataset)).isFalse();
-        assertThat(CcmApi.provider(CX_4).offeredBy(dataset)).isFalse();
+        assertThat(CcmApi.provider(SCE).offeredBy(dataset)).isTrue();
+        assertThat(CcmApi.consumer(SCE).offeredBy(dataset)).isFalse();
+        assertThat(CcmApi.provider(SCE_2).offeredBy(dataset)).isFalse();
     }
 
     @Test
-    void matchesFullIrisPrefixedValuesArraysAndValueObjects() {
+    void matchesTheDsp2025TermALiveCatalogCompactsTo() {
+        // shape taken from a live catalog: the DSP 2025-1 context defines conformsTo as a bare term
+        var dataset = json("""
+                {"@id": "ccm-inbox-verification-dx", "@type": "Dataset",
+                 "edc:name": "verification environment asset",
+                 "conformsTo": "https://w3id.org/dsaf/sce/v1/consumer-api"}""");
+
+        assertThat(CcmApi.consumer(SCE).offeredBy(dataset)).isTrue();
+        assertThat(CcmApi.provider(SCE).offeredBy(dataset)).isFalse();
+    }
+
+    @Test
+    void matchesFullIrisPlainStringsAndArrays() {
         var dataset = json("""
                 {"@id": "x",
-                 "http://purl.org/dc/terms/type": [{"@id": "cx-taxo:CCMAPI"}],
-                 "http://purl.org/dc/terms/subject": "cx-taxo:CompanyCertificateManagementConsumerApi",
-                 "cx-common:version": {"@value": "3.0"}}""");
+                 "http://purl.org/dc/terms/conformsTo": ["https://example.com/other",
+                                                         {"@id": "https://w3id.org/dsaf/sce/v1/consumer-api"}]}""");
 
-        assertThat(CcmApi.consumer(CX).offeredBy(dataset)).isTrue();
+        assertThat(CcmApi.consumer(SCE).offeredBy(dataset)).isTrue();
+        assertThat(CcmApi.consumer(SCE).offeredBy(json("""
+                {"@id": "x", "dct:conformsTo": "https://w3id.org/dsaf/sce/v1/consumer-api"}"""))).isTrue();
     }
 
     @Test
-    void aDatasetWithoutTheCcmTypeIsNotAnApiOffer() {
-        // the subject alone does not make an API offer — CX-0135 types it as cx-taxo:CCMAPI
-        var dataset = json("""
-                {"@id": "x",
-                 "dct:subject": {"@id": "https://w3id.org/catenax/taxonomy#CompanyCertificateManagementProviderApi"},
-                 "https://w3id.org/catenax/ontology/common#version": "3.0"}""");
-
-        assertThat(CcmApi.provider(CX).offeredBy(dataset)).isFalse();
-    }
-
-    @Test
-    void anotherDataspacesVocabularyDoesNotMatchACatenaXOffer() {
-        // the same API under another dataspace's taxonomy is a different identity
-        var other = new CcmApiVocabulary("https://w3id.org/decadex/taxonomy#", "dx-taxo",
-                "https://w3id.org/decadex/ontology/common#version", "dx-common", "3.0");
-        var catenaXOffer = CcmApi.provider(CX).assetProperties(mapper).put("@id", "x");
-
-        assertThat(CcmApi.provider(other).offeredBy(catenaXOffer)).isFalse();
-        assertThat(CcmApi.provider(other).offeredBy(CcmApi.provider(other).assetProperties(mapper))).isTrue();
+    void aDatasetWithoutConformanceIsNotAnApiOffer() {
+        assertThat(CcmApi.provider(SCE).offeredBy(json("""
+                {"@id": "x", "dct:type": {"@id": "https://w3id.org/catenax/taxonomy#CCMAPI"}}"""))).isFalse();
     }
 
     @Test
     void theAssetPropertiesItWritesAreTheOnesItMatches() {
-        var api = CcmApi.consumer(CX);
+        var api = CcmApi.consumer(SCE);
         var dataset = api.assetProperties(mapper).put("@id", "inbox");
 
         assertThat(api.offeredBy(dataset)).isTrue();
     }
 
     @Test
-    void describesADatasetByTheIdentityItDeclares() {
-        assertThat(CcmApi.provider(CX).describe(json("""
-                {"@id": "inbox", "dct:subject": {"@id": "https://w3id.org/catenax/taxonomy#CompanyCertificateManagementConsumerApi"},
-                 "https://w3id.org/catenax/ontology/common#version": "3.0"}""")))
-                .isEqualTo("inbox (CompanyCertificateManagementConsumerApi 3.0)");
-        assertThat(CcmApi.provider(CX).describe(json("""
-                {"@id": "ccm-api"}"""))).isEqualTo("ccm-api (no CCM API subject)");
-        assertThat(CcmApi.provider(CX)).hasToString("CompanyCertificateManagementProviderApi 3.0");
+    void describesADatasetByTheConformanceItDeclares() {
+        assertThat(CcmApi.provider(SCE).describe(json("""
+                {"@id": "inbox", "dct:conformsTo": {"@id": "https://w3id.org/dsaf/sce/v1/consumer-api"}}""")))
+                .isEqualTo("inbox (https://w3id.org/dsaf/sce/v1/consumer-api)");
+        assertThat(CcmApi.provider(SCE).describe(json("""
+                {"@id": "ccm-api"}"""))).isEqualTo("ccm-api (no dct:conformsTo)");
+        assertThat(CcmApi.provider(SCE)).hasToString("https://w3id.org/dsaf/sce/v1/provider-api");
     }
 }

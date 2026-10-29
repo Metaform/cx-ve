@@ -82,8 +82,7 @@ public class VerificationRun {
     }
 
     /**
-     * The participant's id within the run's dataspace — the BPN in Catena-X, the DECADE-X-ID in
-     * DECADE-X. Null until its membership has one, in a dataspace that assigns it.
+     * The participant's id within the run's dataspace — the DECADE-X-ID in DECADE-X. Null until its membership has one, in a dataspace that assigns it.
      */
     public synchronized String memberId() {
         return memberId;

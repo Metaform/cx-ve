@@ -7,8 +7,8 @@ supports `--help`.
 
 Stands up the complete Verification Environment on a single kind cluster (default `cxve`, gateway hostname
 `cxve.localhost`) as ONE umbrella helm release (`charts/cx-ve`, release name `cx-ve`): Core Platform Distribution,
-Catena-X profile, the Catena-X and DECADE-X onboarding APIs, Membership Hub, Verification UI, Certo and the
-Certo agent. The apps of this repo (both onboarding APIs, Membership Hub, Verification UI, Compliance Tracker)
+DECADE-X profile, the DECADE-X onboarding API, Membership Hub, Verification UI, Certo and the
+Certo agent. The apps of this repo (DECADE-X onboarding API, Membership Hub, Verification UI, Compliance Tracker)
 are built from source and kind-loaded, so the VE runs the local code. Runs `setup-did-dns.sh --pre` before the release (its seed hooks need in-cluster DNS mid-install) and
 again in discovery mode after it.
 
@@ -60,17 +60,15 @@ CoreDNS is not authoritative for silently NXDOMAINs.
 
 ## `onboard-participant.sh`
 
-Onboards a member through the Membership Hub (`POST /hub/api/members` — the full journey: CX-0006 registration via
-the Onboarding API, then EDC resource provisioning via the CFM Tenant Manager) and polls
+Onboards a DECADE-X member through the Membership Hub (`POST /hub/api/members` — the full journey: EDC resource
+provisioning via the CFM Tenant Manager, then the onboarding request to the DECADE-X onboarding API, approved
+automatically) and polls
 `GET /hub/api/members/<externalId>` until the membership reaches a terminal state; `CREDENTIALS_OFFERED` is success
 (the member is provisioned AND its credentials have been offered to its wallet) and prints the correlated record
-incl. the participant context id. `--short-name` pins the participant's DID
+incl. the participant context id and the DECADE-X-ID the hub generated. `--short-name` pins the participant's DID
 (`did:web:identity.<host>:<short-name>`). No credentials needed — the hub's API is unauthenticated and the hub
-itself authenticates to the Onboarding API. Registering directly with the Onboarding API in the OSP role
-(registration + credential holder only, no provisioning) remains possible via its API with an `osp-client` token;
-see [registration-api.yaml](../registration-api.yaml) and, for the callback the OSP hosts,
-[osp-registration-callback-api.yaml](../osp-registration-callback-api.yaml) (both verbatim copies of the
-normative CX-0009 OpenAPI documents).
+itself authenticates to the onboarding API. Submitting onboarding requests directly to the DECADE-X onboarding
+API (no provisioning) remains possible with an `osp-client` token.
 
 ## `e2e.sh`
 

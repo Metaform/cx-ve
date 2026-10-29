@@ -37,10 +37,10 @@ class MembershipHubClientTest {
         // The '%' of the DID's own escape becomes '%25'; everything else is escaped once. A
         // doubly-escaped '%2525' would not match the stored record.
         server.expect(requestTo(
-                        "http://hub/api/members?dataspace=catena-x&did=did%3Aweb%3Asut.example.com%253A8080%3Atenant-9"))
+                        "http://hub/api/members?dataspace=example-x&did=did%3Aweb%3Asut.example.com%253A8080%3Atenant-9"))
                 .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
 
-        assertThat(client.findByDid("catena-x", DID_WITH_PORT)).isEmpty();
+        assertThat(client.findByDid("example-x", DID_WITH_PORT)).isEmpty();
         server.verify();
     }
 
@@ -50,10 +50,10 @@ class MembershipHubClientTest {
         var server = MockRestServiceServer.bindTo(builder).build();
         var client = new MembershipHubClient(builder.build(), mapper, TestFixtureAccess.props(Map.of()));
 
-        server.expect(requestTo("http://hub/api/members?dataspace=catena-x&memberId=BPNL0000000000XY"))
+        server.expect(requestTo("http://hub/api/members?dataspace=example-x&memberId=EX-00000001"))
                 .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
 
-        assertThat(client.findByMemberId("catena-x", "BPNL0000000000XY")).isEmpty();
+        assertThat(client.findByMemberId("example-x", "EX-00000001")).isEmpty();
         server.verify();
     }
 
@@ -102,19 +102,19 @@ class MembershipHubClientTest {
         // the fixture's template carries {{uniqueId}} inside a nested array — filled in place,
         // with a value that would break the JSON if it were spliced into the text
         server.expect(requestTo("http://hub/api/members"))
-                .andExpect(jsonPath("$.dataspace").value("catena-x"))
-                .andExpect(jsonPath("$.memberId").value("BPNL0000000000XY"))
+                .andExpect(jsonPath("$.dataspace").value("example-x"))
+                .andExpect(jsonPath("$.memberId").value("EX-00000001"))
                 .andExpect(jsonPath("$.did").value("did:web:sut.example.com"))
                 .andExpect(jsonPath("$.registration.city").value("Munich"))
                 .andExpect(jsonPath("$.registration.uniqueIds[0].value").value("DE\"quoted\""))
                 .andRespond(withStatus(HttpStatus.CREATED).contentType(MediaType.APPLICATION_JSON).body("""
-                        {"externalId": "ext-1", "dataspace": "catena-x", "state": "SUBMITTED"}"""));
+                        {"externalId": "ext-1", "dataspace": "example-x", "state": "SUBMITTED"}"""));
 
-        var membership = client.onboard("catena-x", "SUT GmbH", "sut", "BPNL0000000000XY", "DE\"quoted\"",
+        var membership = client.onboard("example-x", "SUT GmbH", "sut", "EX-00000001", "DE\"quoted\"",
                 "did:web:sut.example.com");
 
         assertThat(membership.externalId()).isEqualTo("ext-1");
-        assertThat(membership.dataspace()).isEqualTo("catena-x");
+        assertThat(membership.dataspace()).isEqualTo("example-x");
         server.verify();
     }
 
@@ -125,9 +125,9 @@ class MembershipHubClientTest {
         var client = new MembershipHubClient(builder.build(), mapper, TestFixtureAccess.props(Map.of()));
 
         server.expect(requestTo("http://hub/api/dataspaces")).andRespond(withSuccess("""
-                [{"id": "catena-x", "displayName": "Catena-X"}]""", MediaType.APPLICATION_JSON));
+                [{"id": "example-x", "displayName": "Example-X"}]""", MediaType.APPLICATION_JSON));
 
-        assertThat(client.servedDataspaces()).containsExactly("catena-x");
+        assertThat(client.servedDataspaces()).containsExactly("example-x");
         server.verify();
     }
 }

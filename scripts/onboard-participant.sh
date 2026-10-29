@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Onboards a new Catena-X member through the Membership Hub: submits it to POST /api/members
-# (which runs the CX-0006 registration against the CX onboarding API and, on its confirmation, deploys the
-# participant profile to the CFM Tenant Manager) and then polls GET /api/members/<externalId>
+# Onboards a new DECADE-X member through the Membership Hub: submits it to POST /api/members
+# (which deploys the participant profile to the CFM Tenant Manager and then submits the onboarding
+# request to the DECADE-X onboarding API, approved automatically) and then polls GET /api/members/<externalId>
 # until the membership reaches a terminal state — CREDENTIALS_OFFERED is success (the member is
 # provisioned AND the issuer has been asked to offer it the membership credentials). The hub reads the
 # deployed profile's state from the Tenant Manager on every poll, so the participant context id
@@ -10,33 +10,30 @@
 #
 # Usage:
 #   ./scripts/onboard-participant.sh [-n|--name <company-name>] [-s|--short-name <name>]
-#                                    [-b|--bpn <bpn>] [-u|--api-url <url>] [-h|--help]
+#                                    [-u|--api-url <url>] [-h|--help]
 #
 #   -n, --name        display name of the partner company (default: "ACME Corporation")
 #   -s, --short-name  short name appended to the platform's did:web template to form the
 #                     participant DID (default: derived from the company name plus a random
 #                     suffix, so repeated runs don't collide in the duplicate checks)
-#   -b, --bpn         pre-assigned BPNL of the partner — a required field of the hub's API
-#                     (default: derived from the run id, unique per run)
 #   -u, --api-url     base URL of the Membership Hub (default: http://cxve.localhost/hub,
 #                     the gateway route created by install-ve.sh, or the API_URL env var)
 #
 # Environment:
 #   API_URL   base URL of the Membership Hub (default: http://cxve.localhost/hub)
-#   BPN       pre-assigned BPNL; --bpn takes precedence (default: derived from the run id)
 #   FOLLOW    "true" forces polling until a terminal state even without a terminal attached
 #             (default: tty only); polling stops on CREDENTIALS_OFFERED / REJECTED / FAILED
 #   TIMEOUT   polling budget in seconds (default: 300)
 #
 # The hub's API is unauthenticated (an operator surface); no OSP client or token is needed —
-# the hub itself authenticates to the CX onboarding API with its own seeded OSP client.
+# the hub itself authenticates to the DECADE-X onboarding API with its own seeded OSP client. The
+# DECADE-X-ID is not chosen here: the hub generates one for a member it hosts.
 #
 # Requires: curl, jq
 
 set -euo pipefail
 
 API_URL="${API_URL:-http://cxve.localhost/hub}"
-BPN="${BPN:-}"
 TIMEOUT="${TIMEOUT:-300}"
 
 NAME="ACME Corporation"
@@ -44,14 +41,12 @@ SHORT_NAME=""
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-n|--name <company-name>] [-s|--short-name <name>] [-b|--bpn <bpn>] [-u|--api-url <url>] [-h|--help]
+Usage: $(basename "$0") [-n|--name <company-name>] [-s|--short-name <name>] [-u|--api-url <url>] [-h|--help]
 
 Options:
   -n, --name <company-name>   display name of the partner company (default: "ACME Corporation")
   -s, --short-name <name>     short name forming the participant DID (default: derived from
                               the company name plus a random suffix)
-  -b, --bpn <bpn>             pre-assigned BPNL; a required field of the hub's API (default:
-                              derived from the run id, unique per run)
   -u, --api-url <url>         base URL of the Membership Hub
                               (default: http://cxve.localhost/hub)
   -h, --help                  show this help
@@ -60,12 +55,11 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -n|--name|-s|--short-name|-b|--bpn|-u|--api-url)
+    -n|--name|-s|--short-name|-u|--api-url)
       [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
       case "$1" in
         -n|--name) NAME="$2" ;;
         -s|--short-name) SHORT_NAME="$2" ;;
-        -b|--bpn) BPN="$2" ;;
         -u|--api-url) API_URL="$2" ;;
       esac
       shift 2
@@ -85,46 +79,40 @@ done
 RUN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 DEFAULT_SHORT="$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | cut -c1-20)-${RUN_ID:0:6}"
 SHORT_NAME="${SHORT_NAME:-$DEFAULT_SHORT}"
-# The BPN and the VAT id are unique per run: registrations whose BPN, DID or any unique id
-# matches an onboarded partner or an in-flight registration are rejected as duplicates.
-BPN="${BPN:-BPNL$(printf '%s' "${RUN_ID//-/}" | cut -c1-12 | tr '[:lower:]' '[:upper:]')}"
-
-# The ACTIVE "Catena-X" agreement matters: the MembershipCredential's memberOf claim is derived
-# from the ACTIVE agreement ids, and the Catena-X CEL policy (cx …/policy/Membership) requires
-# memberOf == 'Catena-X' — without it the participant fails credential-constrained policies.
+# The VAT id is unique per run: onboarding requests whose DID or registration number matches a
+# live membership are rejected as duplicates.
 payload=$(jq -n \
   --arg name "$NAME" \
   --arg shortName "$SHORT_NAME" \
   --arg vatId "DE${RUN_ID:0:8}" \
-  --arg bpn "$BPN" \
   '{
-    dataspace: "catena-x",
+    dataspace: "decade-x",
     name: $name,
     shortName: $shortName,
-    memberId: $bpn,
     registration: {
-      city: "Munich",
-      streetName: "Otto-Hahn-Ring",
-      countryAlpha2Code: "DE",
-      region: "BY",
-      uniqueIds: [ { type: "VAT_ID", value: $vatId } ],
-      companyRoles: [ "ACTIVE_PARTICIPANT" ],
-      agreements: [ { agreementId: "Catena-X", consentStatus: "ACTIVE" } ],
-      userDetails: [ {
-        providerId: ("user-" + $vatId),
-        firstName: "Test",
-        lastName: "Operator",
-        email: (("op-" + $vatId) + "@example.com")
-      } ]
+      legalEntity: {
+        registrationCountry: "DE",
+        companyType: "LIMITED_LIABILITY_COMPANY",
+        registrationNumbers: [ { scheme: "vatID", value: $vatId } ],
+        legalAddress: { street: "Otto-Hahn-Ring 6", postalCode: "81739", locality: "Munich",
+                        countryCode: "DE", countryName: "Germany" }
+      },
+      businessSites: [ { siteName: "Main Site",
+                         mainAddress: { street: "Otto-Hahn-Ring 6", postalCode: "81739", locality: "Munich",
+                                        countryCode: "DE", countryName: "Germany" } } ],
+      legalPerson: { fullName: "Test Operator", email: (("op-" + $vatId) + "@example.com"), role: "Operator" },
+      gtc: { versionNumber: "1.0" },
+      ucas: [ { useCaseId: "product-conformity", versionNumber: "1.0" } ],
+      declarations: { informationAccurate: true, authorisedToAct: true, evidenceMayBeRequested: true }
     }
   }')
 
-echo "Onboarding member \"$NAME\" (shortName=$SHORT_NAME, bpn=$BPN)"
+echo "Onboarding member \"$NAME\" (shortName=$SHORT_NAME)"
 
 # The POST returns as soon as the first leg is under way — PROVISIONING for a member this VE
 # hosts (its profile is deployed on a worker, then registered), or the completed registration for
 # one that brought its own DID, which can take a while with slow downstreams; hence the generous
-# max-time. A 409 means a live membership already holds this DID or BPN.
+# max-time. A 409 means a live membership already holds this DID.
 MEMBERSHIP=$(curl -fsS --max-time 120 -X POST \
   -H "Content-Type: application/json" \
   -d "$payload" \
@@ -161,7 +149,7 @@ fi
 case "$STATE" in
   CREDENTIALS_OFFERED)
     echo "Member provisioned and offered its credentials:"
-    jq '{externalId, did, bpn, onboardingProcessId, tenantId, participantProfileId, participantContextId}' <<<"$MEMBERSHIP"
+    jq '{externalId, did, memberId, onboardingProcessId, tenantId, participantProfileId, participantContextId}' <<<"$MEMBERSHIP"
     ;;
   REJECTED|FAILED)
     echo "Onboarding ended as ${STATE}: $(jq -r '.failureReason // "no reason recorded"' <<<"$MEMBERSHIP")" >&2

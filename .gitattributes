@@ -1,4 +1,3 @@
-/cx-onboarding-api/gradlew text eol=lf
 /dx-onboarding-api/gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary

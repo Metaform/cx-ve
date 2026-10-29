@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FALLBACK — normally not needed. Requests the Catena-X credentials from the VE's issuer by hand.
+# FALLBACK — normally not needed. Requests the DECADE-X credentials from the VE's issuer by hand.
 #
 # The regular path needs no action from the vendor: when a verification run onboards the DID, the
 # VE's issuer sends a DCP credential offer and IdentityHub requests the offered credentials on its
@@ -16,10 +16,9 @@
 #   ./vendor-stack/scripts/request-credentials.sh [-d|--dataspace <dataspace>] [--issuer-did <did>]
 #                                                 [-s|--short-name <name>] [-h|--help]
 #
-#   -d, --dataspace  catena-x (default) or decade-x — which credentials to request: the three
-#                    Catena-X ones, or the DX_LegalEntity_VC and DX_Site_VC (the VE offers the
-#                    Site VC only when the onboarding declared a business site, which the VE run
-#                    form's registration does)
+#   -d, --dataspace  decade-x (default, the only one so far) — which credentials to request: the
+#                    DX_LegalEntity_VC and DX_Site_VC (the VE offers the Site VC only when the
+#                    onboarding declared a business site, which the VE run form's registration does)
 #   --issuer-did     the VE's issuer (default: did:web:issuer.cxve.localhost:issuer)
 #
 # Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), TIMEOUT
@@ -52,14 +51,9 @@ DID=$(participant_did)
 PCID=$(participant_context_of "$DID") || exit 1
 [[ -n "$PCID" ]] || die "no participant context for $DID — run create-participant.sh first"
 
-# The credential definitions the VE seeds for the dataspace — the catenax-profile's, or the
-# decadex-profile's — and its onboarding API offers.
+# The credential definitions the VE seeds for the dataspace — the decadex-profile's — and its
+# onboarding API offers.
 case "$VENDOR_DATASPACE" in
-  catena-x)
-    CREDENTIALS='[
-      {"id": "membership-credential-def", "type": "MembershipCredential",             "format": "VC1_0_JWT"},
-      {"id": "bpn-credential-def",        "type": "BpnCredential",                    "format": "VC1_0_JWT"},
-      {"id": "gov-credential-def",        "type": "DataExchangeGovernanceCredential", "format": "VC1_0_JWT"}]' ;;
   decade-x)
     CREDENTIALS='[
       {"id": "dx-legal-entity-credential-def", "type": "dx:DX_LegalEntity_VC", "format": "VC2_0_JOSE"},

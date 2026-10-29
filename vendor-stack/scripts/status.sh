@@ -1,17 +1,18 @@
 #!/bin/bash
 
 # Shows where the vendor participant stands, from the vendor's side: its provisioning, the
-# credentials in its wallet (and who issued them) and — given the id push-certificate.sh printed —
-# a certificate exchange as the vendor's Certo records it. Read-only; for diagnosing a verification
-# run that waits on the vendor.
+# credentials in its wallet (and who issued them) and the certificate exchanges its Certo records —
+# every request a consumer made, with its fulfillment and acceptance — or, given an exchange id (a
+# VE run shows it, push-certificate.sh prints the ones it fulfils), that one exchange in full.
+# Read-only; for diagnosing a verification run that waits on the vendor.
 #
 # Usage:
 #   ./vendor-stack/scripts/status.sh [-d|--dataspace <dataspace>] [--exchange <id>]
 #                                    [-s|--short-name <name>] [-h|--help]
 #
-#   -d, --dataspace   catena-x (default) or decade-x — the dataspace of the stack
+#   -d, --dataspace   decade-x (default, the only one so far) — the dataspace of the stack
 #
-#   --exchange <id>   also show this certificate exchange (Certo keeps no provider-side listing)
+#   --exchange <id>   show this certificate exchange in full instead of the list of exchanges
 #
 # Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh)
 
@@ -64,13 +65,39 @@ else
   echo "   could not read the wallet (HTTP $HTTP_STATUS): $(printf '%s' "$HTTP_BODY" | head -c 300)"
 fi
 
+echo
 if [[ -n "$EXCHANGE_ID" ]]; then
-  echo
   echo "== certificate exchange $EXCHANGE_ID"
   certo GET "/participant-contexts/$PCID/certificate-exchanges/$EXCHANGE_ID"
   if [[ "$HTTP_STATUS" == 200 ]]; then
-    printf '%s' "$HTTP_BODY" | jq -r '"   fulfillment \(.fulfillmentStatus // "?"), acceptance \(.acceptanceStatus // "?")"'
+    printf '%s' "$HTTP_BODY" | jq -r '"   certificate \(.certificateId // "none") revision \(.revision // "-")",
+      "   fulfillment \(.fulfillmentStatus // "?"), acceptance \(.acceptanceStatus // "none reported")",
+      (.fulfillmentErrors // [] | .[] | "   fulfillment error: \(tojson)"),
+      (.acceptanceErrors // [] | .[] | "   acceptance error: \(tojson)")'
   else
     echo "   could not read the exchange (HTTP $HTTP_STATUS): $(printf '%s' "$HTTP_BODY" | head -c 300)"
   fi
+else
+  # The request query lists one fulfillment status at a time; the acceptance is on the exchange.
+  echo "== certificate exchanges"
+  FOUND=0
+  for status in RECEIVED FULFILLED DECLINED; do
+    certo POST "/participant-contexts/$PCID/certificate-requests/query" "$(jq -n --arg status "$status" '{status: $status}')"
+    if [[ "$HTTP_STATUS" != 200 ]]; then
+      echo "   could not list the $status exchanges (HTTP $HTTP_STATUS): $(printf '%s' "$HTTP_BODY" | head -c 300)"
+      continue
+    fi
+    PAGE="$HTTP_BODY"
+    for exchange in $(printf '%s' "$PAGE" | jq -r '.items[].exchangeId'); do
+      FOUND=1
+      line=$(printf '%s' "$PAGE" | jq -r --arg id "$exchange" \
+        '.items[] | select(.exchangeId == $id) | "   \(.exchangeId) \(.certificateType) from \(.counterpartyId) at \(.requestedAt // "?"): \(.status)"')
+      certo GET "/participant-contexts/$PCID/certificate-exchanges/$exchange"
+      if [[ "$HTTP_STATUS" == 200 ]]; then
+        line+=$(printf '%s' "$HTTP_BODY" | jq -r '", acceptance \(.acceptanceStatus // "none reported")"')
+      fi
+      echo "$line"
+    done
+  done
+  (( FOUND )) || echo "   none — no consumer has requested a certificate (yet)"
 fi

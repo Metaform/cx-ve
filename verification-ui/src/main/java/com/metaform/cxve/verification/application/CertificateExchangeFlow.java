@@ -19,18 +19,21 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * The CCM verification run: the CCM standard's (Catena-X: CX-0135 v3.0.0) Flow B
- * (provider-initiated certificate push), the exact
- * sequence of the e2e suite's {@code certificateExchange()} — with the verification participant
- * as the permanent certificate CONSUMER and the freshly onboarded participant-under-test as the
- * certificate PROVIDER. Certo resolves every outbound CCM call from Siglet's flow cache, which
- * only ever fills on the DSP-consumer side of a flow, so each side that PLACES CCM calls first
- * becomes DSP consumer of a flow on the OTHER side's CCM asset:
+ * The CCM verification run: a certificate exchange as the CCM standard (Certo's current release:
+ * DSAF SCE) defines it, the exact sequence of the e2e suite's {@code certificateExchange()} — with
+ * the verification participant as the permanent certificate CONSUMER and the freshly onboarded
+ * participant-under-test as the certificate PROVIDER. The provider issues a certificate and notifies
+ * the consumer it is AVAILABLE; the consumer then requests it, which the provider fulfils at once
+ * because it holds it, retrieves it and reports its acceptance. Certo resolves every outbound SCE
+ * call from Siglet's flow cache, which only ever fills on the DSP-consumer side of a flow, so each
+ * side that PLACES SCE calls first becomes DSP consumer of a flow on the OTHER side's API asset:
  * <ul>
  *   <li>"push" flow: the participant-under-test consumes the verification participant's
- *       permanent inbox asset — its transfer id is the {@code flowId} of the publish;</li>
+ *       permanent inbox asset (its consumer API) — its transfer id is the {@code flowId} of the
+ *       notification;</li>
  *   <li>"pull" flow: the verification participant consumes the participant-under-test's
- *       run-scoped api asset — its transfer id is the {@code flowId} of retrieve + accept.</li>
+ *       run-scoped provider API asset — its transfer id is the {@code flowId} of request, retrieve
+ *       and accept.</li>
  * </ul>
  * Every step is recorded on the run as it happens; the first failure ends the run, and the
  * verdict additionally requires the expected events in the compliance tracker's ledger. What the
@@ -122,26 +125,48 @@ public class CertificateExchangeFlow {
                     flowId -> "flowId " + flowId);
 
             var documentContent = certificateDocument();
-            var published = support.step(run, RunStep.PUBLISH_CERTIFICATE, () -> {
+            var issued = support.step(run, RunStep.ISSUE_CERTIFICATE, () -> {
                 var documentId = certo.addDocument(put.participantContextId(), "application/pdf", documentContent);
-                var certificateId = certo.addCertificate(put.participantContextId(), put.memberId(), documentId,
-                        "VE-VUI-9001-" + run.id(), ccm.certificate());
-                var exchangeId = certo.publish(put.participantContextId(), certificateId, vp.memberId(), vp.did(), flowIdPush);
-                return new Published(documentId, certificateId, exchangeId);
-            }, result -> "exchange %s (certificate %s)".formatted(result.exchangeId(), result.certificateId()));
+                var certificateId = certo.addCertificate(put.participantContextId(), ccm.certificateType(),
+                        put.memberId(), documentId, "VE-VUI-9001-" + run.id(), ccm.certificate());
+                return new Issued(documentId, certificateId);
+            }, result -> "certificate %s (%s, holder %s)".formatted(
+                    result.certificateId(), ccm.certificateType(), put.memberId()));
+
+            support.step(run, RunStep.NOTIFY_AVAILABLE, () -> {
+                certo.notify(put.participantContextId(), issued.certificateId(), RunFlowSupport.messageId(run, "notify"),
+                        ccm.protocol(), vp.did(), flowIdPush);
+                return "%s notified: certificate %s AVAILABLE".formatted(vp.did(), issued.certificateId());
+            }, Function.identity());
+
+            // the provider holds the certificate by now, so it fulfils the request at once
+            var exchangeId = support.step(run, RunStep.REQUEST_CERTIFICATE, () -> {
+                var request = certo.requestCertificate(vp.participantContextId(), RunFlowSupport.messageId(run, "request"),
+                        ccm.protocol(), put.did(), ccm.certificateType(), put.memberId(), flowIdPull);
+                var status = request.path("fulfillmentStatus").asText();
+                if (!"FULFILLED".equals(status)) {
+                    throw new VerificationException("the request for the issued certificate was not fulfilled at once: "
+                            + request);
+                }
+                if (!issued.certificateId().equals(request.path("certificateId").asText())) {
+                    throw new VerificationException("the request was fulfilled with certificate '%s', not the issued '%s'"
+                            .formatted(request.path("certificateId").asText(), issued.certificateId()));
+                }
+                return request.path("exchangeId").asText();
+            }, id -> "exchange %s FULFILLED (certificate %s)".formatted(id, issued.certificateId()));
 
             support.step(run, RunStep.RETRIEVE_AND_VERIFY, () -> {
-                var retrieved = certo.retrieve(vp.participantContextId(), published.exchangeId(), flowIdPull);
+                var retrieved = certo.retrieve(vp.participantContextId(), exchangeId, flowIdPull);
                 var retrievedCertificateId = retrieved.path("certificate").path("certificateId").asText();
-                if (!published.certificateId().equals(retrievedCertificateId)) {
-                    throw new VerificationException("retrieved certificate id '%s' does not match the published '%s'"
-                            .formatted(retrievedCertificateId, published.certificateId()));
+                if (!issued.certificateId().equals(retrievedCertificateId)) {
+                    throw new VerificationException("retrieved certificate id '%s' does not match the issued '%s'"
+                            .formatted(retrievedCertificateId, issued.certificateId()));
                 }
                 if (retrieved.path("documents").size() != 1) {
                     throw new VerificationException("expected exactly 1 document, got: " + retrieved.path("documents"));
                 }
                 var document = retrieved.path("documents").path(0);
-                if (!published.documentId().equals(document.path("documentId").asText())
+                if (!issued.documentId().equals(document.path("documentId").asText())
                         || !"application/pdf".equals(document.path("mediaType").asText())) {
                     throw new VerificationException("retrieved document does not match the upload: " + document);
                 }
@@ -157,10 +182,10 @@ public class CertificateExchangeFlow {
                 // the acceptance report to the provider is best-effort (post-commit), so the
                 // verdict is re-driven until the PROVIDER's recorded view shows it — certo's
                 // documented recovery for a lost report (no state change, re-report)
-                Poller.poll("exchange %s to be FULFILLED/ACCEPTED on the provider".formatted(published.exchangeId()),
+                Poller.poll("exchange %s to be FULFILLED/ACCEPTED on the provider".formatted(exchangeId),
                         properties.timeouts().certo(), properties.pollInterval(), () -> {
-                            certo.accept(vp.participantContextId(), published.exchangeId(), "ACCEPTED", flowIdPull);
-                            var exchange = certo.getExchange(put.participantContextId(), published.exchangeId());
+                            certo.accept(vp.participantContextId(), exchangeId, "ACCEPTED", flowIdPull);
+                            var exchange = certo.getExchange(put.participantContextId(), exchangeId);
                             if (!"FULFILLED".equals(exchange.path("fulfillmentStatus").asText())
                                     || !"ACCEPTED".equals(exchange.path("acceptanceStatus").asText())) {
                                 throw new Poller.RetryException("provider view not final yet: fulfillment=%s, acceptance=%s"
@@ -169,7 +194,7 @@ public class CertificateExchangeFlow {
                             }
                             return exchange;
                         });
-                return "exchange %s closed: FULFILLED / ACCEPTED".formatted(published.exchangeId());
+                return "exchange %s closed: FULFILLED / ACCEPTED".formatted(exchangeId);
             }, Function.identity());
 
             support.step(run, RunStep.EVALUATE_EVENTS,
@@ -186,9 +211,8 @@ public class CertificateExchangeFlow {
     }
 
     /**
-     * One side's CCM offer: the asset fronting certo's protocol API, the dataspace's access and use
-     * policies (Catena-X: Membership; FrameworkAgreement + UsagePurpose + DataUsageEndDefinition),
-     * and the contract definition. Ids are run-scoped; creation is idempotent.
+     * One side's CCM offer: the asset fronting certo's provider API, the dataspace's access and use
+     * policies (none yet in DECADE-X), and the contract definition. Ids are run-scoped; creation is idempotent.
      */
     private void seedCcmOffer(DataspaceProfile profile, String pcid, String assetId, String uniqueId) {
         var accessPolicyId = "vui-ccm-access-policy-" + uniqueId;
@@ -220,6 +244,6 @@ public class CertificateExchangeFlow {
         }
     }
 
-    private record Published(String documentId, String certificateId, String exchangeId) {
+    private record Issued(String documentId, String certificateId) {
     }
 }

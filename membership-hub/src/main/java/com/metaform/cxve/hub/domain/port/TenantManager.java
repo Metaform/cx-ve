@@ -27,7 +27,7 @@ public interface TenantManager {
      *
      * @param issuerProperties  the {@code cfm.issuer} VPA properties (see
      *                          {@link DataspaceOnboarding#issuerProperties})
-     * @param dataspaceProfiles the connector's DSP dataspace profiles, e.g. {@code cx-neptune}
+     * @param dataspaceProfiles the connector's DSP dataspace profiles, e.g. {@code decade-x}
      * @param memberIdClaim     how the data plane stamps the caller's member id into flow tokens
      */
     record DeploymentSpec(

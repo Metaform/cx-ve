@@ -15,9 +15,9 @@ func record(source, id string) *EventRecord {
 		Source:     source,
 		EventID:    id,
 		Subject:    "events.onboarding.started",
-		Type:       "org.catena-x.onboarding.started.v1",
+		Type:       "org.decade-x.onboarding.OnboardingStarted.v1",
 		OccurredAt: time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC),
-		Envelope:   []byte(`{"id":"` + id + `","sourcebpn":"BPNL0000000001AB","data":{"processId":"proc-1"}}`),
+		Envelope:   []byte(`{"id":"` + id + `","participantdid":"did:web:acme","data":{"processId":"proc-1"}}`),
 		Keys: CorrelationKeys{
 			ParticipantContextID: "pctx-1",
 			HolderDid:            "did:web:acme",
@@ -49,10 +49,10 @@ func TestRecord_RoundTripsEveryColumn(t *testing.T) {
 		Scan(&subject, &eventType, &occurredAt, &recordedAt, &envelope, &pctx, &did, &bpn, &process))
 
 	assert.Equal(t, "events.onboarding.started", subject)
-	assert.Equal(t, "org.catena-x.onboarding.started.v1", eventType)
+	assert.Equal(t, "org.decade-x.onboarding.OnboardingStarted.v1", eventType)
 	assert.True(t, occurredAt.Equal(time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)))
 	assert.False(t, recordedAt.IsZero())
-	// The whole envelope survives as JSON — including the extension member (sourcebpn) that the
+	// The whole envelope survives as JSON — including the extension member (participantdid) that the
 	// typed CloudEvent struct would have dropped, which is the reason the raw bytes are stored.
 	assert.JSONEq(t, string(record("roundtrip", "ce-1").Envelope), envelope)
 	assert.Equal(t, "pctx-1", pctx)

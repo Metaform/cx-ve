@@ -2,7 +2,7 @@ package com.metaform.cxve.hub.domain.model;
 
 /**
  * A dataspace onboarding API's status callback, normalized: each dataspace reports in its own
- * wire format (Catena-X: {@code applicationStatus} CONFIRMED/DECLINED), its
+ * wire format, its
  * {@link com.metaform.cxve.hub.domain.port.DataspaceOnboarding} maps that onto these three cases.
  *
  * @param externalId the hub-minted id the registration was submitted under

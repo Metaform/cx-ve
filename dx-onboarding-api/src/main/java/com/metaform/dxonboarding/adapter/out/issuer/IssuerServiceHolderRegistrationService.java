@@ -20,13 +20,13 @@ import org.springframework.web.client.RestClient;
  * DID ({@code id}) and the partners of the Legal Entity VC and Site VC ({@link DecadeXCredentialClaims}),
  * which the DECADE-X credential definitions copy into the credentials.
  *
- * <p>Holder ids are unique across the issuer, and a participant hosted elsewhere may join Catena-X
- * too: its DID can already be a holder, registered by the Catena-X onboarding. A 409 therefore
+ * <p>Holder ids are unique across the issuer, and a participant may already be a holder — from an
+ * earlier onboarding, or another dataspace's on the same issuer. A 409 therefore
  * MERGES the DECADE-X claims into the existing holder — keeping its name and every other dataspace's
  * properties — instead of being taken as success, which would leave the holder without the
  * DECADE-X claims and fail the credentials' generation later, out of sight.
  *
- * <p>Authorized like the Catena-X onboarding API: a workload token exchanged under the
+ * <p>Authorized by a workload token exchanged under the
  * {@code issuer-service.token-resource} mapping (the platform's {@code sudo}) for
  * {@code issuer-admin-api:admin} — the scope the admin API accepts from a caller that is not one of
  * its participants.

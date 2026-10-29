@@ -8,12 +8,12 @@ import java.util.Map;
  * The caller-facing membership request. It splits in two: the fields every dataspace shares, which
  * the hub itself acts on, and the {@code registration} object, whose shape is the dataspace's own
  * business — it is validated and translated into the dataspace's onboarding payload by that
- * dataspace's {@link com.metaform.cxve.hub.domain.port.DataspaceOnboarding} (for Catena-X: the
- * address, unique ids, company roles, agreements and initial users of a CX-0009 registration).
+ * dataspace's {@link com.metaform.cxve.hub.domain.port.DataspaceOnboarding} (for DECADE-X: the
+ * TSP's onboarding request data).
  *
- * <p>{@code memberId} is the member's identifier WITHIN the dataspace — the BPN in Catena-X, the
- * DECADE-X-ID in DECADE-X. Whether it is given up front is the dataspace's rule, checked by its
- * {@code DataspaceOnboarding}: Catena-X requires the BPN for every member; DECADE-X refuses one,
+ * <p>{@code memberId} is the member's identifier WITHIN the dataspace — the DECADE-X-ID in
+ * DECADE-X. Whether it is given up front is the dataspace's rule, checked by its
+ * {@code DataspaceOnboarding}: DECADE-X refuses one,
  * because the TSP assigns every DECADE-X-ID on approval, which the hub records. A member hosted
  * HERE needs its id before that, because provisioning reads it (the {@code cfm.issuer} VPA
  * properties feed it to the certo activity): for DECADE-X the hub generates one out of band

@@ -10,17 +10,17 @@ import {
 } from './catalog';
 import { CatalogDataspace, MemberIdFormat } from './models';
 
-const BPN: MemberIdFormat = { label: 'BPN', pattern: 'BPNL[0-9A-Z]{12}', example: 'BPNL000000000001' };
+const DECADE_X_ID: MemberIdFormat = { label: 'DECADE-X-ID', pattern: 'DX-[0-9]{8}', example: 'DX-00000001' };
 
 const CATALOG: CatalogDataspace[] = [
   {
-    id: 'catena-x', displayName: 'Catena-X', available: true, memberId: BPN,
+    id: 'decade-x', displayName: 'DECADE-X', available: true, memberId: DECADE_X_ID,
     useCases: [
       { id: 'ccm', displayName: 'Company Certificate Management', available: true },
-      { id: 'traceability', displayName: 'Traceability', available: false }
+      { id: 'substance-tracing', displayName: 'Substance tracing', available: false }
     ]
   },
-  { id: 'decade-x', displayName: 'DECADE-X', available: false, memberId: null, useCases: [] }
+  { id: 'other-x', displayName: 'Other-X', available: false, memberId: null, useCases: [] }
 ];
 
 describe('catalog', () => {
@@ -28,43 +28,43 @@ describe('catalog', () => {
   describe('display names', () => {
 
     it('come from the catalog', () => {
-      expect(dataspaceDisplayName(CATALOG, 'catena-x')).toBe('Catena-X');
-      expect(useCaseDisplayName(CATALOG, 'catena-x', 'ccm')).toBe('Company Certificate Management');
+      expect(dataspaceDisplayName(CATALOG, 'decade-x')).toBe('DECADE-X');
+      expect(useCaseDisplayName(CATALOG, 'decade-x', 'ccm')).toBe('Company Certificate Management');
     });
 
     it('fall back to the ids the catalog does not know', () => {
       expect(dataspaceDisplayName(CATALOG, 'gaia-x')).toBe('gaia-x');
-      expect(useCaseDisplayName(CATALOG, 'catena-x', 'pcf')).toBe('pcf');
+      expect(useCaseDisplayName(CATALOG, 'decade-x', 'pcf')).toBe('pcf');
       expect(useCaseDisplayName(CATALOG, 'gaia-x', 'ccm')).toBe('ccm');
-      expect(dataspaceDisplayName([], 'catena-x')).toBe('catena-x');
+      expect(dataspaceDisplayName([], 'decade-x')).toBe('decade-x');
     });
   });
 
   describe('memberIdLabelOf', () => {
 
     it("is the dataspace's own name for a member id", () => {
-      expect(memberIdLabelOf(CATALOG[0])).toBe('BPN');
+      expect(memberIdLabelOf(CATALOG[0])).toBe('DECADE-X-ID');
     });
 
     it('falls back to a generic one', () => {
       expect(memberIdLabelOf(CATALOG[1])).toBe('Member ID');
       expect(memberIdLabelOf(null)).toBe('Member ID');
-      expect(memberIdLabelOf({ ...CATALOG[0], memberId: { ...BPN, label: ' ' } })).toBe('Member ID');
+      expect(memberIdLabelOf({ ...CATALOG[0], memberId: { ...DECADE_X_ID, label: ' ' } })).toBe('Member ID');
     });
   });
 
   describe('member-id validation', () => {
 
     it('accepts an id in the format', () => {
-      expect(isValidMemberId(BPN, 'BPNL000000000001')).toBeTrue();
-      expect(isValidMemberId(BPN, 'BPNL40C1797F0000')).toBeTrue();
+      expect(isValidMemberId(DECADE_X_ID, 'DX-00000001')).toBeTrue();
+      expect(isValidMemberId(DECADE_X_ID, 'DX-40179701')).toBeTrue();
     });
 
     it('matches the WHOLE id, as the server does', () => {
-      expect(isValidMemberId(BPN, 'BPNL00000000000')).toBeFalse();
-      expect(isValidMemberId(BPN, 'BPNL0000000000011')).toBeFalse();
-      expect(isValidMemberId(BPN, 'xBPNL000000000001')).toBeFalse();
-      expect(isValidMemberId(BPN, 'bpnl000000000001')).toBeFalse();
+      expect(isValidMemberId(DECADE_X_ID, 'DX-0000000')).toBeFalse();
+      expect(isValidMemberId(DECADE_X_ID, 'DX-000000011')).toBeFalse();
+      expect(isValidMemberId(DECADE_X_ID, 'xDX-00000001')).toBeFalse();
+      expect(isValidMemberId(DECADE_X_ID, 'dx-00000001')).toBeFalse();
     });
 
     it('anchors every branch of an alternation', () => {
@@ -77,8 +77,8 @@ describe('catalog', () => {
 
     it('accepts anything when the dataspace sets no pattern', () => {
       expect(isValidMemberId(null, 'anything')).toBeTrue();
-      expect(isValidMemberId({ ...BPN, pattern: null }, 'anything')).toBeTrue();
-      expect(isValidMemberId({ ...BPN, pattern: '  ' }, 'anything')).toBeTrue();
+      expect(isValidMemberId({ ...DECADE_X_ID, pattern: null }, 'anything')).toBeTrue();
+      expect(isValidMemberId({ ...DECADE_X_ID, pattern: '  ' }, 'anything')).toBeTrue();
     });
 
     it('reads a \\p{…} class as Java does, not as literal text', () => {
@@ -89,7 +89,7 @@ describe('catalog', () => {
 
     it('leaves a pattern this browser cannot compile to the server', () => {
       // a possessive quantifier: valid Java, no JavaScript
-      const format: MemberIdFormat = { ...BPN, pattern: 'BPNL[0-9A-Z]++' };
+      const format: MemberIdFormat = { ...DECADE_X_ID, pattern: 'DX-[0-9]++' };
       expect(memberIdPattern(format)).toBeNull();
       expect(isValidMemberId(format, 'anything')).toBeTrue();
     });

@@ -17,8 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
- * Carries out an approval — what makes an applicant a DECADE-X member, the way the Catena-X
- * onboarding API does it for Catena-X:
+ * Carries out an approval — what makes an applicant a DECADE-X member:
  *
  * <ol>
  *   <li>the participant is assigned its DECADE-X-ID — unless it is hosted by the VE and was

@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class VerificationParticipantServiceTest {
 
-    private static final String VP_BPN = "BPNLVERIFY000001";
+    private static final String VP_MEMBER_ID = "EX-00000099";
 
     @Mock
     private MembershipHubClient hub;
@@ -50,8 +50,8 @@ class VerificationParticipantServiceTest {
 
     @Test
     void ensure_adoptsAnExistingProvisionedMembershipAndSeedsTheOffer() {
-        when(hub.findByMemberId(DATASPACE, VP_BPN)).thenReturn(List.of(
-                // a dead earlier attempt under the same BPN must be skipped
+        when(hub.findByMemberId(DATASPACE, VP_MEMBER_ID)).thenReturn(List.of(
+                // a dead earlier attempt under the same member id must be skipped
                 membership("vp-old", "REJECTED", null, null, null),
                 membership("vp-1", "CREDENTIALS_OFFERED", "did:web:vp", "pctx-vp", "proc-vp")));
 
@@ -60,23 +60,23 @@ class VerificationParticipantServiceTest {
         assertEquals("pctx-vp", participant.participantContextId());
         verify(hub, never()).onboard(anyString(), anyString(), anyString(), anyString(), anyString(), any());
         verify(certo).awaitParticipantContext("pctx-vp");
-        // the inbox declares the CX-0135 consumer API — what a pushing participant finds it by
+        // the inbox declares the SCE consumer API — what a notifying participant finds it by
         verify(management).upsertAsset("pctx-vp", "ccm-inbox-verification", CcmApi.consumer(TestFixtures.CCM_API));
         // the dataspace's own policies, under its policy context
-        verify(management).createPolicyIdempotent("pctx-vp", "vui-ccm-access-policy-catena-x", "access",
+        verify(management).createPolicyIdempotent("pctx-vp", "vui-ccm-access-policy-example-x", "access",
                 TestFixtures.POLICY_CONTEXT, TestFixtures.ACCESS);
-        verify(management).createPolicyIdempotent("pctx-vp", "vui-ccm-contract-policy-catena-x", "use",
+        verify(management).createPolicyIdempotent("pctx-vp", "vui-ccm-contract-policy-example-x", "use",
                 TestFixtures.POLICY_CONTEXT, TestFixtures.CONTRACT);
         // ids scoped to the dataspace: the control plane's ids are unique across participant
         // contexts, and every dataspace has a verification participant of its own
-        verify(management).createContractDefinitionIdempotent("pctx-vp", "vui-ccm-cd-catena-x",
-                "vui-ccm-access-policy-catena-x", "vui-ccm-contract-policy-catena-x");
+        verify(management).createContractDefinitionIdempotent("pctx-vp", "vui-ccm-cd-example-x",
+                "vui-ccm-access-policy-example-x", "vui-ccm-contract-policy-example-x");
     }
 
     @Test
     void ensure_onboardsWhenNoLiveMembershipExists() {
-        when(hub.findByMemberId(DATASPACE, VP_BPN)).thenReturn(List.of());
-        when(hub.onboard(DATASPACE, "Verification Participant", "verification-participant", VP_BPN, "DEVERIFY0001", null))
+        when(hub.findByMemberId(DATASPACE, VP_MEMBER_ID)).thenReturn(List.of());
+        when(hub.onboard(DATASPACE, "Verification Participant", "verification-participant", VP_MEMBER_ID, "DEVERIFY0001", null))
                 .thenReturn(membership("vp-1", "SUBMITTED", null, null, null));
         when(hub.awaitProvisioned("vp-1"))
                 .thenReturn(membership("vp-1", "PROVISIONED", "did:web:vp", "pctx-vp", "proc-vp"));
@@ -93,7 +93,7 @@ class VerificationParticipantServiceTest {
 
     @Test
     void ensure_awaitsAnInFlightMembershipInsteadOfOnboarding() {
-        when(hub.findByMemberId(DATASPACE, VP_BPN)).thenReturn(List.of(
+        when(hub.findByMemberId(DATASPACE, VP_MEMBER_ID)).thenReturn(List.of(
                 membership("vp-1", "PROVISIONING", "did:web:vp", null, "proc-vp")));
         when(hub.awaitProvisioned("vp-1"))
                 .thenReturn(membership("vp-1", "PROVISIONED", "did:web:vp", "pctx-vp", "proc-vp"));
@@ -107,14 +107,14 @@ class VerificationParticipantServiceTest {
 
     @Test
     void ensure_cachesTheParticipantAcrossCalls() {
-        when(hub.findByMemberId(DATASPACE, VP_BPN)).thenReturn(List.of(
+        when(hub.findByMemberId(DATASPACE, VP_MEMBER_ID)).thenReturn(List.of(
                 membership("vp-1", "CREDENTIALS_OFFERED", "did:web:vp", "pctx-vp", "proc-vp")));
 
         var first = service.ensure(DATASPACE);
         var second = service.ensure(DATASPACE);
 
         assertEquals(first, second);
-        verify(hub, times(1)).findByMemberId(DATASPACE, VP_BPN);
+        verify(hub, times(1)).findByMemberId(DATASPACE, VP_MEMBER_ID);
         verify(hub, never()).get(any());
     }
 
@@ -156,7 +156,7 @@ class VerificationParticipantServiceTest {
 
     @Test
     void status_reportsWithoutSideEffects() {
-        when(hub.findByMemberId(DATASPACE, VP_BPN)).thenReturn(List.of(
+        when(hub.findByMemberId(DATASPACE, VP_MEMBER_ID)).thenReturn(List.of(
                 membership("vp-1", "CREDENTIALS_OFFERED", "did:web:vp", "pctx-vp", "proc-vp")));
 
         var status = service.status(DATASPACE);
@@ -171,7 +171,7 @@ class VerificationParticipantServiceTest {
 
     @Test
     void status_whenNothingExists() {
-        when(hub.findByMemberId(DATASPACE, VP_BPN)).thenReturn(List.of());
+        when(hub.findByMemberId(DATASPACE, VP_MEMBER_ID)).thenReturn(List.of());
 
         var status = service.status(DATASPACE);
 

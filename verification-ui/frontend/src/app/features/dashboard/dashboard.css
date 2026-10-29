@@ -171,8 +171,7 @@
   color: var(--fail);
 }
 
-/* Holds the button's spacing when the derive row is absent (it is rendered only for a
-   participant onboarded into Catena-X — elsewhere there is no BPN to derive). */
+/* Keeps the button clear of the last field. */
 .btn.submit {
   margin-top: 4px;
 }
@@ -182,20 +181,6 @@
 .blocked {
   margin: 8px 0 0;
   text-align: center;
-}
-
-.derive {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--ink-soft);
-  margin: 4px 0 16px;
-}
-
-.derive .preview {
-  color: var(--verify-deep);
-  font-size: 12px;
 }
 
 .btn.submit {

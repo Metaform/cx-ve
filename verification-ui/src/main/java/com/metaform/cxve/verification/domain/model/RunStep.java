@@ -3,18 +3,19 @@ package com.metaform.cxve.verification.domain.model;
 import java.util.List;
 
 /**
- * The steps a verification run can take. So far there is one verifiable use case, CCM — the CCM
- * standard's (Catena-X: CX-0135 v3.0.0) Flow B (provider-initiated push) either way, with the verification participant as the certificate CONSUMER and the participant-under-test
- * as the PROVIDER. Which steps a run actually has depends on where that participant lives, so the
- * two sequences are declared here rather than assumed by the flows:
+ * The steps a verification run can take. So far there is one verifiable use case, CCM — a
+ * consumer-initiated certificate request as the DSAF SCE specification defines it (Certo's
+ * current release), either way with the verification participant as the certificate CONSUMER and
+ * the participant-under-test as the PROVIDER. Which steps a run actually has depends on where that
+ * participant lives, so the two sequences are declared here rather than assumed by the flows:
  *
  * <ul>
  *   <li>{@link #MANAGED} — the participant is onboarded INTO this environment, which then drives
  *       both sides through its own management APIs.</li>
  *   <li>{@link #EXTERNAL} — the participant is a third-party system already running elsewhere,
  *       reachable only over DSP and DCP. This environment drives its own side and WAITS for the
- *       system under test to do the rest: request its credentials, offer its certificate asset,
- *       and push the certificate.</li>
+ *       system under test to do the rest: request its credentials, offer its provider API, and
+ *       hold (or issue) the certificate this environment requests.</li>
  * </ul>
  */
 public enum RunStep {
@@ -56,11 +57,18 @@ public enum RunStep {
     /** Managed: the participant-under-test consumes the verification participant's inbox asset. */
     ESTABLISH_PUSH_FLOW,
 
-    /** Managed: this environment publishes the certificate on the participant's behalf. */
-    PUBLISH_CERTIFICATE,
+    /** Managed: this environment issues the certificate on the participant's behalf. */
+    ISSUE_CERTIFICATE,
 
-    /** External: the SUT pushed a certificate, found through the consumer's reconciliation query. */
-    AWAIT_PUBLISHED_CERTIFICATE,
+    /** Managed: the participant-under-test notifies the verification participant it is AVAILABLE. */
+    NOTIFY_AVAILABLE,
+
+    /**
+     * Both: the verification participant requests the certificate from the participant-under-test.
+     * For an external run this also WAITS for the SUT to fulfil the request if it does not hold the
+     * certificate yet.
+     */
+    REQUEST_CERTIFICATE,
 
     RETRIEVE_AND_VERIFY,
     ACCEPT,
@@ -76,16 +84,19 @@ public enum RunStep {
             SEED_PROVIDER_OFFER,
             ESTABLISH_PULL_FLOW,
             ESTABLISH_PUSH_FLOW,
-            PUBLISH_CERTIFICATE,
+            ISSUE_CERTIFICATE,
+            NOTIFY_AVAILABLE,
+            REQUEST_CERTIFICATE,
             RETRIEVE_AND_VERIFY,
             ACCEPT,
             EVALUATE_EVENTS);
 
     /**
-     * The run against a third-party system. Two steps of the managed sequence have no counterpart
-     * here. There is no push-flow step: the SUT establishes that flow itself, and the certificate
-     * arriving over it ({@link #AWAIT_PUBLISHED_CERTIFICATE}) is the only evidence of it this
-     * environment can honestly observe. And there is no closing ledger step: everything the
+     * The run against a third-party system. The managed sequence's provider-side steps have no
+     * counterpart here: issuing the certificate and notifying about it are the SUT's own business,
+     * and a request this environment places ({@link #REQUEST_CERTIFICATE}) is what it can honestly
+     * observe of them. Nor is there a push flow: notifications to this environment are optional, so
+     * nothing here depends on the SUT establishing one. And there is no closing ledger step: everything the
      * tracker can attribute to an external participant — its onboarding and its credential
      * delivery — must be true BEFORE the exchange can work at all, so the ledger is judged at
      * {@link #AWAIT_CREDENTIALS} and re-reading it afterwards would add nothing.
@@ -97,7 +108,7 @@ public enum RunStep {
             AWAIT_CREDENTIAL_OFFER,
             AWAIT_CREDENTIALS,
             ESTABLISH_PULL_FLOW,
-            AWAIT_PUBLISHED_CERTIFICATE,
+            REQUEST_CERTIFICATE,
             RETRIEVE_AND_VERIFY,
             ACCEPT);
 }

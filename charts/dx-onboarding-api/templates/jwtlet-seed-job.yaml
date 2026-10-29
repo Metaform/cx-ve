@@ -1,8 +1,7 @@
 ## Registers this app's ServiceAccount in JWTlet so the pod's projected SA token can be exchanged
 ## (RFC 8693) for the token its IssuerService calls need: on approval, the TSP registers the
 ## participant as credential holder and has the issuer offer it its credentials, through the
-## issuer's admin API — the same mapping the cx-onboarding-api has (`sudo` with
-## issuer-admin-api:admin). The scope mappings themselves are seeded by the platform; this job only
+## issuer's admin API (`sudo` with issuer-admin-api:admin). The scope mappings themselves are seeded by the platform; this job only
 ## registers the SA. Creating a mapping is idempotent (409 = already exists).
 {{- if .Values.jwtlet.seed.enabled }}
 apiVersion: batch/v1
@@ -14,10 +13,9 @@ metadata:
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     # Weight 205: in the umbrella release all subcharts share one hook space — the platform's
-    # seeds run at 10/20, the catenax-profile ones at 110-130, the DECADE-X issuer seed at 140, the
-    # cx-onboarding-api mapping at 200, the certo seeds at 210/220 and the hub's at 230. This job
-    # only needs jwtlet up; the slot next to the cx-onboarding-api's keeps the two onboarding APIs
-    # together.
+    # seeds run at 10/20, the DECADE-X issuer, Tenant Manager and EDC seeds at 140-150, the certo seeds at 210/220
+    # and the hub's at 230. This job only needs jwtlet up, but a deterministic slot keeps the
+    # ordering obvious.
     "helm.sh/hook-weight": "205"
     "helm.sh/hook-delete-policy": {{ .Values.jwtlet.seed.hookDeletePolicy | quote }}
 spec:

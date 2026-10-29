@@ -1,18 +1,19 @@
 #!/bin/bash
 
 # Stands up the complete Verification Environment (VE) on a kind cluster: ONE umbrella helm
-# release (charts/cx-ve) containing the Core Platform Distribution, the Catena-X profile
-# seeding, the Onboarding API, Certo and the Certo CFM agent. Run from the repository root.
+# release (charts/cx-ve) containing the Core Platform Distribution, the DECADE-X profile
+# seeding and onboarding API, the Membership Hub, the Verification UI, Certo and the Certo CFM
+# agent. Run from the repository root.
 #
 # The VE is a SINGLE cluster: external dataspace solutions connect to it from outside, onboard
-# a participant through the Onboarding API and exchange data with it. The HOSTNAME (-H) is the
+# a participant through the DECADE-X onboarding API and exchange data with it. The HOSTNAME (-H) is the
 # VE's identity domain — participant and issuer DIDs embed the gateway hostnames derived from
 # it (did:web:identity.<host>:<participant>, did:web:issuer.<host>:issuer).
 #
 # All configuration is checked in statically in charts/cx-ve/values.yaml (defaults target
-# cxve.localhost); every image but the Onboarding API is pulled from a registry — that one is
-# built from source below and loaded into the cluster, so the VE always runs this checkout's
-# code. A non-default host is applied through the --set overrides assembled below.
+# cxve.localhost); the platform and Certo images are pulled from a registry, while this
+# repository's components are built from source below and loaded into the cluster, so the VE
+# always runs this checkout's code. A non-default host is applied through the --set overrides assembled below.
 #
 # NOTE the release name cx-ve is load-bearing: the platform chart names its infra resources
 # <release>-nats / <release>-vault / <release>-postgresql, and the umbrella values reference
@@ -95,19 +96,14 @@ KUBECONFIG_FILE="$HOME/.kube/$CLUSTER_NAME.config"
 # documents exactly which values follow the host.
 HOST_OVERRIDES=(
   --set "global.host=${HOST}"
-  --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
-  --set "cx-onboarding-api.httpRoute.hostnames={${HOST}}"
-  --set-string "cx-onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
-  # The hub resolves member DIDs by the same rule the cx-onboarding-api does; both must follow the host.
+  # The hub mints member DIDs under the host.
   --set-string "membership-hub.config.participant.did.template=did:web:identity.${HOST}:"
   --set "membership-hub.httpRoute.hostnames={${HOST}}"
-  # The hub validates the Onboarding API's callback bearers against the OSP IdP's external issuer URL.
+  # The hub validates onboarding-API callback bearers against the OSP IdP's external issuer URL.
   --set-string "membership-hub.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
-  # The OSP IdP's issuer is http://<host>/auth/osp (derived from global.host in the umbrella);
-  # the cx-onboarding-api validates tokens against exactly that iss value, so it must follow too.
-  --set-string "cx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "dx-onboarding-api.httpRoute.hostnames={${HOST}}"
-  # Like the cx-onboarding-api, the dx-onboarding-api validates tokens against the OSP IdP's iss.
+  # The OSP IdP's issuer is http://<host>/auth/osp (derived from global.host in the umbrella);
+  # the dx-onboarding-api validates tokens against exactly that iss value, so it must follow too.
   --set-string "dx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set-string "dx-onboarding-api.config.dx-onboarding.review.hosted-did-prefix=did:web:identity.${HOST}:"
   --set-string "decadex-profile.issuer.did=did:web:issuer.${HOST}:issuer"
@@ -173,18 +169,14 @@ kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-s
 # replaces them with the list discovered from the actual HTTPRoutes.
 "$(dirname "$0")/setup-did-dns.sh" --pre -c "$CLUSTER_NAME" -H "$HOST"
 
-# Resolve the umbrella's dependencies (platform, catenax-profile, certo from OCI; the local
-# app charts are vendored from ../cx-onboarding-api, ../dx-onboarding-api etc.)
+# Resolve the umbrella's dependencies (platform and certo from OCI; the local app charts are
+# vendored from ../dx-onboarding-api, ../decadex-profile etc.)
 helm dependency update "$UMBRELLA_CHART"
 
-# Build and load the latest version of the Onboarding API. The build context is cx-onboarding-api/
-# (where the Gradle build now lives), not the repository root: the Dockerfile COPYs gradlew,
+# Build and load the latest version of the DECADE-X onboarding API. The build context is the
+# component directory, not the repository root: the Dockerfile COPYs gradlew,
 # settings.gradle.kts, build.gradle.kts, gradle/ and src/ from the context root. Same context as
 # .github/workflows/publish.yml uses to build the published image.
-docker buildx build -t ghcr.io/metaform/cx-ve/cx-onboarding-api:latest cx-onboarding-api
-kind load docker-image ghcr.io/metaform/cx-ve/cx-onboarding-api:latest -n $CLUSTER_NAME
-
-# Build and load the latest version of the DECADE-X onboarding API; same context layout.
 docker buildx build -t ghcr.io/metaform/cx-ve/dx-onboarding-api:latest dx-onboarding-api
 kind load docker-image ghcr.io/metaform/cx-ve/dx-onboarding-api:latest -n $CLUSTER_NAME
 
@@ -201,9 +193,8 @@ docker buildx build -t ghcr.io/metaform/cx-ve/verification-ui:latest verificatio
 kind load docker-image ghcr.io/metaform/cx-ve/verification-ui:latest -n $CLUSTER_NAME
 
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
-# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> decadex-profile (140 issuer
-# credential definition, 150 EDC dataspace profile) -> cx-onboarding-api jwtlet mapping (200) ->
-# dx-onboarding-api jwtlet mapping (205) -> certo jwtlet mappings (210) -> certo
+# space: platform seeds (weights 10/20) -> decadex-profile (140 issuer credential definitions, 145
+# Tenant Manager dataspace profile, 150 EDC dataspace profile) -> dx-onboarding-api jwtlet mapping (205) -> certo jwtlet mappings (210) -> certo
 # activity/orchestration (220) -> membership-hub jwtlet mapping (230) -> verification-ui jwtlet
 # mappings (240).
 helm upgrade --install "$RELEASE" "$UMBRELLA_CHART" \

@@ -5,7 +5,6 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { BehaviorSubject, EMPTY, Subscription, catchError, exhaustMap, map, of, switchMap, timer } from 'rxjs';
 import { ApiService } from '../../core/api.service';
-import { CATENA_X, bpnFor } from '../../core/bpn';
 import {
   CCM,
   dataspaceDisplayName,
@@ -68,7 +67,6 @@ export class Dashboard implements OnInit, OnDestroy {
   shortName = '';
   memberId = '';
   did = '';
-  deriveBpn = true;
 
   readonly stepLabel = stepLabel;
 
@@ -150,19 +148,9 @@ export class Dashboard implements OnInit, OnDestroy {
     return this.selectedDataspace?.memberId ?? null;
   }
 
-  /** What the selected dataspace calls a member id — "BPN" in Catena-X. */
+  /** What the selected dataspace calls a member id — "DECADE-X-ID" in DECADE-X. */
   get memberIdLabel(): string {
     return memberIdLabelOf(this.selectedDataspace);
-  }
-
-  /**
-   * Whether deriving the member id from the short name is on offer. The derivation yields a BPN,
-   * so only in Catena-X; and only for a participant this environment onboards — an external
-   * system's BPN is agreed with its operator and has to be typed, and there is no short name to
-   * derive it from anyway.
-   */
-  get canDeriveBpn(): boolean {
-    return this.dataspaceId === CATENA_X && !this.external;
   }
 
   /**
@@ -171,15 +159,6 @@ export class Dashboard implements OnInit, OnDestroy {
    */
   get memberIdAssigned(): boolean {
     return !!this.memberIdFormat?.assigned;
-  }
-
-  /** Whether the member-id field is standing in for a BPN derived from the short name. */
-  get derivingBpn(): boolean {
-    return this.canDeriveBpn && this.deriveBpn;
-  }
-
-  get derivedBpn(): string {
-    return this.shortName.trim() ? bpnFor(this.shortName.trim()) : '';
   }
 
   /**
@@ -191,7 +170,7 @@ export class Dashboard implements OnInit, OnDestroy {
     if (this.memberIdAssigned) {
       return '';
     }
-    return this.derivingBpn ? this.derivedBpn : this.memberId.trim();
+    return this.memberId.trim();
   }
 
   /** There is a member id, but not one in the selected dataspace's format. */
@@ -201,9 +180,6 @@ export class Dashboard implements OnInit, OnDestroy {
   }
 
   get memberIdPlaceholder(): string {
-    if (this.derivingBpn) {
-      return this.derivedBpn || 'enter a short name to derive from';
-    }
     return this.memberIdFormat?.example || '';
   }
 
@@ -217,9 +193,7 @@ export class Dashboard implements OnInit, OnDestroy {
       return `Required — and it must be the ${label} the system under test already runs with: `
         + `the credential issued here is for exactly that ${label}, and the system is checked against it.`;
     }
-    return this.derivingBpn
-      ? `Required. Derived from the short name — enter one, or untick to type the ${label}.`
-      : 'Required.';
+    return 'Required.';
   }
 
   /**
@@ -239,9 +213,7 @@ export class Dashboard implements OnInit, OnDestroy {
       return `${useCase.displayName} cannot be verified in ${dataspace.displayName} yet.`;
     }
     if (!this.effectiveMemberId && !this.memberIdAssigned) {
-      return this.derivingBpn
-        ? `Enter a short name to derive the ${this.memberIdLabel} from, or untick to type one.`
-        : `Enter the ${this.memberIdLabel} to start the run.`;
+      return `Enter the ${this.memberIdLabel} to start the run.`;
     }
     if (this.memberIdInvalid) {
       return `Enter a valid ${this.memberIdLabel} to start the run.`;
@@ -257,10 +229,6 @@ export class Dashboard implements OnInit, OnDestroy {
   get ensuring(): boolean {
     const shown = this.vpDataspace.value;
     return shown !== null && this.ensuringFor.has(shown);
-  }
-
-  onDidChange(): void {
-    this.keepTypedMemberId();
   }
 
   ensure(): void {
@@ -367,7 +335,6 @@ export class Dashboard implements OnInit, OnDestroy {
     if (id !== this.dataspaceId) {
       this.dataspaceId = id;
       this.error = '';
-      this.keepTypedMemberId();
     }
     // The card follows the selection, but only into a dataspace the hub serves: one it does not
     // has no participant to show. A change of what the card shows starts it afresh.
@@ -377,18 +344,6 @@ export class Dashboard implements OnInit, OnDestroy {
       this.vpUnreachable = false;
       this.vpError = '';
       this.vpDataspace.next(shown);
-    }
-  }
-
-  /**
-   * Derivation must not silently take over a member id the user typed. Whenever it would switch
-   * back on — leaving external mode, or coming (back) to Catena-X — it would disable the field
-   * and substitute the derived BPN with no cue beyond the input greying out. A field with
-   * something in it keeps derivation off.
-   */
-  private keepTypedMemberId(): void {
-    if (this.canDeriveBpn && this.memberId.trim()) {
-      this.deriveBpn = false;
     }
   }
 

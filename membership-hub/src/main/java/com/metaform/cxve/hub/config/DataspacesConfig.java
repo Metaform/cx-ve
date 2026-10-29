@@ -1,7 +1,6 @@
 package com.metaform.cxve.hub.config;
 
 import com.metaform.cxve.hub.adapter.out.onboarding.RegistrationValidator;
-import com.metaform.cxve.hub.adapter.out.onboarding.catenax.CatenaXOnboarding;
 import com.metaform.cxve.hub.adapter.out.onboarding.decadex.DecadeXOnboarding;
 import jakarta.validation.Validator;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -25,12 +24,6 @@ public class DataspacesConfig {
     @Bean
     public RegistrationValidator registrationValidator(Validator validator) {
         return new RegistrationValidator(validator);
-    }
-
-    @Bean
-    @ConditionalOnProperty(name = "dataspaces." + CatenaXOnboarding.DATASPACE + ".enabled", havingValue = "true")
-    public CatenaXOnboarding catenaXOnboarding(DataspaceProperties properties, RegistrationValidator validator) {
-        return new CatenaXOnboarding(onboarding(properties, CatenaXOnboarding.DATASPACE), validator);
     }
 
     @Bean

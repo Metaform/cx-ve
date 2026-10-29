@@ -1,0 +1,121 @@
+## The CFM Tenant Manager's DECADE-X dataspace profile, deployed onto the platform's cell: the
+## Tenant Manager deploys a participant profile only into a cell that a dataspace profile is
+## deployed to, so the Membership Hub cannot provision a hosted member without it. Its credential
+## specs name the DECADE-X credentials; nothing requests them from here (the dx-onboarding-api has
+## the issuer offer them), they describe the dataspace. Idempotent: a profile already carrying the
+## Legal Entity VC is left alone.
+{{- if .Values.seedJobs.tenantManagerProfile.enabled }}
+{{- $tm := printf "http://%s:8080/api/v1alpha1" (include "decadex.fqdn" (dict "svc" .Values.services.tenantManager "ctx" .)) }}
+{{- $issuerDid := .Values.seedJobs.tenantManagerProfile.credentialIssuer | default .Values.issuer.did }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: decadex-tenant-manager-profile-seed
+  labels:
+    app: decadex-tenant-manager-profile-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # Weight 145: after the platform's seeds (10/20: the cell and the seed-jobs SA's jwtlet
+    # mapping) and the DECADE-X issuer seed (140: the credential definitions named below).
+    "helm.sh/hook-weight": "145"
+    "helm.sh/hook-delete-policy": {{ .Values.seedJobs.hookDeletePolicy | quote }}
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: {{ .Values.seedJobs.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        app: decadex-tenant-manager-profile-seed
+    spec:
+      serviceAccountName: {{ .Values.seedJobs.serviceAccountName }}
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: {{ .Values.seedJobs.image }}
+          env:
+            - name: TM_API
+              value: {{ $tm | quote }}
+            - name: TOKEN_SCOPE
+              value: "cfm-write cfm-read"
+          volumeMounts:
+            - name: jwtlet-subject-token
+              mountPath: /var/run/secrets/jwtlet
+              readOnly: true
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              {{- include "decadex.exchangeToken" . | nindent 14 }}
+
+              # GET <url>, setting status and body
+              get() {
+                resp=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer ${TOKEN}" "$1")
+                status=$(printf '%s\n' "$resp" | tail -1)
+                body=$(printf '%s\n' "$resp" | sed '$d')
+              }
+
+              # The platform's tenant-manager seed creates the cell; wait for it.
+              until get "${TM_API}/cells" && [ "$status" -lt 400 ] && printf '%s' "$body" | grep -q '"id":"'; do
+                echo "Waiting for the tenant manager and its cell..."
+                sleep 5
+              done
+              CELL_ID=$(printf '%s\n' "$body" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+              echo "Using cell $CELL_ID"
+
+              get "${TM_API}/dataspace-profiles"
+              if [ "$status" -ge 400 ]; then
+                echo "ERROR: Failed to list the dataspace profiles (HTTP $status): $body"
+                exit 1
+              fi
+              if printf '%s' "$body" | grep -qF '"type":{{ .Values.credentialDefinitions.legalEntity.credentialType | quote }}'; then
+                echo "the DECADE-X dataspace profile already exists"
+                exit 0
+              fi
+
+              resp=$(curl -s -w "\n%{http_code}" -X POST "${TM_API}/dataspace-profiles" \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Content-Type: application/json" \
+                --data @- <<'JSON'
+              {
+                "artifacts": [],
+                "properties": {},
+                "dataspaceSpec": {
+                  "protocolStack": ["dsp-2025-1", "dcp-2025-1"],
+                  "credentialSpecs": [
+                    {{- range $i, $definition := list .Values.credentialDefinitions.legalEntity .Values.credentialDefinitions.site }}
+                    {{- if $i }},{{ end }}
+                    {
+                      "id": {{ $definition.id | quote }},
+                      "type": {{ $definition.credentialType | quote }},
+                      "issuer": {{ $issuerDid | quote }},
+                      "format": {{ $.Values.credentialFormat | quote }}
+                    }
+                    {{- end }}
+                  ]
+                }
+              }
+              JSON
+              )
+              status=$(printf '%s\n' "$resp" | tail -1)
+              body=$(printf '%s\n' "$resp" | sed '$d')
+              if [ "$status" -ge 400 ]; then
+                echo "ERROR: Failed to create the DECADE-X dataspace profile (HTTP $status): $body"
+                exit 1
+              fi
+              PROFILE_ID=$(printf '%s\n' "$body" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+              echo "the DECADE-X dataspace profile created: $PROFILE_ID"
+
+              resp=$(curl -s -w "\n%{http_code}" -X POST "${TM_API}/dataspace-profiles/${PROFILE_ID}/deployments" \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d '{"profileId": "'"${PROFILE_ID}"'", "cellId": "'"${CELL_ID}"'"}')
+              status=$(printf '%s\n' "$resp" | tail -1)
+              if [ "$status" -ge 400 ]; then
+                echo "ERROR: Failed to deploy the DECADE-X dataspace profile (HTTP $status): $(printf '%s\n' "$resp" | sed '$d')"
+                exit 1
+              fi
+              echo "the DECADE-X dataspace profile deployed onto cell $CELL_ID"
+      volumes:
+        {{- include "decadex.tokenVolume" . | nindent 8 }}
+{{- end }}
