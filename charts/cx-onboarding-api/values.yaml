@@ -1,0 +1,231 @@
+# Onboarding state is durable in Postgres (config.spring.profiles.active: postgres below), so a
+# restart no longer loses in-flight onboardings. Still a single replica by default: the
+# registration duplicate check is not guarded by a database constraint, so concurrent replicas
+# could race it.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/metaform/cx-ve/cx-onboarding-api
+  # Defaults to the chart's appVersion
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+
+# Remote JVM debugging (JDWP). When enabled the container starts the debug agent (via
+# JAVA_TOOL_OPTIONS, honored by any JVM launcher) and exposes the port on the pod only —
+# deliberately not on the Service. Attach with
+#   kubectl port-forward deploy/<fullname> 5005:5005
+# and an IDE "Remote JVM Debug" run configuration pointed at localhost:5005.
+debug:
+  enabled: true
+  port: 5005
+  # Suspend the JVM until a debugger attaches (to step through startup code). While suspended the
+  # app cannot answer health probes, so enabling this also disables liveness/readiness probes.
+  suspend: false
+
+# The app's workload identity: the jwtlet seed job registers
+# "system:serviceaccount:<namespace>:cx-onboarding-api", and Vault's kubernetes auth method binds
+# the NKey role to this SA.
+serviceAccount:
+  create: true
+  name: cx-onboarding-api
+
+# The app's Vault partition: the jwtlet-seed job registers a second mapping for the app's SA
+# under this participant context, and exchanging with resource=<partition> yields tokens Vault
+# confines to participants/data/<partition>/* (the platform's `participant` JWT role + policies —
+# nothing is seeded in Vault itself, and no root token is involved). The OSP callback
+# registrations live there. Must agree with config.vault.auth.resource and config.vault.secret-path
+# below.
+vault:
+  partition: cx-onboarding-api
+
+# The platform's JWTlet (RFC 8693 token exchange)
+jwtlet:
+  healthUrl: http://jwtlet.edc-v.svc.cluster.local:8080/health
+  mgmtUrl: http://jwtlet.edc-v.svc.cluster.local:8081/api/v1
+  # Audience of the projected SA token; must match jwtlet's `client_audience`
+  # (the Kubernetes cluster issuer)
+  subjectTokenAudience: https://kubernetes.default.svc.cluster.local
+  subjectTokenExpirationSeconds: 3600
+  # Post-install/upgrade hook job that registers this app's ServiceAccount in JWTlet
+  seed:
+    enabled: true
+    # The app's one downstream call is registering credential holders with the IssuerService, and
+    # that (like the CFM agents) goes through the "sudo" mapping: the admin scope is what passes
+    # the IssuerService's caller resolution. Must agree with the app's
+    # config issuer-service.token-resource.
+    participantContext: sudo
+    scopes:
+      - issuer-admin-api:admin
+    # jwtlet participant-token audience (client_audience / bound_audiences)
+    audiences:
+      - edcv
+    image: curlimages/curl:latest
+    hookDeletePolicy: before-hook-creation,hook-succeeded
+    ttlSecondsAfterFinished: 600
+
+# Init container that fetches the NATS NKey seed from Vault onto a pod-private in-memory volume
+# at /vault/secrets/nats.nk (where config nats.nkey-seed-path points). Only rendered when
+# config.nats.enabled is also true. Requires the platform's vault-bootstrap to have created the
+# role and the nats-auth-bootstrap job to have stored the seed.
+#
+# NOTE the platform names its infra resources <release-name>-*: the defaults below assume the
+# canonical cx-ve umbrella release (release name "cx-ve" → cx-ve-vault / cx-ve-nats /
+# cx-ve-nats-auth). Installing this chart against a differently-named platform release means
+# overriding them.
+natsAuth:
+  enabled: true
+  vaultUrl: http://cx-ve-vault.edc-v.svc.cluster.local:8200
+  # REUSES the platform's shared `edc-events` identity rather than minting one of its own. The
+  # onboarding API publishes its lifecycle events onto the edc-events stream, which is exactly
+  # that identity's profile. Requires this chart's ServiceAccount to appear in the platform's
+  # nats.auth.users.edc-events.serviceAccounts list (the umbrella sets it).
+  vaultRole: nats-edc-events
+  vaultSecretPath: secret/nats/edc-events
+  image: hashicorp/vault:latest
+  # Seed job replicating what the platform's bootstrap does for its own components: creates the
+  # Vault policy/role above, generates + stores an NKey seed, merges the public key into the
+  # platform's NATS users.conf Secret and rolls the NATS server.
+  #
+  # OFF by default now that the platform provisions a shared identity this chart can reuse. It was
+  # only ever needed because the platform did not know about the onboarding API, and it came with a
+  # standing hazard: a platform upgrade regenerates users.conf from its own list and drops the
+  # merged entry, so auth broke until this release was upgraded again. Reusing edc-events removes
+  # that failure mode entirely.
+  #
+  # Turn it back on only against a platform too old to have nats.auth.users (pre-shared-identity),
+  # and set vaultRole/vaultSecretPath back to nats-onboarding-api / secret/nats/cx-onboarding-api.
+  seed:
+    enabled: false
+    # Vault admin token (the platform's dev-mode Vault; matches its vault.connection.rootToken)
+    vaultToken: root
+    # Namespace and names of the platform's NATS auth Secret and Deployment
+    # (<release>-nats-auth / <release>-nats)
+    platformNamespace: edc-v
+    usersConfSecret: cx-ve-nats-auth
+    natsDeployment: cx-ve-nats
+    image: natsio/nats-box:latest
+
+# Postgres persistence for onboarding processes. The seed job creates the `onboarding` database
+# and user on the platform's Postgres (create-if-missing, re-runs on every upgrade) — the
+# platform's own postgres-init hook works from a hardcoded list that does not include this app.
+# The app is pointed at that database via config.spring.datasource below; db/user/password here
+# and the datasource URL/credentials there must agree.
+#
+# NOTE the same release-name assumption as natsAuth above: the defaults name the canonical
+# cx-ve umbrella release's Postgres (cx-ve-postgresql) and its admin Secret.
+database:
+  seed:
+    enabled: true
+    # Same image family as the platform's postgres-init hook
+    image: postgres:17.7-alpine
+    host: cx-ve-postgresql.edc-v.svc.cluster.local
+    port: 5432
+    adminUser: postgres
+    adminDatabase: postgres
+    # Secret created by the platform's postgresql template (<release>-postgresql); requires this
+    # release to live in the same namespace as the platform.
+    adminPasswordSecret:
+      name: cx-ve-postgresql
+      key: postgres-password
+    db: cx_onboarding
+    user: cx_onboarding
+    password: cx_onboarding
+
+# Gateway API exposure (there is deliberately no Ingress template)
+httpRoute:
+  enabled: true
+  # The Gateway this route attaches to — adjust to the target cluster
+  parentRefs:
+    - name: edcv-gateway
+      # namespace: gateway-system
+  hostnames:
+    - cxve.localhost
+  pathPrefix: /cx-onboarding
+
+resources: {}
+
+# Complete application configuration. Rendered 1:1 into the ConfigMap as application.yaml and
+# mounted over the image's packaged defaults (SPRING_CONFIG_ADDITIONALLOCATION), so every key
+# below overrides the corresponding baked-in value — property names are exactly Spring's.
+config:
+  spring:
+    application:
+      name: cx-ve
+    # Postgres persistence (JpaOnboardingRepository) is the app's default — this only points it
+    # at the platform's Postgres. Schema handling stays on the image's defaults
+    # (spring.jpa.hibernate.ddl-auto: update). Storage-free operation (in-memory store, no
+    # database) is the app's "test" profile: spring.profiles.active: test here, plus
+    # database.seed.enabled: false above.
+    datasource:
+      # Must agree with the database.seed block above
+      url: jdbc:postgresql://cx-ve-postgresql.edc-v.svc.cluster.local:5432/cx_onboarding
+      username: cx_onboarding
+      password: cx_onboarding
+    # Bearer-JWT validation on /api/** against the VE's OSP IdP, Ory Hydra (matches the image
+    # defaults; restated here so the deployment's trust anchor is visible and overridable). The
+    # JWKS is fetched cluster-internally; issuer-uri is the expected `iss` value — the EXTERNAL
+    # gateway URL clients obtain tokens from (host-derived: install-ve.sh overrides it for a
+    # non-default host) — and no discovery is performed against it.
+    security:
+      oauth2:
+        resourceserver:
+          jwt:
+            jwk-set-uri: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/.well-known/jwks.json
+            issuer-uri: http://cxve.localhost/auth/osp
+  # Vault, holding the OSP callback registrations (matches the image defaults; restated so the
+  # deployment's trust chain is visible: workload token -> jwtlet exchange (resource = the vault
+  # partition, see the vault block above) -> Vault `participant` JWT role -> partition-confined
+  # token). No root token anywhere.
+  vault:
+    url: http://cx-ve-vault.edc-v.svc.cluster.local:8200
+    auth:
+      role: participant
+      resource: cx-onboarding-api
+      scope: "read"
+    secret-path: participants/data/cx-onboarding-api/callbacks
+  # Honor X-Forwarded-* (incl. X-Forwarded-Prefix set by the HTTPRoute) so redirects and
+  # springdoc URLs are generated with the external /onboarding prefix
+  server:
+    forward-headers-strategy: framework
+  springdoc:
+    swagger-ui:
+      path: /swagger
+  logging:
+    level:
+      com.metaform.cxve: INFO
+  # NATS/JetStream connection the onboarding lifecycle events are published over
+  nats:
+    enabled: true
+    url: nats://cx-ve-nats.edc-v.svc.cluster.local:4222
+    # Blank -> connect unauthenticated (e.g. local dev NATS)
+    nkey-seed-path: /vault/secrets/nats.nk
+  # Token exchange (RFC 8693): workload token file + exchange endpoint
+  token:
+    file:
+      path: /var/run/secrets/jwtlet/token
+    exchange:
+      url: http://jwtlet.edc-v.svc.cluster.local:8080
+      audience: edcv
+  # The IssuerService Admin API, where the app registers each onboarded participant as a
+  # credential holder and then offers it the dataspace's credentials. token-resource selects the
+  # jwtlet mapping the exchange runs under and must agree with jwtlet.seed.participantContext above.
+  issuer-service:
+    url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
+    issuer-context-id: issuer
+    token-resource: sudo
+    # The credential definitions offered to every registered holder. They must name definitions
+    # seeded with the issuer (the Catena-X profile chart seeds exactly these); an id that names
+    # none makes the IssuerService reject the whole offer.
+    credential-definition-ids: membership-credential-def,bpn-credential-def,gov-credential-def
+  # Prefix for participant DIDs when the registration doesn't supply one; the participant's
+  # short name is appended. Must match the platform's IdentityHub did:web hostname
+  # (identity.<host>): IdentityHub reconstructs the DID from the request URL and looks it up by
+  # exact match, so a DID minted under any other authority will not resolve through the gateway.
+  # A non-default gateway port belongs in the authority percent-encoded, e.g.
+  # "did:web:identity.example.com%3A8080:".
+  participant:
+    did:
+      template: "did:web:identity.cxve.localhost:"

@@ -1,0 +1,123 @@
+## Registers this app's ServiceAccount in JWTlet so the pod's projected SA token can be exchanged
+## (RFC 8693) for participant-scoped tokens. Mirrors the platform's jwtlet-seed job; creating the
+## mapping is idempotent (409 = already exists).
+{{- if .Values.jwtlet.seed.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cx-onboarding-api.fullname" . }}-jwtlet-seed
+  labels:
+    {{- include "cx-onboarding-api.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # Weight 200: in the umbrella release all subcharts share one hook space — the platform's
+    # seeds run at 10/20 and the catenax-profile ones at 110-130; this job only needs jwtlet up
+    # but a deterministic late slot keeps the ordering obvious.
+    "helm.sh/hook-weight": "200"
+    "helm.sh/hook-delete-policy": {{ .Values.jwtlet.seed.hookDeletePolicy | quote }}
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: {{ .Values.jwtlet.seed.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "cx-onboarding-api.fullname" . }}-jwtlet-seed
+    spec:
+      # must act under the "seed-jobs" SA, so that JWTlet's management API can be accessed
+      serviceAccountName: seed-jobs
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-jwtlet
+          image: {{ .Values.jwtlet.seed.image }}
+          command:
+            - sh
+            - -c
+            - |
+              until curl -sf {{ .Values.jwtlet.healthUrl | quote }}; do
+                echo "Waiting for jwtlet to be ready..."
+                sleep 5
+              done
+              echo ""
+              echo "JWTlet is ready!"
+      containers:
+        - name: seed-jwtlet
+          image: {{ .Values.jwtlet.seed.image }}
+          env:
+            - name: JWTLET_MGMT_URL
+              value: {{ .Values.jwtlet.mgmtUrl | quote }}
+          volumeMounts:
+            - name: jwtlet-subject-token
+              mountPath: /var/run/secrets/jwtlet
+              readOnly: true
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+
+              # Projected service account token used to authenticate against the jwtlet management API.
+              TOKEN=$(cat /var/run/secrets/jwtlet/token)
+              if [ -z "$TOKEN" ]; then
+                echo "ERROR: subject token at /var/run/secrets/jwtlet/token is empty"
+                exit 1
+              fi
+
+              # POSTs a JSON body to the jwtlet management API and handles the response:
+              # 409 = already exists (fine, seeding is idempotent), >= 400 = fail the job.
+              create() {
+                desc="$1"; url="$2"; body="$3"
+                echo "Creating ${desc}"
+                resp=$(curl -s -w "\n%{http_code}" -X POST "${url}" \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d "${body}")
+                status=$(printf '%s\n' "$resp" | tail -1)
+                if [ "$status" -eq 409 ]; then
+                  echo "${desc} already exists"
+                elif [ "$status" -ge 400 ]; then
+                  echo "ERROR: Failed to create ${desc} (HTTP $status): $(printf '%s\n' "$resp" | sed '$d')"
+                  exit 1
+                else
+                  echo "${desc} created"
+                fi
+              }
+
+              # The certo/cfm-agents mappings and the certo-mgmt-api scopes are seeded by the
+              # cx-ve umbrella chart — this job only registers the app's own ServiceAccount.
+              create "mapping entry for the '{{ .Values.serviceAccount.name }}' SA" \
+                "${JWTLET_MGMT_URL}/mappings" \
+                '{
+                    "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.serviceAccount.name }}",
+                    "participantContext": {{ .Values.jwtlet.seed.participantContext | quote }},
+                    "scopes": {{ .Values.jwtlet.seed.scopes | toJson }},
+                    "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
+                }'
+
+              # Second mapping for the SAME SA, selected per-exchange by the RFC 8693 `resource`
+              # parameter: it makes the app's vault partition. Exchanging with
+              # resource={{ .Values.vault.partition }} yields a token whose sub is that partition,
+              # which Vault's pre-existing `participant` JWT role confines to
+              # participants/data/{{ .Values.vault.partition }}/* — where the app stores the OSP
+              # callback registrations (they carry client secrets). No root token, no Vault-side
+              # seeding, no platform-chart changes. Must agree with the app's
+              # config vault.auth.resource / vault.secret-path.
+              create "vault-partition mapping for the '{{ .Values.serviceAccount.name }}' SA" \
+                "${JWTLET_MGMT_URL}/mappings" \
+                '{
+                    "clientIdentifier": "system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.serviceAccount.name }}",
+                    "participantContext": {{ .Values.vault.partition | quote }},
+                    "scopes": ["read"],
+                    "audiences": {{ .Values.jwtlet.seed.audiences | toJson }}
+                }'
+
+      volumes:
+        # RFC 8693 subject_token used to authenticate against the jwtlet management API.
+        # Audience must match jwtlet's `client_audience`.
+        - name: jwtlet-subject-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ .Values.jwtlet.subjectTokenAudience | quote }}
+                  expirationSeconds: {{ .Values.jwtlet.subjectTokenExpirationSeconds }}
+{{- end }}

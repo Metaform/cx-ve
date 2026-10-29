@@ -5,6 +5,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * The pool a hosted member's onboarding runs on — deploying its EDC resources and then submitting
@@ -12,7 +13,9 @@ import org.springframework.context.annotation.Configuration;
  * caller expects its membership record back immediately. Two threads bound the concurrency; each
  * membership is started exactly once because only its creating call ever hands it to this pool.
  */
+// @EnableScheduling: the RegistrationStatusPoller, for dataspaces whose onboarding API is polled
 @Configuration
+@EnableScheduling
 public class AsyncConfig {
 
     @Bean(destroyMethod = "shutdownNow")

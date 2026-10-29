@@ -1,0 +1,62 @@
+{
+  "legalEntity": {
+    "legalName": "Example Aerospace GmbH",
+    "preferredDid": "did:web:Example-Aerospace.example.org",
+    "registrationCountry": "DE",
+    "companyType": "LIMITED_LIABILITY_COMPANY",
+    "registrationNumbers": [{"scheme": "vatID", "value": "DE123456789"}],
+    "legalAddress": {
+      "street": "Beispielstrasse 1",
+      "postalCode": "10115",
+      "locality": "Berlin",
+      "countryCode": "DE",
+      "countryName": "Germany"
+    }
+  },
+  "legalPerson": {
+    "fullName": "Erika Mustermann",
+    "email": "erika.mustermann@example-aerospace.example.org",
+    "role": "CEO",
+    "phoneNumber": "+4930123456",
+    "headquartersAddress": {
+      "street": "Beispielstrasse 1",
+      "postalCode": "10115",
+      "locality": "Berlin",
+      "countryCode": "DE",
+      "countryName": "Germany"
+    }
+  },
+  "businessSites": [
+    {
+      "siteName": "Headquarters",
+      "mainAddress": {
+        "street": "Beispielstrasse 1",
+        "postalCode": "10115",
+        "locality": "Berlin",
+        "countryCode": "DE",
+        "countryName": "Germany"
+      },
+      "registrationNumbers": [{"scheme": "taxID", "value": "DE987654321"}]
+    }
+  ],
+  "gtc": {
+    "versionNumber": "1.0"
+  },
+  "ucas": [
+    {
+      "useCaseId": "export-control",
+      "useCaseName": "Export Control",
+      "versionNumber": "v1.0"
+    },
+    {
+      "useCaseId": "product-conformity",
+      "versionNumber": "v1.0"
+    }
+  ],
+  "declarations": {
+    "informationAccurate": true,
+    "authorisedToAct": true,
+    "evidenceMayBeRequested": true
+  },
+  "applicantReference": "ext-0001"
+}

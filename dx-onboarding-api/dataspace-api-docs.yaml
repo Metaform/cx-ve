@@ -1,0 +1,1364 @@
+openapi: 3.1.0
+info:
+  title: TSP onboarding intake (via the dataspace)
+  version: v0
+  description: "Onboarding intake of the TSP (Trust Service Provider), exposed to dataspace participants\
+    \ as a dataset of\nthe dataspace. A participant does **not** call the TSP directly: it consumes the\
+    \ dataset through the\ndataspace's data endpoint (the consumer-pull gateway), which relays each call\
+    \ to the TSP as is.\n\n## How to call it\n1. Find the TSP onboarding dataset in the provider's catalog,\
+    \ negotiate a contract for it, then start an\n   `http-pull` transfer.\n2. Fetch the transfer's access\
+    \ token and data endpoint. Send the token in the `Authorization` header\n   (`Bearer <token>`) of\
+    \ every call below, made relative to that endpoint. The gateway checks the token\n   on every call:\
+    \ once it has expired, calls are refused with 401 until a new token is fetched.\n3. `POST /` the request\
+    \ as JSON: it creates a **draft**. Its `id` is in the response body (there is no\n   `Location` header:\
+    \ the TSP cannot know the gateway's address).\n4. Add each document with its own `POST /{requestId}/documents`\
+    \ (see \"Documents\").\n5. `POST /{requestId}/submit`: the draft is checked as a whole and, when complete,\
+    \ submitted for review\n   by a TSP operator. Nothing is provisioned until an operator approves it.\n\
+    6. Follow the request with `GET /{requestId}`. A request is only visible to the participant that\n\
+    \   created it.\n\n## Versions (`If-Match`)\nEvery response carries the request's current `version`,\
+    \ both in the body and as the `ETag` header. Every\nchange (`PUT`, document added, replaced or removed,\
+    \ submit) must send it back in `If-Match`: a call without it is refused with\n428, a call with an\
+    \ outdated one with 409 (read the request again, then retry), and a value that is not a\nversion (`W/\"\
+    3\"`, `*`, a list) with 400. Each successful change returns the new version. A change whose\nresponse\
+    \ was lost cannot be replayed as is: read the request, and send the change again if it is missing.\n\
+    \n## Drafts and retries\n- A draft can be corrected (`PUT /{requestId}`, full replace of its data)\
+    \ and its documents added, replaced\n  or removed, until it is submitted. After that, the request\
+    \ belongs to the review and can no longer be changed (422). The\n  documents already uploaded are\
+    \ kept, except a signed copy that no longer matches: the use case agreement\n  of a use case removed\
+    \ from `ucas`, and the signed GTC or use case agreement whose `versionNumber`\n  changed (upload it\
+    \ again, signed for the new version).\n- A draft can be deleted (`DELETE /{requestId}`), with its\
+    \ documents. A participant has at most 10 drafts\n  at once (422 for one more), and a draft left untouched\
+    \ for 30 days is deleted the same way.\n- A participant has at most 10 submitted requests awaiting\
+    \ a decision at once: submitting one more is\n  refused (422, the draft stays as it is) until one\
+    \ of them is approved or rejected.\n- `Idempotency-Key` is optional on `POST /` and on submit, and\
+    \ scoped to the operation (the same key can be\n  used for a create and for a submit). Without it,\
+    \ sending the **same content** again returns the request\n  it created (200 instead of 201), whatever\
+    \ became of it, rather than creating a second one: after a rejection, send a new key\n  (or different\
+    \ content) to start a new request. Submitting a request twice returns it as submitted. A key\n  reused\
+    \ with different content is refused with 409.\n- A submit that fails validation (422, every problem\
+    \ listed in `errors`) changes nothing: fix the draft\n  and submit again.\n- The `legalEntity.preferredDid`\
+    \ must be new to the TSP: a request whose DID is already carried by another\n  request that is in\
+    \ progress or approved, or is already registered with the participant registry, cannot\n  be submitted\
+    \ (422, without saying who holds it). The TSP stores the DID in lower case with surrounding\n  spaces\
+    \ removed, and compares it that way, so `DID:Web:Acme.com` and `did:web:acme.com` are the same DID.\n\
+    - Every entry of `ucas` names one of the TSP's use cases by its `useCaseId`, once (400 otherwise).\
+    \ The TSP\n  names the use case itself: `useCaseName` is ignored.\n- Text fields are bounded by the\
+    \ `maxLength` of the schema, lists by their `maxItems` (400 otherwise).\n- Reviewer-only fields (verification\
+    \ checks, intake channel) are not part of this contract.\n\n## Documents\nThe documents of a request\
+    \ are one collection, `/{requestId}/documents`: each has its own `documentId`.\n- **Add** one with\
+    \ `POST /{requestId}/documents`, a `multipart/form-data` body:\n  - `type`: `gtc`, `uca`, `registration-extract`,\
+    \ `power-of-attorney` or `other`;\n  - `useCaseId`: required for a `uca` (one of the draft's `ucas`),\
+    \ refused otherwise;\n  - `label`: required for an `other` (what the document is, at most 255 characters),\
+    \ refused otherwise;\n  - `file`: the file itself, with its part's `Content-Type` (`application/pdf`,\
+    \ `image/png` or `image/jpeg`,\n    415 otherwise) and its file name (at most 255 characters, 400\
+    \ without one).\n\n  The file must be what its `Content-Type` says (a PDF starts with `%PDF-`...):\
+    \ 400 otherwise. At most\n  10 MB per file (413 above).\n- **One per draft**: a `gtc`, a `uca` per\
+    \ use case, a `registration-extract` and a `power-of-attorney`.\n  Nothing is replaced implicitly:\
+    \ adding one where one is already on file is refused with 409, whose body\n  carries that `documentId`.\n\
+    - **Others repeat**: at most 5 `other` documents per draft (422 for one more).\n- **Replace** a document's\
+    \ file with `PUT /{requestId}/documents/{documentId}`, a `multipart/form-data`\n  body with the new\
+    \ `file` (same rules as an add) and, for an `other`, its `label` again (it may change;\n  refused\
+    \ for any other type). The document keeps its `documentId`, its `type` and its `useCaseId`; the\n\
+    \  file it had is gone.\n- **Size**: all the documents of a draft weigh at most 50 MB together (422\
+    \ past it), counting a replaced\n  document's new file instead of its old one.\n- **Remove** one with\
+    \ `DELETE /{requestId}/documents/{documentId}`.\n- **List** them with `GET /{requestId}/documents`,\
+    \ and download one with\n  `GET /{requestId}/documents/{documentId}`, whatever the request's status.\n\
+    - Required to submit: the signed GTC document, and a signed use case agreement for every entry of\
+    \ `ucas`.\n  The others are optional.\n\n## Errors\nThe gateway relays the TSP's response as is: statuses\
+    \ and RFC 9457 problem bodies below are the TSP's.\nThe gateway itself answers 401 (missing, invalid\
+    \ or expired token), 403 (a token for another dataset)\nand 502 (TSP unreachable).\n\n## Known limitations\n\
+    - How the gateway identifies the calling participant to the TSP is not settled yet: `connectorId`\
+    \ in the\n  responses may still change.\n\n---\nCopyright (c) 2026 Airbus. Licensed under the Apache\
+    \ License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0).\n"
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+- url: '{dataEndpoint}'
+  description: The data endpoint of the transfer (the dataspace's consumer-pull gateway).
+  variables:
+    dataEndpoint:
+      default: https://dataspace.example.org/api/dp/pull
+paths:
+  /:
+    post:
+      tags:
+      - Onboarding
+      summary: Create an onboarding request draft
+      description: Creates a draft from the request's data, without any document. Upload the documents
+        next, then submit it.
+      operationId: createDataspaceOnboardingRequest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataspaceOnboardingRequestWriteDto'
+        required: true
+        description: The onboarding request itself.
+      responses:
+        '201':
+          description: The draft was created.
+          headers:
+            ETag:
+              description: The request's current version, to send back in If-Match.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataspaceOnboardingRequestDto'
+        '200':
+          description: 'A replay (same `Idempotency-Key`, or same content without one): nothing was created,
+            the body is the request the first call created.'
+          headers:
+            ETag:
+              description: The request's current version, to send back in If-Match.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataspaceOnboardingRequestDto'
+        '400':
+          description: The body is not a valid request (every problem is listed in `errors`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: '`Idempotency-Key` already used with different content.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: 'The participant already has as many drafts as it may: submit or delete one.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing, invalid or expired access token (answered by the gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        description: Optional. Any unique value; a retry with the same key and content returns the first
+          result.
+        schema:
+          type: string
+      security:
+      - accessToken: []
+  /{requestId}:
+    get:
+      tags:
+      - Onboarding
+      summary: Read an onboarding request
+      description: Returns a request created by the calling participant, with where it stands. `status`
+        moves from `DRAFT` to `SUBMITTED`, then through the review to `APPROVED` or `REJECTED`; the other
+        values are intermediate steps of the review and of the provisioning that follows an approval.
+        When the request is rejected, `decision` says why (`rejectReasonCode`, `rejectComment`, `resubmissionAllowed`).
+        Reviewer-internal data is never returned.
+      operationId: getDataspaceOnboardingRequest
+      responses:
+        '200':
+          description: The request.
+          headers:
+            ETag:
+              description: The request's current version, to send back in If-Match.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataspaceOnboardingRequestDto'
+        '404':
+          description: Unknown request, or one created by another participant.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing, invalid or expired access token (answered by the gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        description: The `id` returned when the draft was created.
+        schema:
+          type: string
+          format: uuid
+      security:
+      - accessToken: []
+    delete:
+      tags:
+      - Onboarding
+      summary: Delete an onboarding request draft
+      description: Deletes the draft and its documents, for good. A submitted request cannot be deleted.
+      operationId: deleteDataspaceOnboardingRequest
+      responses:
+        '204':
+          description: The draft was deleted.
+        '400':
+          description: '`If-Match` is not a version.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown request, or one created by another participant.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: '`If-Match` is not the request''s current version: read it again, then retry.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: The request has been submitted and can no longer be changed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '428':
+          description: '`If-Match` is missing.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing, invalid or expired access token (answered by the gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        description: The `id` returned when the draft was created.
+        schema:
+          type: string
+          format: uuid
+      - name: If-Match
+        in: header
+        required: true
+        description: The request's current `version` (its `ETag`), for example `"3"`.
+        schema:
+          type: string
+      security:
+      - accessToken: []
+    put:
+      tags:
+      - Onboarding
+      summary: Correct an onboarding request draft
+      description: Replaces the draft's data with the body (same as the create). The documents already
+        uploaded are kept, except the signed copies that no longer match (see "Drafts and retries" in
+        the API description).
+      operationId: replaceDataspaceOnboardingRequest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataspaceOnboardingRequestWriteDto'
+        required: true
+        description: The onboarding request itself.
+      responses:
+        '200':
+          description: The draft was updated.
+          headers:
+            ETag:
+              description: The request's current version, to send back in If-Match.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataspaceOnboardingRequestDto'
+        '400':
+          description: The body is not a valid request (every problem is listed in `errors`), or `If-Match`
+            is not a version.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown request, or one created by another participant.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: '`If-Match` is not the request''s current version: read it again, then retry.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: The request has been submitted and can no longer be changed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '428':
+          description: '`If-Match` is missing.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing, invalid or expired access token (answered by the gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        description: The `id` returned when the draft was created.
+        schema:
+          type: string
+          format: uuid
+      - name: If-Match
+        in: header
+        required: true
+        description: The request's current `version` (its `ETag`), for example `"3"`.
+        schema:
+          type: string
+      security:
+      - accessToken: []
+  /{requestId}/documents:
+    get:
+      tags:
+      - Onboarding
+      summary: List the documents of an onboarding request
+      description: Every document of the request, oldest first, whatever its status. A document replaced
+        or removed is no longer listed.
+      operationId: listDataspaceOnboardingRequestDocuments
+      responses:
+        '200':
+          description: The request's documents.
+          headers:
+            ETag:
+              description: The request's current version, to send back in If-Match.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingDocumentListDto'
+        '404':
+          description: Unknown request, or one created by another participant.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing, invalid or expired access token (answered by the gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        description: The `id` returned when the draft was created.
+        schema:
+          type: string
+          format: uuid
+      security:
+      - accessToken: []
+    post:
+      tags:
+      - Onboarding
+      summary: Add a document to the draft
+      description: 'See "Documents" in the API description: what the document is goes in the form fields,
+        the file in the `file` part. The response carries the new document and the request''s new version.'
+      operationId: addDataspaceOnboardingRequestDocument
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OnboardingDocumentUploadDto'
+        required: true
+      responses:
+        '201':
+          description: The document was added.
+          headers:
+            ETag:
+              description: The request's new version, to send back in If-Match.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingDocumentResultDto'
+        '400':
+          description: A field missing or not allowed for this `type`, no file or an empty one, no file
+            name or one longer than 255 characters, content that is not what its `Content-Type` says,
+            or `If-Match` is not a version. The first problem found is in `detail` (no `errors` list).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown request, or one created by another participant.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: 'The slot of this `type` already holds a document (its `documentId` is in the body:
+            replace its file with `PUT /{requestId}/documents/{documentId}`), or `If-Match` is not the
+            request''s current version.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: The file is larger than 10 MB.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          description: The file is not a PDF, PNG or JPEG.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: The request has been submitted, `useCaseId` is not one of its `ucas`, it already
+            has 5 `other` documents, or its documents would weigh more than 50 MB together.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '428':
+          description: '`If-Match` is missing.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing, invalid or expired access token (answered by the gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        description: The `id` returned when the draft was created.
+        schema:
+          type: string
+          format: uuid
+      - name: If-Match
+        in: header
+        required: true
+        description: The request's current `version` (its `ETag`), for example `"3"`.
+        schema:
+          type: string
+      security:
+      - accessToken: []
+  /{requestId}/documents/{documentId}:
+    get:
+      tags:
+      - Onboarding
+      summary: Download a document
+      description: The file as it was uploaded, always as an attachment (`Content-Disposition` carries
+        its name).
+      operationId: downloadDataspaceOnboardingRequestDocument
+      responses:
+        '200':
+          description: The file.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Unknown request or document, or one of another participant.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '410':
+          description: The file was purged at the end of its retention period.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing, invalid or expired access token (answered by the gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        description: The `id` returned when the draft was created.
+        schema:
+          type: string
+          format: uuid
+      - name: documentId
+        in: path
+        required: true
+        description: The `documentId` of one of the request's documents.
+        schema:
+          type: string
+          format: uuid
+      security:
+      - accessToken: []
+    put:
+      tags:
+      - Onboarding
+      summary: Replace the file of a document of the draft
+      description: 'See "Documents" in the API description: the new file goes in the `file` part, and
+        an `other`''s label in `label`. The document keeps its `documentId`. The response carries the
+        document and the request''s new version.'
+      operationId: replaceDataspaceOnboardingRequestDocument
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OnboardingDocumentReplaceDto'
+        required: true
+      responses:
+        '200':
+          description: The document's file was replaced.
+          headers:
+            ETag:
+              description: The request's new version, to send back in If-Match.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingDocumentResultDto'
+        '400':
+          description: '`label` missing for an `other` or sent for any other type, no file or an empty
+            one, no file name or one longer than 255 characters, content that is not what its `Content-Type`
+            says, or `If-Match` is not a version. The first problem found is in `detail` (no `errors`
+            list).'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown request or document, or one of another participant.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: '`If-Match` is not the request''s current version: read it again, then retry.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: The file is larger than 10 MB.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          description: The file is not a PDF, PNG or JPEG.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: The request has been submitted, or its documents would weigh more than 50 MB together.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '428':
+          description: '`If-Match` is missing.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing, invalid or expired access token (answered by the gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        description: The `id` returned when the draft was created.
+        schema:
+          type: string
+          format: uuid
+      - name: documentId
+        in: path
+        required: true
+        description: The `documentId` of one of the request's documents.
+        schema:
+          type: string
+          format: uuid
+      - name: If-Match
+        in: header
+        required: true
+        description: The request's current `version` (its `ETag`), for example `"3"`.
+        schema:
+          type: string
+      security:
+      - accessToken: []
+    delete:
+      tags:
+      - Onboarding
+      summary: Remove a document from the draft
+      description: Deletes the document for good. A removed GTC or use case agreement is reported missing
+        at submit.
+      operationId: removeDataspaceOnboardingRequestDocument
+      responses:
+        '200':
+          description: The document was removed; the body carries the request's new version.
+          headers:
+            ETag:
+              description: The request's new version, to send back in If-Match.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingRequestVersionDto'
+        '400':
+          description: '`If-Match` is not a version.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown request or document, or one of another participant.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: '`If-Match` is not the request''s current version: read it again, then retry.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: The request has been submitted and can no longer be changed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '428':
+          description: '`If-Match` is missing.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing, invalid or expired access token (answered by the gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        description: The `id` returned when the draft was created.
+        schema:
+          type: string
+          format: uuid
+      - name: documentId
+        in: path
+        required: true
+        description: The `documentId` of one of the request's documents.
+        schema:
+          type: string
+          format: uuid
+      - name: If-Match
+        in: header
+        required: true
+        description: The request's current `version` (its `ETag`), for example `"3"`.
+        schema:
+          type: string
+      security:
+      - accessToken: []
+  /{requestId}/submit:
+    post:
+      tags:
+      - Onboarding
+      summary: Submit the draft for review
+      description: Checks that the draft is complete (data and documents) and submits it; it then waits
+        for review by a TSP operator. A replay returns the request as submitted.
+      operationId: submitDataspaceOnboardingRequest
+      responses:
+        '200':
+          description: The request was submitted.
+          headers:
+            ETag:
+              description: The request's current version, to send back in If-Match.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataspaceOnboardingRequestDto'
+        '400':
+          description: '`If-Match` is not a version.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown request, or one created by another participant.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: '`If-Match` is not the request''s current version: read it again, then retry.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: 'The draft is incomplete, or its `preferredDid` is already in use: every problem
+            is listed in `errors`, and the draft is left unchanged. Also when the participant already
+            has 10 submitted requests awaiting a decision (no `errors` then): submit it again once one
+            of them is approved or rejected.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '428':
+          description: '`If-Match` is missing.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing, invalid or expired access token (answered by the gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        description: The `id` returned when the draft was created.
+        schema:
+          type: string
+          format: uuid
+      - name: If-Match
+        in: header
+        required: true
+        description: The request's current `version` (its `ETag`), for example `"3"`.
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: false
+        description: Optional. Any unique value; a retry with the same key and content returns the first
+          result.
+        schema:
+          type: string
+      security:
+      - accessToken: []
+components:
+  securitySchemes:
+    accessToken:
+      type: http
+      scheme: bearer
+      description: The access token of the transfer.
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details, as returned by the TSP.
+      properties:
+        type:
+          type: string
+          description: 'What went wrong, as `urn:decade-x:tsp:problem:<code>`: stable, to act on without
+            reading `detail`. The codes of this API: `invalid-request` (a body refused by validation,
+            problems listed in `errors`), `malformed-if-match` (`If-Match` is not a version), `precondition-required`
+            (`If-Match` is missing), `version-conflict` (`If-Match` is not the current version: read the
+            request again, then retry), `idempotency-key-reused` (the key was already used with different
+            content), `not-found` (unknown request or document, or one of another participant), `unauthorized`
+            (no valid identity of the calling participant), `invalid-onboarding-request-state` (the request
+            is no longer a draft), `onboarding-request-submit-rejected` (the draft is incomplete or its
+            DID is taken, problems listed in `errors`), `connector-draft-limit-reached` (already 10 drafts),
+            `connector-pending-request-limit-reached` (already 10 submitted requests awaiting a decision),
+            `invalid-document-upload` (a document field or the file is not valid), `unsupported-document-type`
+            (not a PDF, PNG or JPEG), `content-too-large` (the file is larger than 10 MB), `document-slot-taken`
+            (the slot already holds a document, its `documentId` is in the body), `use-case-not-in-request`
+            (`useCaseId` is not one of the request''s `ucas`), `other-document-limit-reached` (already
+            5 `other` documents), `document-quota-exceeded` (the documents would weigh more than 50 MB
+            together), `internal-error` (a failure on the TSP''s side).'
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        errors:
+          type: array
+          description: 'Present on validation failures: one entry per problem.'
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+        documentId:
+          type: string
+          format: uuid
+          description: 'Present on the 409 of a document added to a slot that already holds one: the document
+            on file, whose file is replaced with `PUT /{requestId}/documents/{documentId}`.'
+    AddressDto:
+      type: object
+      properties:
+        street:
+          type: string
+          maxLength: 255
+          minLength: 0
+        postalCode:
+          type: string
+          maxLength: 32
+          minLength: 0
+        locality:
+          type: string
+          maxLength: 255
+          minLength: 0
+        countryCode:
+          type: string
+          maxLength: 2
+          minLength: 0
+        countryName:
+          type: string
+          maxLength: 255
+          minLength: 0
+    BusinessSiteRequestDto:
+      type: object
+      properties:
+        siteId:
+          type: string
+          maxLength: 64
+          minLength: 0
+        siteName:
+          type: string
+          maxLength: 255
+          minLength: 0
+        siteNameAlias:
+          type: string
+          maxLength: 255
+          minLength: 0
+        mainAddress:
+          $ref: '#/components/schemas/AddressDto'
+        secondaryAddress:
+          $ref: '#/components/schemas/AddressDto'
+        registrationNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistrationNumberDto'
+          maxItems: 20
+          minItems: 0
+    BusinessSiteResponseDto:
+      type: object
+      properties:
+        siteId:
+          type: string
+        siteName:
+          type: string
+        siteNameAlias:
+          type: string
+        mainAddress:
+          $ref: '#/components/schemas/AddressDto'
+        secondaryAddress:
+          $ref: '#/components/schemas/AddressDto'
+        registrationNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistrationNumberDto'
+        ownedBy:
+          type: string
+        creationDate:
+          type: string
+          format: date-time
+        updatingDate:
+          type: string
+          format: date-time
+    Consent:
+      type: object
+      properties:
+        versionId:
+          type: string
+          format: uuid
+        versionNumber:
+          type: string
+        accepted:
+          type: boolean
+        acceptedAt:
+          type: string
+          format: date-time
+        document:
+          $ref: '#/components/schemas/DocumentRefDto'
+    DataspaceConsentDeclarationRequestDto:
+      type: object
+      properties:
+        versionNumber:
+          type: string
+          maxLength: 32
+          minLength: 0
+    DataspaceOnboardingRequestDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: string
+          description: The request's current version, to send back in `If-Match` (also the `ETag` header).
+        businessId:
+          type: string
+        status:
+          type: string
+          enum:
+          - DRAFT
+          - SUBMITTED
+          - UNDER_REVIEW
+          - ON_HOLD
+          - APPROVAL_IN_PROGRESS
+          - APPROVAL_FAILED
+          - APPROVED
+          - REJECTED
+        connectorId:
+          type: string
+          description: The identity recorded for the calling participant.
+        submittedAt:
+          type: string
+          format: date-time
+        legalEntity:
+          $ref: '#/components/schemas/LegalEntityResponseDto'
+        legalPerson:
+          $ref: '#/components/schemas/LegalPersonDto'
+        businessSites:
+          type: array
+          items:
+            $ref: '#/components/schemas/BusinessSiteResponseDto'
+        gtc:
+          $ref: '#/components/schemas/Consent'
+        ucas:
+          type: array
+          items:
+            $ref: '#/components/schemas/UcaAcceptance'
+        declarations:
+          $ref: '#/components/schemas/DeclarationsDto'
+        applicantReference:
+          type: string
+        registrationExtractDocument:
+          $ref: '#/components/schemas/DocumentRefDto'
+        powerOfAttorneyDocument:
+          $ref: '#/components/schemas/DocumentRefDto'
+        otherDocuments:
+          type: array
+          items:
+            $ref: '#/components/schemas/OnboardingDocumentDto'
+          description: The request's `other` documents (also in `GET /{requestId}/documents`).
+        decision:
+          $ref: '#/components/schemas/Decision'
+      description: An onboarding request with its status. `decision` is null until a decision is taken.
+    DataspaceOnboardingRequestWriteDto:
+      type: object
+      properties:
+        legalEntity:
+          $ref: '#/components/schemas/LegalEntityRequestDto'
+        legalPerson:
+          $ref: '#/components/schemas/LegalPersonDto'
+        businessSites:
+          type: array
+          items:
+            $ref: '#/components/schemas/BusinessSiteRequestDto'
+          maxItems: 100
+          minItems: 0
+        gtc:
+          $ref: '#/components/schemas/DataspaceConsentDeclarationRequestDto'
+        ucas:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataspaceUcaAcceptanceRequestDto'
+          maxItems: 50
+          minItems: 0
+        declarations:
+          $ref: '#/components/schemas/DeclarationsDto'
+        applicantReference:
+          type: string
+          maxLength: 255
+          minLength: 0
+    DataspaceUcaAcceptanceRequestDto:
+      type: object
+      properties:
+        useCaseId:
+          type: string
+          enum:
+          - export-control
+          - product-conformity
+          - critical-supply-chain
+          - engineering
+          - development-and-industrialisation
+          - demand-and-capacity-management
+          - non-quality-management
+          - substance-tracking
+          description: 'The use case agreed to, one of the TSP''s use cases: `export-control` (Export
+            Control), `product-conformity` (Product Conformity), `critical-supply-chain` (Critical Supply
+            Chain), `engineering` (Engineering), `development-and-industrialisation` (Development and
+            Industrialisation), `demand-and-capacity-management` (Demand & Capacity Management), `non-quality-management`
+            (Non-quality management), `substance-tracking` (Substance Tracking).'
+        useCaseName:
+          type: string
+          deprecated: true
+          description: 'Ignored: the TSP names the use case from its `useCaseId`.'
+          maxLength: 255
+          minLength: 0
+        versionNumber:
+          type: string
+          maxLength: 32
+          minLength: 0
+      required:
+      - useCaseId
+    Decision:
+      type: object
+      properties:
+        decidedAt:
+          type: string
+          format: date-time
+        rejectReasonCode:
+          type: string
+          enum:
+          - INCOMPLETE
+          - INVALID_LEGAL_ENTITY
+          - IDENTITY_VERIFICATION_FAILURE
+          - COMPLIANCE_ISSUE
+          - OTHER
+        rejectComment:
+          type: string
+        resubmissionAllowed:
+          type: boolean
+    DeclarationsDto:
+      type: object
+      properties:
+        informationAccurate:
+          type: boolean
+        authorisedToAct:
+          type: boolean
+        evidenceMayBeRequested:
+          type: boolean
+    DocumentRefDto:
+      type: object
+      properties:
+        documentId:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        contentType:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        uploadedAt:
+          type: string
+          format: date-time
+    LegalEntityRequestDto:
+      type: object
+      properties:
+        preferredDid:
+          type: string
+          maxLength: 512
+          minLength: 0
+        legalName:
+          type: string
+          maxLength: 255
+          minLength: 0
+        registrationCountry:
+          type: string
+          maxLength: 2
+          minLength: 0
+        companyType:
+          type: string
+          enum:
+          - PRIVATE_LIMITED_COMPANY
+          - LIMITED_LIABILITY_COMPANY
+          - EUROPEAN_COMPANY
+          - COOPERATIVE
+          - PUBLIC_AUTHORITY
+          - OTHER
+        companyTypeOther:
+          type: string
+          maxLength: 255
+          minLength: 0
+        accreditationNumber:
+          type: string
+          maxLength: 255
+          minLength: 0
+        website:
+          type: string
+          maxLength: 2048
+          minLength: 0
+        registrationNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistrationNumberDto'
+          maxItems: 20
+          minItems: 0
+        legalAddress:
+          $ref: '#/components/schemas/AddressDto'
+    LegalEntityResponseDto:
+      type: object
+      properties:
+        legalEntityId:
+          type: string
+        preferredDid:
+          type: string
+        legalName:
+          type: string
+        registrationCountry:
+          type: string
+        companyType:
+          type: string
+          enum:
+          - PRIVATE_LIMITED_COMPANY
+          - LIMITED_LIABILITY_COMPANY
+          - EUROPEAN_COMPANY
+          - COOPERATIVE
+          - PUBLIC_AUTHORITY
+          - OTHER
+        companyTypeOther:
+          type: string
+        accreditationNumber:
+          type: string
+        website:
+          type: string
+        registrationNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistrationNumberDto'
+        legalAddress:
+          $ref: '#/components/schemas/AddressDto'
+    LegalPersonDto:
+      type: object
+      properties:
+        fullName:
+          type: string
+          maxLength: 255
+          minLength: 0
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          minLength: 0
+        role:
+          type: string
+          maxLength: 255
+          minLength: 0
+        phoneNumber:
+          type: string
+          maxLength: 32
+          minLength: 0
+        headquartersAddress:
+          $ref: '#/components/schemas/AddressDto'
+        powerOfAttorneyValidUntil:
+          type: string
+          format: date
+    OnboardingDocumentDto:
+      type: object
+      properties:
+        documentId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum:
+          - gtc
+          - uca
+          - registration-extract
+          - power-of-attorney
+          - other
+        useCaseId:
+          type: string
+          description: Set for a `uca` only.
+        label:
+          type: string
+          description: Set for an `other` only.
+        filename:
+          type: string
+        contentType:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        uploadedAt:
+          type: string
+          format: date-time
+        validUntil:
+          type: string
+          format: date
+          description: 'Set for a `power-of-attorney` only: the `legalPerson.powerOfAttorneyValidUntil`
+            it was added with.'
+    OnboardingDocumentListDto:
+      type: object
+      properties:
+        version:
+          type: string
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/OnboardingDocumentDto'
+    OnboardingDocumentReplaceDto:
+      type: object
+      properties:
+        label:
+          type: string
+          description: 'Required for an `other`: what the document is, at most 255 characters. Refused
+            otherwise.'
+          example: Insurance certificate 2026
+          maxLength: 255
+        file:
+          type: string
+          format: binary
+          description: 'The new file: PDF, PNG or JPEG, at most 10 MB, its part''s Content-Type saying
+            which. Its file name (at most 255 characters) is kept.'
+      required:
+      - file
+    OnboardingDocumentResultDto:
+      type: object
+      properties:
+        version:
+          type: string
+        document:
+          $ref: '#/components/schemas/OnboardingDocumentDto'
+    OnboardingDocumentUploadDto:
+      type: object
+      properties:
+        type:
+          type: string
+          description: 'What the document is. `gtc`: the General Terms and Conditions signed by the applicant,
+            for the version named in `gtc` (required to submit; dropped when that version changes). `uca`:
+            the signed use case agreement of the use case named by `useCaseId`, one for every entry of
+            `ucas` (required to submit; dropped when that use case leaves `ucas` or its version changes).
+            `registration-extract`: extract from the company register (or equivalent official proof of
+            registration) backing `legalEntity.registrationNumbers` (optional). `power-of-attorney`: shows
+            that `legalPerson` may act for the company; give its expiry date in `legalPerson.powerOfAttorneyValidUntil`
+            before adding it (optional). `other`: any other document that supports the request, named
+            by `label` (optional, at most 5).'
+          enum:
+          - gtc
+          - uca
+          - registration-extract
+          - power-of-attorney
+          - other
+        useCaseId:
+          type: string
+          enum:
+          - export-control
+          - product-conformity
+          - critical-supply-chain
+          - engineering
+          - development-and-industrialisation
+          - demand-and-capacity-management
+          - non-quality-management
+          - substance-tracking
+          description: 'Required for a `uca`: the `useCaseId` of one of the request''s `ucas` (`export-control`
+            (Export Control), `product-conformity` (Product Conformity), `critical-supply-chain` (Critical
+            Supply Chain), `engineering` (Engineering), `development-and-industrialisation` (Development
+            and Industrialisation), `demand-and-capacity-management` (Demand & Capacity Management), `non-quality-management`
+            (Non-quality management), `substance-tracking` (Substance Tracking)). Refused otherwise.'
+        label:
+          type: string
+          description: 'Required for an other: what the document is, at most 255 characters. Refused otherwise.'
+          example: Insurance certificate 2026
+          maxLength: 255
+        file:
+          type: string
+          format: binary
+          description: 'The file: PDF, PNG or JPEG, at most 10 MB, its part''s Content-Type saying which.
+            Its file name (at most 255 characters) is kept.'
+      required:
+      - type
+      - file
+    OnboardingRequestVersionDto:
+      type: object
+      properties:
+        version:
+          type: string
+    RegistrationNumberDto:
+      type: object
+      properties:
+        scheme:
+          type: string
+          enum:
+          - taxID
+          - vatID
+          - leiCode
+          - duns
+          - eori
+          - euid
+          - bvd
+          - cageCode
+        value:
+          type: string
+          maxLength: 255
+          minLength: 0
+      required:
+      - scheme
+      - value
+    UcaAcceptance:
+      type: object
+      properties:
+        useCaseId:
+          type: string
+        useCaseName:
+          type: string
+        versionId:
+          type: string
+          format: uuid
+        versionNumber:
+          type: string
+        accepted:
+          type: boolean
+        acceptedAt:
+          type: string
+          format: date-time
+        document:
+          $ref: '#/components/schemas/DocumentRefDto'

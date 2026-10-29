@@ -1,7 +1,7 @@
 ## Registers this app's ServiceAccount in JWTlet so the pod's projected SA token can be exchanged
 ## (RFC 8693) for the tokens it needs: one mapping per participant context it exchanges under
 ## (`issuer` for the Tenant Manager — the app's only downstream exchange; credential offers belong
-## to the onboarding-api, and so does the issuer-admin mapping). The scope mappings
+## to the cx-onboarding-api, and so does the issuer-admin mapping). The scope mappings
 ## themselves are seeded by the platform; this job only registers the SA. Mirrors the
 ## verification-ui chart's seed; creating a mapping is idempotent (409 = already exists).
 {{- if .Values.jwtlet.seed.enabled }}
@@ -14,7 +14,7 @@ metadata:
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     # Weight 230: in the umbrella release all subcharts share one hook space — the platform's
-    # seeds run at 10/20, the catenax-profile ones at 110-130, the onboarding-api mapping at 200
+    # seeds run at 10/20, the catenax-profile ones at 110-130, the cx-onboarding-api mapping at 200
     # and the certo seeds at 210/220. This job only needs jwtlet up, but a deterministic late
     # slot keeps the ordering obvious.
     "helm.sh/hook-weight": "230"

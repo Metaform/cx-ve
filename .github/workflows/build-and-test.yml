@@ -24,8 +24,12 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Build and test
-        working-directory: onboarding-api
+      - name: Build and test cx-onboarding-api
+        working-directory: cx-onboarding-api
+        run: ./gradlew build
+
+      - name: Build and test dx-onboarding-api
+        working-directory: dx-onboarding-api
         run: ./gradlew build
 
       - name: Build and test membership-hub

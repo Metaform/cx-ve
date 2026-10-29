@@ -14,7 +14,7 @@ metadata:
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     # Weight 240: in the umbrella release all subcharts share one hook space — the platform's
-    # seeds run at 10/20, the catenax-profile ones at 110-130, the onboarding-api mapping at 200,
+    # seeds run at 10/20, the catenax-profile ones at 110-130, the cx-onboarding-api mapping at 200,
     # the certo seeds at 210/220 and the membership-hub mapping at 230. This job only needs
     # jwtlet up, but a deterministic late slot keeps the ordering obvious.
     "helm.sh/hook-weight": "240"
