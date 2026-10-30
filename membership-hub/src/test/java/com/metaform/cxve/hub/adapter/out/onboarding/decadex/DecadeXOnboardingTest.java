@@ -236,7 +236,8 @@ class DecadeXOnboardingTest {
                 .containsEntry("id", DID)
                 .containsEntry("memberOf", "DECADE-X")
                 .containsEntry("decadeXId", "DX-00000001")
-                .containsEntry("bpn", "DX-00000001");
+                .containsEntry("dataspaceIdentifier", "DX-00000001")
+                .doesNotContainKey("bpn");
     }
 
     // --- draft, documents, submit ---
