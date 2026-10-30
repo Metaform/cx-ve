@@ -20,7 +20,7 @@ dependencies:
   # infra (NATS/Vault/Postgres/telemetry) + generic platform seeding
   - name: core-platform-distribution
     repository: oci://ghcr.io/eclipse-cfm/charts
-    version: 0.0.34
+    version: 0.0.37
   # DECADE-X dataspace seeding from this repository: the EDC dataspace profile + DCP scope, and the
   # tenant-manager dataspace profile participant provisioning needs
   - name: decadex-profile
