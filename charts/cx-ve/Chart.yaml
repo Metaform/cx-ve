@@ -16,7 +16,7 @@ dependencies:
   # infra (NATS/Vault/Postgres/telemetry) + generic platform seeding
   - name: core-platform-distribution
     repository: oci://ghcr.io/eclipse-cfm/charts
-    version: 0.0.34
+    version: 0.0.37
   # The DECADE-X onboarding API (the TSP onboarding intake) from this repository
   - name: dx-onboarding-api
     repository: file://../dx-onboarding-api
