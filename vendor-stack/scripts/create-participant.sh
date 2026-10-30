@@ -73,7 +73,7 @@ if [[ -n "$EXISTING" ]]; then
   tm GET "/tenants/$TENANT_ID"
   expect_2xx "reading tenant $TENANT_ID"
   EXISTING_NAME=$(printf '%s' "$HTTP_BODY" | jq -r '.properties.name // empty')
-  EXISTING_MEMBER_ID=$(printf '%s' "$EXISTING" | jq -r '.vpas[]? | select(.type == "cfm.issuer") | .properties.bpn // empty')
+  EXISTING_MEMBER_ID=$(printf '%s' "$EXISTING" | jq -r '.vpas[]? | select(.type == "cfm.issuer") | .properties.dataspaceIdentifier // empty')
   # -n and -m cannot change an existing participant: a different value means another participant
   # was meant, which only a different short name creates.
   if [[ "$NAME_GIVEN" == true && "$NAME" != "$EXISTING_NAME" ]]; then
@@ -91,9 +91,9 @@ else
   expect_2xx "tenant creation"
   TENANT_ID=$(printf '%s' "$HTTP_BODY" | jq -r .id)
 
-  # The certo activity (the Certo CFM agent) reads the member id from cfm.issuer under `bpn`,
-  # whatever the dataspace — the VE's Membership Hub deploys its members the same way; Certo itself
-  # no longer uses it. The mapping makes Certo's protocol API the endpoint of the participant's
+  # The certo activity (the Certo CFM agent) reads the member id from cfm.issuer under
+  # `dataspaceIdentifier`, whatever the dataspace, and creates the participant's Certo tenant with
+  # it — the VE's Membership Hub deploys its members the same way. The mapping makes Certo's protocol API the endpoint of the participant's
   # pull flows, with the counterparty's member id stamped into the flow token from its member
   # credential as `dataspaceidentifier` — the optional claim Certo reads it from; Certo correlates
   # counterparties by the token subject, their DID. The endpoint is counterparty-facing, hence the
@@ -102,7 +102,7 @@ else
   case "$VENDOR_DATASPACE" in
     decade-x)
       ISSUER_PROPERTIES=$(jq -n --arg did "$DID" --arg id "$MEMBER_ID" \
-        '{id: $did, memberOf: "DECADE-X", decadeXId: $id, bpn: $id}')
+        '{id: $did, memberOf: "DECADE-X", decadeXId: $id, dataspaceIdentifier: $id}')
       FLOW_CLAIM="flow.claims.vc.withType('dx:DX_LegalEntity_VC').claim('partner.partnerID')"
       ;;
   esac

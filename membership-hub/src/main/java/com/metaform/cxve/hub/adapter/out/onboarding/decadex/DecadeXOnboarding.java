@@ -128,10 +128,10 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
     }
 
     /**
-     * DECADE-X membership is the dataspace itself; the DECADE-X-ID is carried under {@code bpn}
-     * too, because that is the key the certo CFM agent reads a member's id from (it posts
-     * {@code {bpn, did, participantContextId, source}} to certo). Certo 0.0.8 ignores {@code bpn},
-     * so the tenant's {@code dataspaceIdentifier} stays unset.
+     * DECADE-X membership is the dataspace itself; the DECADE-X-ID is carried under
+     * {@code dataspaceIdentifier} too, because that is the key the certo CFM agent reads a member's
+     * id from (it posts {@code {participantContextId, did, dataspaceIdentifier}} to certo, which
+     * stamps it into the tenant's events as {@code dataspaceidentifier}).
      */
     @Override
     public Map<String, Object> issuerProperties(String did, MemberData data) {
@@ -139,7 +139,7 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
                 "id", did,
                 "memberOf", "DECADE-X",
                 "decadeXId", data.memberId(),
-                "bpn", data.memberId());
+                "dataspaceIdentifier", data.memberId());
     }
 
     /** Nothing to register: the TSP has no status callbacks — its status is polled. */

@@ -107,7 +107,8 @@ rendered 1:1 into the pod's application.yaml). Notable:
   `tenant-manager-api:read/write` scopes.
 - `participant.*` — the DID template and the `cfm.dataplane`/CCM transfer-type mappings sent with
   the participant profile. The `cfm.issuer` VPA properties are always sent (the certo CFM agent
-  reads the member id from them, under `bpn` — certo itself no longer uses it); their content is the
+  reads the member id from them, under `dataspaceIdentifier`, and creates the member's certo tenant
+  with it); their content is the
   dataspace's.
 
 The image is published by `.github/workflows/publish.yml` to
