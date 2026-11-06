@@ -1,12 +1,12 @@
 dependencies:
 - name: core-platform-distribution
   repository: oci://ghcr.io/eclipse-cfm/charts
-  version: 0.0.37
+  version: 0.0.38
 - name: decadex-profile
   repository: file://../../charts/decadex-profile
   version: 0.1.0
 - name: certo
   repository: oci://ghcr.io/metaform/charts
   version: 0.0.8
-digest: sha256:f6eb9c013ec9da110673dd545196fc584a377424a005769ffe0833582e10a621
-generated: "2026-10-30T09:23:51.271965667Z"
+digest: sha256:522471d02af7e32ef93bfa7ddd0a97d1d71f67759ac79acb60a343d1410d2c90
+generated: "2026-11-06T11:53:20.902352907Z"
