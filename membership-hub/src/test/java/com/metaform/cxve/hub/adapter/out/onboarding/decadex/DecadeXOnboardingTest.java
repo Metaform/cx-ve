@@ -466,6 +466,35 @@ class DecadeXOnboardingTest {
     }
 
     @Test
+    void pollStatus_aRequestAskedForChanges_isSubmittedAgainAsItIs_andStaysPending() {
+        expect(HttpMethod.GET, API + "/req-5", DID).andRespond(json(HttpStatus.OK, "7", """
+                {"id": "req-5", "version": "7", "status": "CHANGES_REQUESTED",
+                 "changeRequest": {"requestedAt": "2026-10-02T10:00:00Z", "comment": "Submit it again", "items": []}}"""));
+        expect(HttpMethod.POST, API + "/req-5/submit", DID)
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer hub-token"))
+                .andExpect(header(HttpHeaders.IF_MATCH, "\"7\""))
+                .andExpect(header(DecadeXOnboarding.IDEMPOTENCY_KEY_HEADER, "dx-submit-ext-1"))
+                .andRespond(json(HttpStatus.OK, "8", draft("req-5", "UNDER_REVIEW")));
+
+        assertThat(onboarding.pollStatus(submitted("req-5")))
+                .isEqualTo(new RegistrationOutcome("ext-1", RegistrationOutcome.Status.PENDING, null));
+        server.verify();
+    }
+
+    @Test
+    void pollStatus_aResubmitTheTspRefuses_failsThePoll_whichIsRetried() {
+        expect(HttpMethod.GET, API + "/req-5", DID).andRespond(json(HttpStatus.OK, "7", """
+                {"id": "req-5", "status": "CHANGES_REQUESTED"}"""));
+        expect(HttpMethod.POST, API + "/req-5/submit", DID)
+                .andRespond(problem(HttpStatus.CONFLICT, "version-conflict", "\"detail\": \"read it again\""));
+
+        assertThatThrownBy(() -> onboarding.pollStatus(submitted("req-5")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("refused to submit the onboarding request (409): read it again");
+        server.verify();
+    }
+
+    @Test
     void pollStatus_aFailedProvisioningDeclinesTheMembership() {
         expectStatus("req-4", """
                 {"id": "req-4", "status": "APPROVAL_FAILED",

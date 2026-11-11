@@ -2,6 +2,7 @@ package com.metaform.dxonboarding.adapter.in.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.metaform.dxonboarding.domain.model.onboarding.Address;
+import com.metaform.dxonboarding.domain.model.onboarding.ChangeRequest;
 import com.metaform.dxonboarding.domain.model.onboarding.CompanyType;
 import com.metaform.dxonboarding.domain.model.onboarding.Declarations;
 import com.metaform.dxonboarding.domain.model.onboarding.DocumentType;
@@ -17,7 +18,8 @@ import java.util.UUID;
 
 /**
  * An onboarding request with its status ({@code DataspaceOnboardingRequestDto}). {@code submittedAt}
- * is absent while it is a draft, {@code decision} until a decision is taken. The GTC and use case
+ * is absent while it is a draft, {@code decision} until a decision is taken, {@code changeRequest}
+ * unless the review asked for changes. The GTC and use case
  * agreements carry no {@code versionId} nor {@code accepted}: the applicant names a version, and
  * signs it with the document.
  */
@@ -39,7 +41,8 @@ public record OnboardingRequestView(
         DocumentRefView registrationExtractDocument,
         DocumentRefView powerOfAttorneyDocument,
         List<DocumentView> otherDocuments,
-        ReviewDecision decision) {
+        ReviewDecision decision,
+        ChangeRequest changeRequest) {
 
     public static OnboardingRequestView from(OnboardingRequest request) {
         var data = request.data();
@@ -72,7 +75,8 @@ public record OnboardingRequestView(
                 request.document(DocumentType.REGISTRATION_EXTRACT, null).map(DocumentRefView::from).orElse(null),
                 request.document(DocumentType.POWER_OF_ATTORNEY, null).map(DocumentRefView::from).orElse(null),
                 request.documents(DocumentType.OTHER).stream().map(DocumentView::from).toList(),
-                request.decision());
+                request.decision(),
+                request.changeRequest());
     }
 
     /**

@@ -10,7 +10,8 @@ import java.util.UUID;
 
 /**
  * The TSP's onboarding intake, as a dataspace participant reaches it through the dataspace: a
- * draft is created, completed with its documents, and submitted for review. Every call is a
+ * draft is created, completed with its documents, and submitted for review — and corrected and
+ * submitted again, when the review asks for changes. Every call is a
  * connector's, identified by what the dataspace stamped on it; requests are scoped to the
  * connector that created them, and another connector's request reads like an unknown one.
  *
@@ -42,27 +43,31 @@ public interface OnboardingRequestService {
 
     OnboardingRequest get(String connectorId, String requestId);
 
-    /** Replaces the draft's data, dropping the signed documents that no longer match it. */
+    /**
+     * Replaces the data of a draft — or of a request the review asked changes of —, dropping the
+     * signed documents that no longer match it.
+     */
     OnboardingRequest replace(String connectorId, String requestId, long version, OnboardingRequestData data);
 
-    /** Deletes the draft and its documents, for good. */
+    /** Deletes the draft and its documents, for good. Only a draft: a submitted request stays. */
     void delete(String connectorId, String requestId, long version);
 
     DocumentChange addDocument(String connectorId, String requestId, long version, DocumentUpload upload);
 
-    /** Replaces the file of a document of the draft (and an {@code other}'s label); the document keeps its id. */
+    /** Replaces the file of a document of the request (and an {@code other}'s label); the document keeps its id. */
     DocumentChange replaceDocument(String connectorId, String requestId, UUID documentId, long version, String label,
                                    UploadedFile file);
 
-    /** Removes a document from the draft; returns the request at its new version. */
+    /** Removes a document from the request; returns the request at its new version. */
     OnboardingRequest removeDocument(String connectorId, String requestId, UUID documentId, long version);
 
     /** A document's file, whatever the request's status. */
     DocumentFile download(String connectorId, String requestId, UUID documentId);
 
     /**
-     * Submits the draft for review, once it is complete and its DID is free and resolves. A
-     * request already submitted is returned as it is.
+     * Submits the draft for review, once it is complete and its DID is free and resolves — or
+     * submits a request the review asked changes of again, under the same checks. A request
+     * already submitted, and with the review, is returned as it is.
      *
      * @param idempotencyKey optional; a key already used to submit another request is refused
      */

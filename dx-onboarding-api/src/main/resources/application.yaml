@@ -81,6 +81,9 @@ dx-onboarding:
   # identity under hosted-did-prefix: the verification participant, the e2e tests' participants)
   # are approved; EXTERNAL ones (systems under test) too, for now — switch that off to have them
   # wait for an operator's review.
+  # An automatic review asks for changes once before it approves (request-changes): the request
+  # becomes CHANGES_REQUESTED, with a changeRequest that asks for nothing, and is approved once
+  # the applicant submitted it again — the round a real review may ask of any participant.
   review:
     # The DID prefix the Membership Hub mints its participants' DIDs under (its
     # participant.did.template); host-derived: the install scripts override it for a non-default host.
@@ -88,6 +91,10 @@ dx-onboarding:
     auto-approve:
       hosted: true                                              # DXONBOARDING_REVIEW_AUTOAPPROVE_HOSTED
       external: true                                            # DXONBOARDING_REVIEW_AUTOAPPROVE_EXTERNAL
-    # How long an automatic approval waits after the submission (0: right away — still after the
-    # submitting call returned SUBMITTED).
+    # Which automatically reviewed requests are asked for changes once, before they are approved.
+    request-changes:
+      hosted: true                                              # DXONBOARDING_REVIEW_REQUESTCHANGES_HOSTED
+      external: true                                            # DXONBOARDING_REVIEW_REQUESTCHANGES_EXTERNAL
+    # How long an automatic review waits before each of its steps: after the submission, and after
+    # the request was submitted again (0: right away — still after the submitting call returned).
     delay: 0s                                                   # DXONBOARDING_REVIEW_DELAY

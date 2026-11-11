@@ -14,7 +14,8 @@ its TSP onboarding intake) by combining the two halves the VE deliberately keeps
    client-credentials against the VE's OSP IdP). For DECADE-X that is the `dx-onboarding-api`, the
    TSP onboarding intake: an approval registers the credential holder with the IssuerService and
    has it offer the member its credentials; the hub polls the request's status, and the approval
-   is the membership's terminal success.
+   is the membership's terminal success. When the review asks for changes (`CHANGES_REQUESTED`,
+   which the VE's TSP does once for every request), the hub submits the request again as it is.
 
 Everything dataspace-specific sits behind one `DataspaceOnboarding` implementation per dataspace
 (`adapter/out/onboarding/<dataspace>`): the shape of the request's `registration` object, the

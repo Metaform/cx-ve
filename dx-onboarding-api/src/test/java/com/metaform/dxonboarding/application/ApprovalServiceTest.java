@@ -1,6 +1,7 @@
 package com.metaform.dxonboarding.application;
 
 import com.metaform.dxonboarding.adapter.out.persistence.InMemoryOnboardingRequestRepository;
+import com.metaform.dxonboarding.domain.model.onboarding.ChangeRequest;
 import com.metaform.dxonboarding.domain.model.onboarding.DecadeXId;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingCompleted;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
@@ -173,5 +174,24 @@ class ApprovalServiceTest {
         assertThat(calls).isEmpty();
         assertThat(stored(request)).isEqualTo(rejected);
         assertThat(events.completed).isEmpty();
+    }
+
+    @Test
+    void aRequestUnderReview_isApproved_withTheChangeRequestItAnswered_butNotWhileItsApplicantCorrectsIt() {
+        var asked = filed(EXTERNAL, null).underReview().changesRequested(ChangeRequest.of(DECIDED_AT, "Please confirm", null));
+        repository.save(asked);
+
+        approval.approve(asked.id());
+
+        // handed back to the applicant: not the review's to approve
+        assertThat(stored(asked)).isEqualTo(asked);
+        assertThat(calls).isEmpty();
+
+        repository.save(asked.resubmitted(DECIDED_AT, null));
+        approval.approve(asked.id());
+
+        assertThat(stored(asked).status()).isEqualTo(OnboardingStatus.APPROVED);
+        assertThat(stored(asked).changeRequest().resubmittedAt()).isEqualTo(DECIDED_AT);
+        assertThat(events.completed).hasSize(1);
     }
 }

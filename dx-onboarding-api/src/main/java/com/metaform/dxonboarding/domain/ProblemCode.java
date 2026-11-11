@@ -12,7 +12,7 @@ public enum ProblemCode {
     IDEMPOTENCY_KEY_REUSED("idempotency-key-reused", 409, "Idempotency key reused"),
     NOT_FOUND("not-found", 404, "Not found"),
     UNAUTHORIZED("unauthorized", 401, "Unauthorized"),
-    INVALID_ONBOARDING_REQUEST_STATE("invalid-onboarding-request-state", 422, "Request no longer a draft"),
+    INVALID_ONBOARDING_REQUEST_STATE("invalid-onboarding-request-state", 422, "Request cannot be changed"),
     ONBOARDING_REQUEST_SUBMIT_REJECTED("onboarding-request-submit-rejected", 422, "Submit rejected"),
     CONNECTOR_DRAFT_LIMIT_REACHED("connector-draft-limit-reached", 422, "Draft limit reached"),
     CONNECTOR_PENDING_REQUEST_LIMIT_REACHED("connector-pending-request-limit-reached", 422,

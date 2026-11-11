@@ -7,11 +7,34 @@
 While the request is a draft, you can still correct it (replace data/documents, remove documents, or delete the draft).
 
 2. After submission, the request is read-only for you
-   Once a request is submitted, it belongs to the review. You can no longer change it; only the TSP operator can modify the request. If something needs correcting, only the operator can do it.
+   Once a request is submitted, it belongs to the review. You can no longer change it; only the TSP operator can modify the request. If something needs correcting, the operator either does it or asks you to (see 3).
 
-You can still follow its progress with GET /{requestId} (Statuses: SUBMITTED, UNDER_REVIEW, ON_HOLD, APPROVAL_IN_PROGRESS, APPROVED, REJECTED) and download its documents. Nothing is provisioned until an operator approves the request.
+You can still follow its progress with GET /{requestId} (Statuses: SUBMITTED, UNDER_REVIEW, CHANGES_REQUESTED, APPROVAL_IN_PROGRESS, APPROVED, REJECTED) and download its documents. Nothing is provisioned until an operator approves the request.
 
-3. Things to know
+3. When the review requests changes
+   The operator can hand the request back to you: its status becomes CHANGES_REQUESTED, and its changeRequest says what to change (a comment, and the fields and documents concerned in items).
+- The request is yours again, like a draft: replace its data (PUT /{requestId}) and add, replace or remove documents. It cannot be deleted.
+- Submit it again: POST /{requestId}/submit, with the current version. The TSP checks it as a whole, as on the first submit. The request goes back to UNDER_REVIEW, with the same reviewer, and changeRequest.resubmittedAt records when.
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT : POST /onboarding-requests
+
+    DRAFT --> DRAFT : PUT /{id} (replace request data) or POST/PUT/DELETE /{id}/documents (manage files)
+    DRAFT --> DELETED : DELETE (or auto-purge after 30 days)
+    DRAFT --> SUBMITTED : POST submit
+
+    SUBMITTED --> UNDER_REVIEW : assign reviewer
+
+    UNDER_REVIEW --> CHANGES_REQUESTED : request changes
+    UNDER_REVIEW --> APPROVED : approve
+    UNDER_REVIEW --> REJECTED : reject
+
+    CHANGES_REQUESTED --> CHANGES_REQUESTED : PUT /{id} (replace request data) or POST/PUT/DELETE /{id}/documents (manage files)
+    CHANGES_REQUESTED --> UNDER_REVIEW : POST submit (reviewer already assigned)
+```
+
+4. Things to know
 - Versions: every response carries the request's version (in the body and ETag header). Every change must send it back in If-Match, otherwise the call is refused.
 - Retries: Idempotency-Key is optional on create/submit and makes a retry safe.
 - DID: the preferredDid must be new to the TSP.
@@ -64,12 +87,24 @@ sequenceDiagram
     CSP-xTSP: PUT /{id} or any document change
     TSP-->>CSP: 422 request already submitted
     OP->>TSP: review, may edit the request and its documents
-    OP->>TSP: approve or reject
+    OP->>TSP: approve, reject or request changes
     end
 
     loop Follow-up
         CSP->>GW: GET /{id}
         GW->>TSP: relay
-        TSP-->>CSP: 200 { status: UNDER_REVIEW / ON_HOLD / APPROVED / REJECTED }
+        TSP-->>CSP: 200 { status: UNDER_REVIEW / CHANGES_REQUESTED / APPROVED / REJECTED }
+    end
+
+    rect rgba(150,110,220,0.12)
+    Note over CSP,OP: Only when CHANGES_REQUESTED: the request is the CSP's again
+    CSP->>GW: GET /{id}
+    GW->>TSP: relay
+    TSP-->>CSP: 200 { status: CHANGES_REQUESTED, changeRequest: { comment, items[] } }
+    CSP->>GW: PUT /{id} and document changes, as on a draft (no DELETE /{id})
+    GW->>TSP: relay
+    CSP->>GW: POST /{id}/submit (If-Match: version)
+    GW->>TSP: relay
+    TSP-->>CSP: 200 { status: UNDER_REVIEW, changeRequest.resubmittedAt }
     end
 ```

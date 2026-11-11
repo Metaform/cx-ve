@@ -7,10 +7,14 @@ import com.metaform.dxonboarding.application.AutomaticReview;
 import com.metaform.dxonboarding.application.DefaultOnboardingRequestService;
 import com.metaform.dxonboarding.config.ReviewConfig;
 import com.metaform.dxonboarding.config.SecurityConfig;
+import com.metaform.dxonboarding.domain.model.onboarding.ChangeRequest;
+import com.metaform.dxonboarding.domain.model.onboarding.DocumentType;
 import com.metaform.dxonboarding.domain.port.DidResolver;
 import com.metaform.dxonboarding.domain.port.OnboardingEventPublisher;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,6 +69,10 @@ class OnboardingRequestControllerTest {
 
     @Autowired
     private MockMvc mvc;
+
+    /** Where the review's part is played, which the API has no call for. */
+    @Autowired
+    private InMemoryOnboardingRequestRepository repository;
 
     @MockitoBean
     private AutomaticReview review;
@@ -392,6 +400,53 @@ class OnboardingRequestControllerTest {
         // its documents stay readable
         mvc.perform(as(get(PATH + "/{id}/documents", complete), CONNECTOR)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.documents.length()").value(3));
+    }
+
+    @Test
+    void aRequestAskedForChanges_showsWhatIsAsked_isCorrected_andSubmittedAgain() throws Exception {
+        var id = completeSample();
+        submit(CONNECTOR, id, "\"4\"").andExpect(status().isOk());
+        // the review takes it on and hands it back: versions 6 and 7
+        repository.save(repository.findById(id).orElseThrow().underReview().changesRequested(ChangeRequest.of(
+                Instant.parse("2026-10-02T10:00:00Z"), "The GTC copy is not signed",
+                List.of(new ChangeRequest.Item(null, DocumentType.GTC, "signature missing"),
+                        new ChangeRequest.Item("legalEntity.website", null, "does not resolve")))));
+
+        mvc.perform(as(get(PATH + "/{id}", id), CONNECTOR))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ETAG, "\"7\""))
+                .andExpect(jsonPath("$.status").value("CHANGES_REQUESTED"))
+                .andExpect(jsonPath("$.changeRequest.requestedAt").value("2026-10-02T10:00:00Z"))
+                .andExpect(jsonPath("$.changeRequest.comment").value("The GTC copy is not signed"))
+                .andExpect(jsonPath("$.changeRequest.items.length()").value(2))
+                .andExpect(jsonPath("$.changeRequest.items[0].documentType").value("gtc"))
+                .andExpect(jsonPath("$.changeRequest.items[0].note").value("signature missing"))
+                .andExpect(jsonPath("$.changeRequest.items[0].field").doesNotExist())
+                .andExpect(jsonPath("$.changeRequest.items[1].field").value("legalEntity.website"))
+                .andExpect(jsonPath("$.changeRequest.resubmittedAt").doesNotExist());
+
+        // the applicant's again: corrected like a draft, but not deleted
+        mvc.perform(as(put(PATH + "/{id}", id), CONNECTOR).header(HttpHeaders.IF_MATCH, "\"7\"")
+                        .contentType(MediaType.APPLICATION_JSON).content(sampleRequest()))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ETAG, "\"8\""))
+                .andExpect(jsonPath("$.status").value("CHANGES_REQUESTED"));
+        addDocument(id, "\"8\"", "other", null, "Signed GTC", pdf("gtc-signed.pdf")).andExpect(status().isCreated());
+        problem(mvc.perform(as(delete(PATH + "/{id}", id), CONNECTOR).header(HttpHeaders.IF_MATCH, "\"9\"")),
+                422, "invalid-onboarding-request-state");
+
+        submit(CONNECTOR, id, "\"9\"")
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ETAG, "\"10\""))
+                .andExpect(jsonPath("$.status").value("UNDER_REVIEW"))
+                .andExpect(jsonPath("$.changeRequest.resubmittedAt").isNotEmpty())
+                .andExpect(jsonPath("$.otherDocuments[0].label").value("Signed GTC"));
+        verify(review).resubmitted(any());
+        // the onboarding started once, with the first submit
+        verify(events).onboardingStarted(any());
+        // with the review again
+        problem(addDocument(id, "\"10\"", "other", null, "Late", pdf("late.pdf")), 422,
+                "invalid-onboarding-request-state");
     }
 
     @Test

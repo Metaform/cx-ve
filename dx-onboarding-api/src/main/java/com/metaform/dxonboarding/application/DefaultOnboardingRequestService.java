@@ -10,6 +10,7 @@ import com.metaform.dxonboarding.domain.model.onboarding.OnboardingDocument;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequestData;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStarted;
+import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStatus;
 import com.metaform.dxonboarding.domain.model.onboarding.SubmitCheck;
 import com.metaform.dxonboarding.domain.model.onboarding.UploadedFile;
 import com.metaform.dxonboarding.domain.model.onboarding.WriteCheck;
@@ -32,7 +33,9 @@ import org.springframework.stereotype.Service;
  * Keeps the drafts and their documents, recognizes a create or a submit sent again, and files a
  * complete draft as {@code SUBMITTED} — announcing its start and taking it into review
  * ({@link AutomaticReview}). The review is not part of this API: the applicant reads its outcome
- * from the request's status.
+ * from the request's status. When that is {@code CHANGES_REQUESTED}, the request is the
+ * applicant's again: corrected like a draft, and submitted again, which hands it back to the
+ * review ({@code UNDER_REVIEW}).
  *
  * <p>Every change is synchronized: a version check, a quota or the DID's uniqueness must not
  * interleave with another change. Only resolving the DID happens outside the lock, as it leaves
@@ -187,18 +190,24 @@ public class DefaultOnboardingRequestService implements OnboardingRequestService
         // the DID is resolved before taking the lock, as it leaves the process — and again under
         // it only when a correction changed the DID in the meantime
         var snapshot = owned(connectorId, requestId);
-        var resolution = snapshot.isDraft()
+        var resolution = snapshot.isEditable()
                 ? snapshot.data().preferredDid().map(did -> new DidResolution(did, didResolver.problem(did))).orElse(null)
                 : null;
         var outcome = file(connectorId, requestId, version, keyOrNull(idempotencyKey), resolution);
-        if (outcome.newlySubmitted()) {
-            var request = outcome.request();
-            // announced before the review takes it on, so an observer sees the start before the outcome
-            events.onboardingStarted(new OnboardingStarted(request.id(), request.data().applicantReference(),
-                    connectorId));
-            review.submitted(request);
+        var request = outcome.request();
+        switch (outcome.filing()) {
+            case SUBMITTED -> {
+                // announced before the review takes it on, so an observer sees the start before the outcome
+                events.onboardingStarted(new OnboardingStarted(request.id(), request.data().applicantReference(),
+                        connectorId));
+                review.submitted(request);
+            }
+            // the onboarding started with the first submit: nothing to announce
+            case RESUBMITTED -> review.resubmitted(request);
+            case REPLAYED -> {
+            }
         }
-        return outcome.request();
+        return request;
     }
 
     /**
@@ -217,7 +226,14 @@ public class DefaultOnboardingRequestService implements OnboardingRequestService
     private record DidResolution(String did, Optional<String> problem) {
     }
 
-    private record Submitted(OnboardingRequest request, boolean newlySubmitted) {
+    /** What a submit did: filed a draft, filed a request again after a change request, or nothing. */
+    private enum Filing {
+        SUBMITTED,
+        RESUBMITTED,
+        REPLAYED
+    }
+
+    private record Submitted(OnboardingRequest request, Filing filing) {
     }
 
     private synchronized Submitted file(String connectorId, String requestId, long version, String key,
@@ -228,10 +244,10 @@ public class DefaultOnboardingRequestService implements OnboardingRequestService
             throw new ProblemException(ProblemCode.IDEMPOTENCY_KEY_REUSED,
                     "Idempotency-Key '%s' was already used to submit another request".formatted(key));
         }
-        if (!request.isDraft()) {
+        if (!request.isEditable() || replaysTheFirstSubmit(request, version, key)) {
             log.info("onboarding request '{}' ({}) was already submitted, now {}: returned as it is", request.id(),
                     request.businessId(), request.status());
-            return new Submitted(request, false);
+            return new Submitted(request, Filing.REPLAYED);
         }
         request.requireVersion(version);
         var errors = new ArrayList<>(SubmitCheck.violations(request));
@@ -239,6 +255,14 @@ public class DefaultOnboardingRequestService implements OnboardingRequestService
         if (!errors.isEmpty()) {
             log.info("onboarding request '{}' ({}) cannot be submitted: {}", request.id(), request.businessId(), errors);
             throw ProblemException.submitRejected(errors);
+        }
+        if (!request.isDraft()) {
+            // asked for changes: it awaits its decision already, so the quota does not apply again
+            var resubmitted = request.resubmitted(clock.instant(), key);
+            repository.save(resubmitted);
+            log.info("onboarding request '{}' ({}) submitted again by '{}', answering the change request of {}",
+                    resubmitted.id(), resubmitted.businessId(), connectorId, resubmitted.changeRequest().requestedAt());
+            return new Submitted(resubmitted, Filing.RESUBMITTED);
         }
         if (repository.findByConnector(connectorId).stream().filter(other -> other.status().awaitsDecision()).count()
                 >= MAX_AWAITING_DECISION) {
@@ -250,7 +274,18 @@ public class DefaultOnboardingRequestService implements OnboardingRequestService
         repository.save(submitted);
         log.info("onboarding request '{}' ({}) submitted by '{}' for {}", submitted.id(), submitted.businessId(),
                 connectorId, submitted.data().legalEntity().legalName());
-        return new Submitted(submitted, true);
+        return new Submitted(submitted, Filing.SUBMITTED);
+    }
+
+    /**
+     * Whether a submit of a request asked for changes is the first submit sent again — its response
+     * was lost, and the review answered before the retry — rather than the answer to the change
+     * request: it carries the key the request was submitted with, and a version from before that.
+     * Without a key the two cannot be told apart, and an outdated version is a conflict.
+     */
+    private static boolean replaysTheFirstSubmit(OnboardingRequest request, long version, String key) {
+        return request.status() == OnboardingStatus.CHANGES_REQUESTED && key != null
+                && key.equals(request.replay().submitKey()) && version != request.version();
     }
 
     /** The DID must be new to the TSP — held by no other request in progress or approved — and resolve. */

@@ -15,17 +15,33 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *   <li><b>external</b> — any other participant, e.g. a system under test.</li>
  * </ul>
  *
+ * <p>An automatic review can ask for changes first ({@code requestChanges}): the request is handed
+ * back once ({@code CHANGES_REQUESTED}) and approved when the applicant submits it again, so that
+ * every participant goes through the correction round a real review may ask of it.
+ *
  * @param hostedDidPrefix the DID prefix of participants hosted by this VE
  * @param autoApprove     which of the two are approved without an operator
- * @param delay           how long an automatic approval waits after the submission (0: right away,
+ * @param requestChanges  which of the two are asked for changes once before they are approved;
+ *                        only the requests approved automatically
+ * @param delay           how long an automatic review waits before each of its steps: after the
+ *                        submission, and after the request was submitted again (0: right away,
  *                        still after the submitting call returned)
  */
 @ConfigurationProperties(prefix = "dx-onboarding.review")
-public record ReviewProperties(String hostedDidPrefix, AutoApprove autoApprove, Duration delay) {
+public record ReviewProperties(String hostedDidPrefix, AutoApprove autoApprove, RequestChanges requestChanges,
+                               Duration delay) {
 
     public ReviewProperties {
         autoApprove = autoApprove == null ? new AutoApprove(false, false) : autoApprove;
+        requestChanges = requestChanges == null ? new RequestChanges(false, false) : requestChanges;
         delay = delay == null ? Duration.ZERO : delay;
+    }
+
+    /**
+     * @param hosted   ask the participants hosted here for changes once, before approving them
+     * @param external ask every other participant for changes once, before approving it
+     */
+    public record RequestChanges(boolean hosted, boolean external) {
     }
 
     /**

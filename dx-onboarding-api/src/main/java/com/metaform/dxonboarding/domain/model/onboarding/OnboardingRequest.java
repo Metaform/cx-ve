@@ -13,8 +13,9 @@ import java.util.UUID;
 /**
  * An onboarding request and where it stands. It starts as a {@code DRAFT}, which its applicant
  * corrects and adds documents to; once submitted, it belongs to the review and no longer changes
- * but for the review's decision. Every change makes a new {@link #version()}, which a change must
- * name to be accepted ({@link #requireVersion}).
+ * but for the review's decision — unless the review asks for changes ({@code CHANGES_REQUESTED}):
+ * the applicant then corrects it like a draft, and submits it again. Every change makes a new
+ * {@link #version()}, which a change must name to be accepted ({@link #requireVersion}).
  *
  * @param id            the id the applicant reads the request back by
  * @param businessId    a human-readable reference, e.g. for a TSP operator
@@ -24,6 +25,7 @@ import java.util.UUID;
  * @param legalEntityId the participant's DECADE-X-ID — the TSP's id of the legal entity; null
  *                      until approval assigns it
  * @param decision      null until a decision is taken
+ * @param changeRequest what the review asked to change; null unless it ever did
  * @param replay        what recognizes a call sent again
  */
 public record OnboardingRequest(
@@ -39,6 +41,7 @@ public record OnboardingRequest(
         List<OnboardingDocument> documents,
         String legalEntityId,
         ReviewDecision decision,
+        ChangeRequest changeRequest,
         Replay replay) {
 
     public static final int MAX_OTHER_DOCUMENTS = 5;
@@ -55,8 +58,9 @@ public record OnboardingRequest(
      * @param createKey   the {@code Idempotency-Key} it was created with; null without one
      * @param createdWith the data it was created with: a create without a key and with the same
      *                    data is the same create
-     * @param submitKey   the {@code Idempotency-Key} it was submitted with; null without one, and
-     *                    while it is a draft
+     * @param submitKey   the {@code Idempotency-Key} it was submitted with — last, when it was
+     *                    submitted again after a change request; null without one, and while it
+     *                    is a draft
      */
     public record Replay(String createKey, OnboardingRequestData createdWith, String submitKey) {
     }
@@ -65,7 +69,7 @@ public record OnboardingRequest(
     public static OnboardingRequest draft(String id, String businessId, String connectorId, OnboardingRequestData data,
                                           String createKey, Instant now) {
         return new OnboardingRequest(id, businessId, connectorId, 1, now, now, null, OnboardingStatus.DRAFT, data,
-                List.of(), null, null, new Replay(createKey, data, null));
+                List.of(), null, null, null, new Replay(createKey, data, null));
     }
 
     /** Refuses a change that names another version than the current one: the caller read it before a change. */
@@ -81,16 +85,21 @@ public record OnboardingRequest(
         return status == OnboardingStatus.DRAFT;
     }
 
-    // --- the applicant's changes to the draft -------------------------------------------------
+    /** Whether the applicant may change it: a draft, or a request the review asked changes of. */
+    public boolean isEditable() {
+        return status.editable();
+    }
+
+    // --- the applicant's changes, to a draft or to a request the review asked changes of ------
 
     /**
-     * Replaces the draft's data. The documents stay, but for the signed copies that no longer
+     * Replaces the request's data. The documents stay, but for the signed copies that no longer
      * match it ({@link #staleDocuments}).
      */
     public OnboardingRequest withData(OnboardingRequestData newData, Instant at) {
-        requireDraft();
+        requireEditable();
         var stale = staleDocuments(newData);
-        return draftChange(newData, documents.stream().filter(document -> !stale.contains(document)).toList(), at);
+        return applicantChange(newData, documents.stream().filter(document -> !stale.contains(document)).toList(), at);
     }
 
     /**
@@ -116,7 +125,7 @@ public record OnboardingRequest(
      * 5 {@code other} documents, and past 50 MB of documents.
      */
     public OnboardingRequest withDocument(UUID documentId, DocumentUpload upload, Instant at) {
-        requireDraft();
+        requireEditable();
         var type = upload.type();
         if (type == DocumentType.UCA && data.uca(upload.useCaseId()).isEmpty()) {
             throw new ProblemException(ProblemCode.USE_CASE_NOT_IN_REQUEST,
@@ -141,16 +150,16 @@ public record OnboardingRequest(
                 file.mediaType(), file.size(), at, validUntil);
         var withDocument = new ArrayList<>(documents);
         withDocument.add(document);
-        return draftChange(data, withDocument, at);
+        return applicantChange(data, withDocument, at);
     }
 
     /**
-     * Replaces the file of one of the draft's documents, and an {@code other}'s label with it. The
+     * Replaces the file of one of the request's documents, and an {@code other}'s label with it. The
      * document keeps its id, type and use case; the new file counts toward the 50 MB instead of
      * the old one.
      */
     public OnboardingRequest withReplacedFile(UUID documentId, String label, UploadedFile file, Instant at) {
-        requireDraft();
+        requireEditable();
         var existing = document(documentId).orElseThrow(() -> unknownDocument(documentId));
         DocumentUpload.checkLabel(existing.type(), label);
         file.check();
@@ -159,30 +168,62 @@ public record OnboardingRequest(
         var replaced = new OnboardingDocument(documentId, existing.type(), existing.useCaseId(),
                 existing.type() == DocumentType.OTHER ? label : null, file.filename(), file.mediaType(), file.size(), at,
                 validUntil);
-        return draftChange(data, documents.stream()
+        return applicantChange(data, documents.stream()
                 .map(document -> document.documentId().equals(documentId) ? replaced : document)
                 .toList(), at);
     }
 
     public OnboardingRequest withoutDocument(UUID documentId, Instant at) {
-        requireDraft();
+        requireEditable();
         if (document(documentId).isEmpty()) {
             throw unknownDocument(documentId);
         }
-        return draftChange(data, documents.stream()
+        return applicantChange(data, documents.stream()
                 .filter(document -> !document.documentId().equals(documentId))
                 .toList(), at);
     }
 
     /** Submitted for review: from now on it belongs to the review. What makes a draft complete is {@link SubmitCheck}'s. */
     public OnboardingRequest submitted(Instant at, String submitKey) {
-        requireDraft();
+        if (!isDraft()) {
+            throw new ProblemException(ProblemCode.INVALID_ONBOARDING_REQUEST_STATE,
+                    "The request has already been submitted (%s)".formatted(status));
+        }
         return new OnboardingRequest(id, businessId, connectorId, version + 1, createdAt, at, at,
-                OnboardingStatus.SUBMITTED, data, documents, legalEntityId, decision,
+                OnboardingStatus.SUBMITTED, data, documents, legalEntityId, decision, changeRequest,
                 new Replay(replay.createKey(), replay.createdWith(), submitKey));
     }
 
-    // --- the review's decision ----------------------------------------------------------------
+    /**
+     * Submitted again, after the changes the review asked for: back under review, with the change
+     * request answered. {@code submittedAt} stays when it was first submitted.
+     *
+     * @param submitKey the {@code Idempotency-Key} of this submit; without one, the earlier one stays
+     */
+    public OnboardingRequest resubmitted(Instant at, String submitKey) {
+        if (status != OnboardingStatus.CHANGES_REQUESTED) {
+            throw new IllegalStateException("Onboarding request %s was not asked for changes (%s)".formatted(id, status));
+        }
+        return new OnboardingRequest(id, businessId, connectorId, version + 1, createdAt, at, submittedAt,
+                OnboardingStatus.UNDER_REVIEW, data, documents, legalEntityId, decision, changeRequest.resubmitted(at),
+                new Replay(replay.createKey(), replay.createdWith(), submitKey == null ? replay.submitKey() : submitKey));
+    }
+
+    // --- the review ---------------------------------------------------------------------------
+
+    /** Taken on by the review: a reviewer is assigned. */
+    public OnboardingRequest underReview() {
+        return reviewed(OnboardingStatus.UNDER_REVIEW, legalEntityId, null);
+    }
+
+    /**
+     * Handed back to the applicant, who corrects the request and submits it again; a change
+     * request it answered earlier is replaced.
+     */
+    public OnboardingRequest changesRequested(ChangeRequest request) {
+        return new OnboardingRequest(id, businessId, connectorId, version + 1, createdAt, updatedAt, submittedAt,
+                OnboardingStatus.CHANGES_REQUESTED, data, documents, legalEntityId, decision, request, replay);
+    }
 
     /**
      * Approved, and being provisioned under the given DECADE-X-ID: the participant is registered
@@ -239,11 +280,22 @@ public record OnboardingRequest(
         return documents.stream().mapToLong(OnboardingDocument::sizeBytes).sum();
     }
 
-    /** Refuses a change of a request that is no longer a draft: it belongs to the review. */
+    /**
+     * Refuses a change of a request the applicant may not change: it belongs to the review, unless
+     * the review asked for changes.
+     */
+    public void requireEditable() {
+        if (!isEditable()) {
+            throw new ProblemException(ProblemCode.INVALID_ONBOARDING_REQUEST_STATE,
+                    "The request has been submitted (%s) and can no longer be changed".formatted(status));
+        }
+    }
+
+    /** Refuses what only a draft allows — deleting it: a submitted request stays, whatever the review asks. */
     public void requireDraft() {
         if (!isDraft()) {
             throw new ProblemException(ProblemCode.INVALID_ONBOARDING_REQUEST_STATE,
-                    "The request has been submitted (%s) and can no longer be changed".formatted(status));
+                    "The request has been submitted (%s) and can no longer be deleted".formatted(status));
         }
     }
 
@@ -264,15 +316,15 @@ public record OnboardingRequest(
         return validUntil;
     }
 
-    private OnboardingRequest draftChange(OnboardingRequestData newData, List<OnboardingDocument> newDocuments,
-                                          Instant at) {
+    private OnboardingRequest applicantChange(OnboardingRequestData newData, List<OnboardingDocument> newDocuments,
+                                              Instant at) {
         return new OnboardingRequest(id, businessId, connectorId, version + 1, createdAt, at, submittedAt, status,
-                newData, newDocuments, legalEntityId, decision, replay);
+                newData, newDocuments, legalEntityId, decision, changeRequest, replay);
     }
 
     private OnboardingRequest reviewed(OnboardingStatus newStatus, String newLegalEntityId, ReviewDecision newDecision) {
         return new OnboardingRequest(id, businessId, connectorId, version + 1, createdAt, updatedAt, submittedAt,
-                newStatus, data, documents, newLegalEntityId, newDecision, replay);
+                newStatus, data, documents, newLegalEntityId, newDecision, changeRequest, replay);
     }
 
     private static ProblemException unknownDocument(UUID documentId) {
