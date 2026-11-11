@@ -155,7 +155,8 @@ core-platform-distribution:
 
 # ---- DECADE-X onboarding API -------------------------------------------------------------------
 # The TSP onboarding intake. There is no TSP operator yet: requests are approved automatically —
-# those of participants hosted here, and for now those of external ones too
+# those of participants hosted here, and for now those of external ones too — after being asked
+# for changes once, which the applicant answers by submitting the request again
 # (dx-onboarding-api.config.dx-onboarding.review). On approval it registers the participant as a
 # credential holder and has the platform's issuer offer it the DX_LegalEntity_VC and DX_Site_VC (see
 # decadex-profile below).

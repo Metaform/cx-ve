@@ -2,7 +2,9 @@
 
 The VE's stand-in for the DECADE-X TSP's onboarding intake, implementing
 [`dataspace-api-docs.yaml`](dataspace-api-docs.yaml): an applicant creates a **draft**, adds its
-documents one by one, and **submits** it for review. Once the TSP approves the participant, this
+documents one by one, and **submits** it for review. The review may hand it back
+(`CHANGES_REQUESTED`): the applicant then corrects it like a draft and submits it again. Once the
+TSP approves the participant, this
 service registers it as a credential holder with the IssuerService and has the issuer offer it the
 `DX_LegalEntity_VC` and `DX_Site_VC` — nothing else: the participant's EDC resources (its participant
 context on IdentityHub, its control plane, its DID) exist before it onboards.
@@ -53,13 +55,25 @@ sequenceDiagram
     CSP-xTSP: PUT /{id} or any document change
     TSP-->>CSP: 422 request already submitted
     OP->>TSP: review, may edit the request and its documents
-    OP->>TSP: approve or reject
+    OP->>TSP: approve, reject or request changes
     end
 
     loop Follow-up
         CSP->>GW: GET /{id}
         GW->>TSP: relay
-        TSP-->>CSP: 200 { status: UNDER_REVIEW / ON_HOLD / APPROVED / REJECTED }
+        TSP-->>CSP: 200 { status: UNDER_REVIEW / CHANGES_REQUESTED / APPROVED / REJECTED }
+    end
+
+    rect rgba(150,110,220,0.12)
+    Note over CSP,OP: Only when CHANGES_REQUESTED: the request is the CSP's again
+    CSP->>GW: GET /{id}
+    GW->>TSP: relay
+    TSP-->>CSP: 200 { status: CHANGES_REQUESTED, changeRequest: { comment, items[] } }
+    CSP->>GW: PUT /{id} and document changes, as on a draft (no DELETE /{id})
+    GW->>TSP: relay
+    CSP->>GW: POST /{id}/submit (If-Match: version)
+    GW->>TSP: relay
+    TSP-->>CSP: 200 { status: UNDER_REVIEW, changeRequest.resubmittedAt }
     end
 ```
 
@@ -72,8 +86,18 @@ the VE's OSP IdP.
   and an `http-pull` transfer. The caller's identity — which the spec leaves unsettled — is taken
   from the `X-Connector-Id` header (`dx-onboarding.connector-id-header`), UNVERIFIED; it is the
   participant's DID.
-- **No operator.** A submitted request is approved automatically (`dx-onboarding.review`), or
-  waits in `SUBMITTED` for a review that does not exist.
+- **No operator.** A submitted request is reviewed automatically (`dx-onboarding.review`), or
+  waits in `SUBMITTED` for a review that does not exist. The automatic review takes the request
+  on (`UNDER_REVIEW`) and approves it.
+- **Every request is asked for changes once.** Before it approves, the automatic review hands the
+  request back (`CHANGES_REQUESTED`), with a `changeRequest` that asks for nothing but to submit
+  the request again; it approves once that happened. This way every participant goes through the
+  round a real review may ask of it. `dx-onboarding.review.request-changes.hosted` and
+  `.external` switch it off. The Membership Hub submits the requests it filed again by itself.
+- **Replays while changes are requested.** A submit sent again is answered with the request as
+  it is. Once changes are requested, a submit is the answer to them — unless it carries the
+  `Idempotency-Key` of the first submit and an outdated version: that is the first submit sent
+  again, and changes nothing.
 - **Hosted participants keep an out-of-band DECADE-X-ID.** The TSP assigns every participant its
   DECADE-X-ID on approval. A participant this VE hosts (a connector identity under
   `dx-onboarding.review.hosted-did-prefix` — in practice the verification participant) is

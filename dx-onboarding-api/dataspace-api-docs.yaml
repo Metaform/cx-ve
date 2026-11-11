@@ -919,6 +919,36 @@ components:
         updatingDate:
           type: string
           format: date-time
+    ChangeRequest:
+      type: object
+      properties:
+        requestedAt:
+          type: string
+          format: date-time
+        comment:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChangeRequestItemDto'
+        resubmittedAt:
+          type: string
+          format: date-time
+    ChangeRequestItemDto:
+      type: object
+      properties:
+        field:
+          type: string
+        documentType:
+          type: string
+          enum:
+          - gtc
+          - uca
+          - registration-extract
+          - power-of-attorney
+          - other
+        note:
+          type: string
     Consent:
       type: object
       properties:
@@ -958,7 +988,7 @@ components:
           - DRAFT
           - SUBMITTED
           - UNDER_REVIEW
-          - ON_HOLD
+          - CHANGES_REQUESTED
           - APPROVAL_IN_PROGRESS
           - APPROVAL_FAILED
           - APPROVED
@@ -998,6 +1028,8 @@ components:
           description: The request's `other` documents (also in `GET /{requestId}/documents`).
         decision:
           $ref: '#/components/schemas/Decision'
+        changeRequest:
+          $ref: '#/components/schemas/ChangeRequest'
       description: An onboarding request with its status. `decision` is null until a decision is taken.
     DataspaceOnboardingRequestWriteDto:
       type: object

@@ -62,8 +62,8 @@ public class ApprovalService {
     }
 
     /**
-     * Approves the request, if it still awaits review. Never throws: the outcome is the request's
-     * status.
+     * Approves the request, if it still awaits review — submitted, or under review. Never throws:
+     * the outcome is the request's status.
      */
     public void approve(String requestId) {
         var inProgress = assignDecadeXId(requestId);
@@ -92,8 +92,9 @@ public class ApprovalService {
      */
     private synchronized Optional<OnboardingRequest> assignDecadeXId(String requestId) {
         var request = repository.findById(requestId).orElse(null);
-        if (request == null || request.status() != OnboardingStatus.SUBMITTED) {
-            // nothing else decides a request today, but an approval must never overwrite a decision
+        if (request == null
+                || request.status() != OnboardingStatus.SUBMITTED && request.status() != OnboardingStatus.UNDER_REVIEW) {
+            // an approval must never overwrite a decision, nor take a request its applicant is correcting
             return Optional.empty();
         }
         var supplied = request.data().declaredLegalEntityId().orElse(null);

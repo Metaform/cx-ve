@@ -52,7 +52,10 @@ import org.springframework.web.client.RestClientResponseException;
  * DECADE-X credentials (DX_LegalEntity_VC, DX_Site_VC) — and carries the participant's DECADE-X-ID;
  * {@code REJECTED} and {@code APPROVAL_FAILED} (the provisioning after an approval failed, which
  * nothing retries) map to DECLINED, and every other status — a draft, the steps of the review — to
- * PENDING.
+ * PENDING. One of those steps is the hub's: when the review asks for changes
+ * ({@code CHANGES_REQUESTED}), the request waits for its applicant to submit it again. The hub has
+ * nothing to correct — it sent the member's registration as it is, with placeholder documents — so
+ * it submits the request again, unchanged, the next time it polls.
  *
  * <p>The TSP assigns every DECADE-X-ID on approval, and the confirmation hands it to the hub, so a
  * member declares none. A member hosted HERE needs one before that: its deployment reads it (certo
@@ -187,11 +190,12 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
 
     @Override
     public RegistrationOutcome pollStatus(Membership membership) {
-        var request = restClient.get()
+        var read = restClient.get()
                 .uri("/{id}", membership.onboardingProcessId())
                 .headers(headers -> authorize(headers, membership.did()))
                 .retrieve()
-                .body(RequestStatus.class);
+                .toEntity(RequestStatus.class);
+        var request = read.getBody();
         if (request == null || request.status() == null) {
             throw new IllegalStateException("The DECADE-X onboarding API returned no status for request "
                     + membership.onboardingProcessId());
@@ -207,8 +211,30 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
             case "APPROVAL_FAILED" -> new RegistrationOutcome(membership.externalId(),
                     RegistrationOutcome.Status.DECLINED, "Approved, but provisioning the membership failed"
                     + (reason == null ? "" : ": " + reason));
+            case "CHANGES_REQUESTED" -> {
+                resubmit(membership, read.getHeaders().getETag(), request.changeRequest());
+                yield new RegistrationOutcome(membership.externalId(), RegistrationOutcome.Status.PENDING, null);
+            }
             default -> new RegistrationOutcome(membership.externalId(), RegistrationOutcome.Status.PENDING, null);
         };
+    }
+
+    /**
+     * Answers a change request: submits the request again as it is, under the version it was read
+     * at. A refusal fails this poll — the next one reads the request again and retries.
+     */
+    private void resubmit(Membership membership, String version, ChangeRequest asked) {
+        var requestId = membership.onboardingProcessId();
+        log.info("DECADE-X onboarding request '{}' of '{}': the TSP asks for changes ({}) — nothing to correct, "
+                + "submitting it again", requestId, membership.externalId(),
+                asked == null || asked.comment() == null ? "no comment" : asked.comment());
+        try {
+            var submitted = submit(membership.externalId(), membership.did(), requestId, version);
+            log.info("DECADE-X onboarding request '{}' of '{}' submitted again: {}", requestId, membership.externalId(),
+                    submitted.status());
+        } catch (Refusal refusal) {
+            throw new IllegalStateException(refusal.getMessage(), refusal.getCause());
+        }
     }
 
     /** Step 1: the draft — or, under the same key, the one an earlier attempt created. */
@@ -258,7 +284,11 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
         return version;
     }
 
-    /** Step 3: the submit, under the version the documents left the draft at. */
+    /**
+     * Step 3: the submit, under the version the documents left the draft at — and again under the
+     * version a change request left the request at, with the same key: the TSP tells the two apart
+     * by the version.
+     */
     private RequestStatus submit(String externalId, String did, String requestId, String version) {
         var submitted = call("submit the onboarding request", () -> restClient.post()
                 .uri("/{id}/submit", requestId)
@@ -464,7 +494,13 @@ public class DecadeXOnboarding implements DataspaceOnboarding {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record RequestStatus(String status, LegalEntity legalEntity, Decision decision) {
+    private record RequestStatus(String status, LegalEntity legalEntity, Decision decision,
+                                 ChangeRequest changeRequest) {
+    }
+
+    /** What the review asks to change, when the request is {@code CHANGES_REQUESTED}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ChangeRequest(String comment) {
     }
 
     /** @param legalEntityId the participant's DECADE-X-ID, once approved */

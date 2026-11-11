@@ -3,6 +3,7 @@ package com.metaform.dxonboarding.domain.model.onboarding;
 import com.metaform.dxonboarding.domain.ProblemCode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -231,5 +232,58 @@ class OnboardingRequestTest {
         assertThat(approved.version()).isEqualTo(submitted.version() + 2);
         assertThat(approved.legalEntityId()).isEqualTo("DX-12345678");
         assertThat(approved.holdsLegalEntityId()).isTrue();
+    }
+
+    @Test
+    void aRequestAskedForChanges_isCorrectedLikeADraft_andSubmittedAgain() {
+        var gtcId = UUID.randomUUID();
+        var submitted = draft(data("did:web:acme.example.com")).withDocument(gtcId, gtc(), NOW).submitted(NOW, "key-1");
+        var asked = ChangeRequest.of(LATER, "The GTC copy is not signed",
+                List.of(new ChangeRequest.Item(null, DocumentType.GTC, "signature missing")));
+
+        var underReview = submitted.underReview();
+        var changesRequested = underReview.changesRequested(asked);
+
+        assertThat(underReview.status()).isEqualTo(OnboardingStatus.UNDER_REVIEW);
+        assertThat(underReview.changeRequest()).isNull();
+        assertThat(changesRequested.status()).isEqualTo(OnboardingStatus.CHANGES_REQUESTED);
+        assertThat(changesRequested.changeRequest()).isEqualTo(asked);
+        assertThat(changesRequested.version()).isEqualTo(submitted.version() + 2);
+
+        var corrected = changesRequested
+                .withData(Requests.withApplicantReference(changesRequested.data(), "ref-2"), LATER)
+                .withReplacedFile(gtcId, null, pdfFile("gtc-signed.pdf"), LATER)
+                .withDocument(UUID.randomUUID(), other("Insurance"), LATER);
+
+        // corrected like a draft, yet still the review's: it keeps its status until submitted again
+        assertThat(corrected.status()).isEqualTo(OnboardingStatus.CHANGES_REQUESTED);
+        assertThat(corrected.version()).isEqualTo(changesRequested.version() + 3);
+        assertThat(corrected.document(gtcId).orElseThrow().filename()).isEqualTo("gtc-signed.pdf");
+        assertThat(corrected.changeRequest()).isEqualTo(asked);
+
+        var resubmittedAt = LATER.plusSeconds(60);
+        var resubmitted = corrected.resubmitted(resubmittedAt, null);
+
+        assertThat(resubmitted.status()).isEqualTo(OnboardingStatus.UNDER_REVIEW);
+        assertThat(resubmitted.version()).isEqualTo(corrected.version() + 1);
+        assertThat(resubmitted.submittedAt()).isEqualTo(NOW);
+        assertThat(resubmitted.changeRequest().resubmittedAt()).isEqualTo(resubmittedAt);
+        assertThat(resubmitted.changeRequest().comment()).isEqualTo("The GTC copy is not signed");
+        assertThat(resubmitted.replay().submitKey()).isEqualTo("key-1");
+        assertThat(corrected.resubmitted(resubmittedAt, "key-2").replay().submitKey()).isEqualTo("key-2");
+        // back with the review
+        problem(ProblemCode.INVALID_ONBOARDING_REQUEST_STATE, () -> resubmitted.withData(resubmitted.data(), LATER));
+    }
+
+    @Test
+    void onlyADraft_canBeDeleted_andOnlyARequestAskedForChangesSubmittedAgain() {
+        var submitted = draft(data("did:web:acme.example.com")).submitted(NOW, null);
+        var changesRequested = submitted.underReview().changesRequested(ChangeRequest.of(LATER, "Please confirm", null));
+
+        assertThat(changesRequested.isEditable()).isTrue();
+        assertThat(changesRequested.changeRequest().items()).isEmpty();
+        problem(ProblemCode.INVALID_ONBOARDING_REQUEST_STATE, changesRequested::requireDraft);
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> submitted.resubmitted(LATER, null)))
+                .isInstanceOf(IllegalStateException.class);
     }
 }

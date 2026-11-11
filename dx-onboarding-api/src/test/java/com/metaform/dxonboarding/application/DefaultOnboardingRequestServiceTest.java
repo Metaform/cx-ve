@@ -5,6 +5,7 @@ import com.metaform.dxonboarding.adapter.out.persistence.InMemoryOnboardingReque
 import com.metaform.dxonboarding.config.ReviewProperties;
 import com.metaform.dxonboarding.domain.FieldError;
 import com.metaform.dxonboarding.domain.ProblemCode;
+import com.metaform.dxonboarding.domain.model.onboarding.ChangeRequest;
 import com.metaform.dxonboarding.domain.model.onboarding.DocumentType;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingRequest;
 import com.metaform.dxonboarding.domain.model.onboarding.OnboardingStarted;
@@ -38,8 +39,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The intake's rules across requests: drafts recognized when created again, documents kept with
- * their drafts, a submit that checks the DID across every request and the quotas, and requests
- * scoped to the connector that created them.
+ * their drafts, a submit that checks the DID across every request and the quotas, a request the
+ * review asked changes of corrected and submitted again, and requests scoped to the connector that
+ * created them.
  */
 class DefaultOnboardingRequestServiceTest {
 
@@ -53,13 +55,20 @@ class DefaultOnboardingRequestServiceTest {
     private final InMemoryDocumentStore documents = new InMemoryDocumentStore();
     /** The requests taken into review; nothing is approved here — AutomaticReviewTest covers that. */
     private final List<String> reviewed = new ArrayList<>();
+    /** The requests taken back into review, submitted again after a change request. */
+    private final List<String> reviewedAgain = new ArrayList<>();
     private final ReviewProperties reviewProperties =
-            new ReviewProperties(HOSTED_PREFIX, new ReviewProperties.AutoApprove(false, false), null);
+            new ReviewProperties(HOSTED_PREFIX, new ReviewProperties.AutoApprove(false, false), null, null);
     private final RecordingEvents events = new RecordingEvents();
-    private final AutomaticReview review = new AutomaticReview(null, reviewProperties, Runnable::run) {
+    private final AutomaticReview review = new AutomaticReview(null, repository, reviewProperties, Runnable::run) {
         @Override
         public void submitted(OnboardingRequest request) {
             reviewed.add(request.id());
+        }
+
+        @Override
+        public void resubmitted(OnboardingRequest request) {
+            reviewedAgain.add(request.id());
         }
     };
     /** Why a DID does not resolve, by DID; a DID not listed resolves. */
@@ -80,6 +89,14 @@ class DefaultOnboardingRequestServiceTest {
 
     private OnboardingRequest submit(OnboardingRequest draft) {
         return service.submit(draft.connectorId(), draft.id(), draft.version(), null);
+    }
+
+    /** The review's part, which is not the service's: takes the submitted request on and asks for changes. */
+    private OnboardingRequest askForChanges(OnboardingRequest submitted) {
+        var changesRequested = repository.findById(submitted.id()).orElseThrow().underReview()
+                .changesRequested(ChangeRequest.of(clock.instant(), "Please correct the reference", List.of()));
+        repository.save(changesRequested);
+        return changesRequested;
     }
 
     @Test
@@ -233,6 +250,84 @@ class DefaultOnboardingRequestServiceTest {
         assertThat(events.started).containsExactly(new OnboardingStarted(draft.id(), "ref-1", ACME));
         assertThat(reviewed).containsExactly(draft.id());
         assertThat(resolved).containsExactly(ACME);
+    }
+
+    @Test
+    void aRequestAskedForChanges_isCorrectedLikeADraft_andSubmittedAgain() {
+        var asked = askForChanges(service.submit(ACME, complete(ACME).id(), 3, "submit-1"));
+        clock.advance(Duration.ofMinutes(5));
+
+        var corrected = service.replace(ACME, asked.id(), asked.version(),
+                withApplicantReference(asked.data(), "ref-2"));
+        var added = service.addDocument(ACME, asked.id(), corrected.version(), other("Insurance"));
+        var replaced = service.replaceDocument(ACME, asked.id(), added.document().documentId(),
+                added.request().version(), "Insurance 2027", pdfFile("insurance-2027.pdf"));
+        var removed = service.removeDocument(ACME, asked.id(), added.document().documentId(),
+                replaced.request().version());
+
+        assertThat(removed.status()).isEqualTo(OnboardingStatus.CHANGES_REQUESTED);
+        assertThat(removed.data().applicantReference()).isEqualTo("ref-2");
+        assertThat(removed.documents()).extracting(document -> document.type())
+                .containsExactly(DocumentType.GTC, DocumentType.UCA);
+        // a submitted request stays, whatever the review asks
+        problem(ProblemCode.INVALID_ONBOARDING_REQUEST_STATE, () -> service.delete(ACME, asked.id(), removed.version()));
+        problem(ProblemCode.VERSION_CONFLICT, () -> service.submit(ACME, asked.id(), asked.version(), null));
+
+        var resubmitted = service.submit(ACME, asked.id(), removed.version(), "submit-1");
+        var again = service.submit(ACME, asked.id(), removed.version(), "submit-1");
+
+        assertThat(resubmitted.status()).isEqualTo(OnboardingStatus.UNDER_REVIEW);
+        assertThat(resubmitted.version()).isEqualTo(removed.version() + 1);
+        assertThat(resubmitted.submittedAt()).isEqualTo(NOW);
+        assertThat(resubmitted.changeRequest().resubmittedAt()).isEqualTo(NOW.plus(Duration.ofMinutes(5)));
+        assertThat(again).isEqualTo(resubmitted);
+        // the onboarding started with the first submit, and is not announced again
+        assertThat(events.started).hasSize(1);
+        assertThat(reviewed).containsExactly(asked.id());
+        assertThat(reviewedAgain).containsExactly(asked.id());
+        problem(ProblemCode.INVALID_ONBOARDING_REQUEST_STATE,
+                () -> service.replace(ACME, asked.id(), resubmitted.version(), resubmitted.data()));
+    }
+
+    @Test
+    void aRequestAskedForChanges_isCheckedAgainWhenSubmittedAgain_butNotAgainstTheQuota() {
+        // with it, the connector's 10 requests awaiting a decision
+        IntStream.range(0, DefaultOnboardingRequestService.MAX_AWAITING_DECISION - 1).forEach(i -> {
+            var draft = service.create(ACME, withApplicantReference(data("did:web:acme-" + i + ".example.com"), "ref-" + i),
+                    null).request();
+            submit(service.addDocument(ACME, draft.id(), draft.version(), gtc()).request());
+        });
+        var asked = askForChanges(submit(complete(ACME)));
+        var gtcId = asked.document(DocumentType.GTC, null).orElseThrow().documentId();
+        var withoutGtc = service.removeDocument(ACME, asked.id(), gtcId, asked.version());
+
+        var refusal = problem(ProblemCode.ONBOARDING_REQUEST_SUBMIT_REJECTED,
+                () -> service.submit(ACME, asked.id(), withoutGtc.version(), null));
+
+        assertThat(refusal.errors()).extracting(FieldError::field).containsExactly("documents");
+        assertThat(service.get(ACME, asked.id()).status()).isEqualTo(OnboardingStatus.CHANGES_REQUESTED);
+        assertThat(reviewedAgain).isEmpty();
+
+        var completed = service.addDocument(ACME, asked.id(), withoutGtc.version(), gtc()).request();
+        assertThat(service.submit(ACME, asked.id(), completed.version(), null).status())
+                .isEqualTo(OnboardingStatus.UNDER_REVIEW);
+    }
+
+    @Test
+    void theFirstSubmit_sentAgainAfterTheReviewAskedForChanges_isNotTheAnswerToIt() {
+        var draft = complete(ACME);
+        var submitted = service.submit(ACME, draft.id(), draft.version(), "submit-1");
+        var asked = askForChanges(submitted);
+
+        // the response of the first submit was lost: sent again, under its key and the draft's version
+        var replayed = service.submit(ACME, draft.id(), draft.version(), "submit-1");
+
+        assertThat(replayed).isEqualTo(asked);
+        assertThat(reviewedAgain).isEmpty();
+        // the answer names the request's current version — under the same key or another
+        assertThat(service.submit(ACME, draft.id(), asked.version(), "submit-1").status())
+                .isEqualTo(OnboardingStatus.UNDER_REVIEW);
+        assertThat(reviewedAgain).containsExactly(draft.id());
     }
 
     @Test

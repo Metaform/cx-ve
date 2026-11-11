@@ -105,9 +105,16 @@ config:
     # No TSP operator in the VE yet: participants hosted here (DID under hosted-did-prefix, the
     # hub's participant.did.template — host-derived, the install scripts override it) are approved
     # automatically; external ones too, for now. Switch external off to have them wait in SUBMITTED.
+    # Before it approves, the automatic review asks for changes once (request-changes): the request
+    # becomes CHANGES_REQUESTED and is approved once the applicant submitted it again. The hub does
+    # that for every member it registers, hosted here or not; a participant calling this API on its
+    # own has to do it itself.
     review:
       hosted-did-prefix: "did:web:identity.cxve.localhost:"
       auto-approve:
+        hosted: true
+        external: true
+      request-changes:
         hosted: true
         external: true
       delay: 0s
