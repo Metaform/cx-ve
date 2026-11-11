@@ -51,11 +51,13 @@ jwtlet:
     enabled: true
     mappings:
       # IssuerService admin API (holder registration, credential offers) — the app's only exchange.
-      # Must agree with config issuer-service.token-resource; `sudo` is no participant context the
-      # issuer knows, which is why the admin scope is what lets the calls through.
-      - participantContext: sudo
+      # Must agree with config issuer-service.token-resource. Exchanging under the issuer's own
+      # context makes the token's sub own it, so the resource scopes suffice and no admin is needed.
+      - participantContext: issuer
         scopes:
-          - issuer-admin-api:admin
+          - issuer-admin-api:holders:read
+          - issuer-admin-api:holders:write
+          - issuer-admin-api:credentials:write
     audiences:
       - edcv
     image: curlimages/curl:latest
@@ -81,7 +83,7 @@ config:
   issuer-service:
     url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin
     issuer-context-id: issuer
-    token-resource: sudo
+    token-resource: issuer
     credential-definitions:
       legal-entity: dx-legal-entity-credential-def
       site: dx-site-credential-def

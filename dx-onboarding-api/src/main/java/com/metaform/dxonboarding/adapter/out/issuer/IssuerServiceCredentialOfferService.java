@@ -14,13 +14,15 @@ import org.springframework.web.client.RestClient;
 
 /**
  * Has the IssuerService offer the holder its DECADE-X credentials, authorized like the holder
- * registration: the Legal Entity VC, and the Site VC when the participant declared a business site
+ * registration but with {@code issuer-admin-api:credentials:write}: the Legal Entity VC, and the Site VC when the participant declared a business site
  * ({@code issuer-service.credential-definitions}). The IssuerService resolves the holder's DID
  * document and pushes a DCP CredentialOffer to the CredentialService it advertises; an unknown
  * definition id fails the whole offer.
  */
 @Component
 public class IssuerServiceCredentialOfferService implements CredentialOfferService {
+
+    static final String SCOPE = "issuer-admin-api:credentials:write";
 
     private static final Logger log = LoggerFactory.getLogger(IssuerServiceCredentialOfferService.class);
 
@@ -46,8 +48,7 @@ public class IssuerServiceCredentialOfferService implements CredentialOfferServi
         DecadeXCredentialClaims.firstSite(request).ifPresent(site -> offered.add(definitions.site()));
         restClient.post()
                 .uri("/v1/participants/{issuerContextId}/credentials/offer", properties.issuerContextId())
-                .header("Authorization", "Bearer " + tokenProvider.getToken(properties.tokenResource(),
-                        IssuerServiceHolderRegistrationService.SCOPE))
+                .header("Authorization", "Bearer " + tokenProvider.getToken(properties.tokenResource(), SCOPE))
                 .body(Map.of("holderId", holderId, "credentials", offered))
                 .retrieve()
                 .toBodilessEntity();

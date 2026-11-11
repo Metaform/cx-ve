@@ -26,15 +26,15 @@ import org.springframework.web.client.RestClient;
  * properties — instead of being taken as success, which would leave the holder without the
  * DECADE-X claims and fail the credentials' generation later, out of sight.
  *
- * <p>Authorized by a workload token exchanged under the
- * {@code issuer-service.token-resource} mapping (the platform's {@code sudo}) for
- * {@code issuer-admin-api:admin} — the scope the admin API accepts from a caller that is not one of
- * its participants.
+ * <p>Authorized by a workload token exchanged under the {@code issuer-service.token-resource}
+ * mapping, which must be the issuer's participant context: the token's {@code sub} then owns the
+ * addressed context, so the holder scopes suffice and no {@code issuer-admin-api:admin} elevation is
+ * needed. The GET of the 409 merge needs {@code holders:read}, the POST and PUT {@code holders:write}.
  */
 @Component
 public class IssuerServiceHolderRegistrationService implements HolderRegistrationService {
 
-    static final String SCOPE = "issuer-admin-api:admin";
+    static final String SCOPE = "issuer-admin-api:holders:read issuer-admin-api:holders:write";
 
     private static final Logger log = LoggerFactory.getLogger(IssuerServiceHolderRegistrationService.class);
 
