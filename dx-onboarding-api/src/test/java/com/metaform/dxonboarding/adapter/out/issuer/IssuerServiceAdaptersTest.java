@@ -35,7 +35,7 @@ class IssuerServiceAdaptersTest {
     private final RestClient.Builder builder = RestClient.builder().baseUrl(API);
     private final MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     private final RestClient restClient = builder.build();
-    private final IssuerServiceProperties properties = new IssuerServiceProperties(API, "issuer", "sudo",
+    private final IssuerServiceProperties properties = new IssuerServiceProperties(API, "issuer", "issuer",
             new IssuerServiceProperties.CredentialDefinitions("dx-legal-entity-credential-def",
                     "dx-site-credential-def"));
     private final IssuerServiceHolderRegistrationService holders = new IssuerServiceHolderRegistrationService(
@@ -88,7 +88,7 @@ class IssuerServiceAdaptersTest {
     void registerHolder_registersTheDidWithItsLegalEntity() {
         server.expect(requestTo(API + "/v1/participants/issuer/holders"))
                 .andExpect(method(HttpMethod.POST))
-                .andExpect(header("Authorization", "Bearer token-for-sudo-issuer-admin-api:admin"))
+                .andExpect(header("Authorization", "Bearer token-for-issuer-issuer-admin-api:holders:read issuer-admin-api:holders:write"))
                 .andExpect(content().json("""
                         {"holderId": "%s", "did": "%s", "name": "Acme Corp",
                          "properties": {"id": "%s", "dxSubjectType": "dx:Wallet", "dxLegalEntity": %s}}"""
@@ -174,7 +174,7 @@ class IssuerServiceAdaptersTest {
     void offerCredentials_offersBothCredentialsToAHolderWithASite() {
         server.expect(requestTo(API + "/v1/participants/issuer/credentials/offer"))
                 .andExpect(method(HttpMethod.POST))
-                .andExpect(header("Authorization", "Bearer token-for-sudo-issuer-admin-api:admin"))
+                .andExpect(header("Authorization", "Bearer token-for-issuer-issuer-admin-api:credentials:write"))
                 .andExpect(content().json("""
                         {"holderId": "%s", "credentials": ["dx-legal-entity-credential-def", "dx-site-credential-def"]}"""
                         .formatted(DID), true))

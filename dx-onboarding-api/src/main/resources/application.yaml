@@ -23,12 +23,13 @@ spring:
 
 # The IssuerService an approved participant is registered with as credential holder, and offered
 # its DECADE-X credentials through. The admin API is called
-# with a token exchanged under the token-resource jwtlet mapping, which must grant
-# issuer-admin-api:admin (the chart's jwtlet seed registers it for this service's account).
+# with a token exchanged under the token-resource jwtlet mapping: the issuer's participant context,
+# granting issuer-admin-api:holders:read, :holders:write and :credentials:write (the chart's jwtlet
+# seed registers it for this service's account).
 issuer-service:
   url: http://issuerservice.edc-v.svc.cluster.local:10013/api/admin   # ISSUERSERVICE_URL
   issuer-context-id: issuer                                     # ISSUERSERVICE_ISSUERCONTEXTID
-  token-resource: sudo                                          # ISSUERSERVICE_TOKENRESOURCE
+  token-resource: issuer                                        # ISSUERSERVICE_TOKENRESOURCE
   # Must exist at the issuer — the umbrella chart's DECADE-X issuer seed creates them; an unknown id
   # fails the whole offer. Every member is offered the Legal Entity VC; the Site VC only a member
   # that declared a business site (it is issued for the first one).

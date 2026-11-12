@@ -8,8 +8,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * @param url                   the admin API's base URL (in-cluster: the issuer's admin port)
  * @param issuerContextId       the issuer's participant context, which holds the credential definitions
- * @param tokenResource         the jwtlet mapping the workload token is exchanged under — it must
- *                              grant {@code issuer-admin-api:admin}
+ * @param tokenResource         the jwtlet mapping the workload token is exchanged under — the
+ *                              issuer's participant context, granting {@code issuer-admin-api:holders:read},
+ *                              {@code :holders:write} and {@code :credentials:write}
  * @param credentialDefinitions the credential definitions a DECADE-X member is offered
  */
 @ConfigurationProperties(prefix = "issuer-service")
