@@ -1,7 +1,7 @@
 dependencies:
 - name: core-platform-distribution
   repository: oci://ghcr.io/eclipse-cfm/charts
-  version: 0.0.41
+  version: 0.0.43
 - name: dx-onboarding-api
   repository: file://../dx-onboarding-api
   version: 0.1.0
@@ -17,5 +17,5 @@ dependencies:
 - name: certo
   repository: oci://ghcr.io/metaform/charts
   version: 0.0.8
-digest: sha256:4e7fd7061dfd44ca0ddc362c048d3f50b838724fa8986ede6ffa2acca1848169
-generated: "2026-11-11T13:03:30.05584+01:00"
+digest: sha256:3fa7b9adf1f9d7b7c40d45a55b075661d8a6e2b8d2da23acfc0de9b73f09e222
+generated: "2026-11-16T09:09:43.056611757Z"
