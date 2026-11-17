@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Rebuilds everything the VE runs from this checkout and upgrades the running umbrella release in
-# place: builds the DECADE-X onboarding API, Compliance Tracker, Membership Hub and Verification UI
+# place: builds the DECADE-X onboarding API, Compliance Tracker, Certo agent, Membership Hub and Verification UI
 # images, loads them into the kind cluster, re-vendors the umbrella's chart dependencies (the app
 # charts are pulled from ../dx-onboarding-api, ../membership-hub etc. via file://, so local chart
 # changes propagate) and runs `helm upgrade` with the same host overrides
@@ -98,13 +98,14 @@ HOST_OVERRIDES=(
 IMAGES=(
   "ghcr.io/metaform/cx-ve/dx-onboarding-api:latest dx-onboarding-api"
   "ghcr.io/metaform/cx-ve/compliance-tracker:latest compliance-tracker"
+  "ghcr.io/metaform/cx-ve/certo-agent:latest certo-agent"
   "ghcr.io/metaform/cx-ve/membership-hub:latest membership-hub"
   "ghcr.io/metaform/cx-ve/verification-ui:latest verification-ui"
 )
 
 # Deployments running the images built above; restarted after the upgrade because a rebuilt
 # image under an unchanged tag does not change the pod spec, so helm will not roll them.
-DEPLOYMENTS=(cx-ve-dx-onboarding-api cx-ve-compliance-tracker cx-ve-membership-hub
+DEPLOYMENTS=(cx-ve-dx-onboarding-api cx-ve-compliance-tracker cx-ve-certo-agent cx-ve-membership-hub
   cx-ve-verification-ui)
 
 set -x

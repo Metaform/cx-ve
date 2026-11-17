@@ -336,8 +336,8 @@ certoAgent:
   enabled: true
   replicas: 1
   image:
-    repository: ghcr.io/eclipse-cfm/cfm/certoagent
-    tag: 0.0.8
+    repository: ghcr.io/metaform/cx-ve/certo-agent
+    tag: latest
     pullPolicy: IfNotPresent
   # The agent runs under the platform's "cfm-agents" ServiceAccount; the certo-jwtlet-seed job
   # maps that SA to the "sudo" participant context with the certo-mgmt-api scopes, authorizing

@@ -84,7 +84,7 @@ spec:
         - name: certo-agent
           image: "{{ .Values.certoAgent.image.repository }}:{{ .Values.certoAgent.image.tag }}"
           imagePullPolicy: {{ .Values.certoAgent.image.pullPolicy }}
-          command: [ "/certoagent" ]
+          command: [ "/certo-agent" ]
           args:
             - "--mode=debug"
           volumeMounts:

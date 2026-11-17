@@ -15,6 +15,7 @@ Monorepo containing:
 | `membership-hub/` | Spring Boot application (Java 17, Gradle) — the Membership Hub: drives the full member journey in each dataspace it serves (EDC resource provisioning via the CFM Tenant Manager, then registration via the dataspace's onboarding API); self-contained build |
 | `verification-ui/` | Spring Boot BFF + Angular dashboard — dataspace and use-case selection, verification runs ([README](verification-ui/README.md)) |
 | `compliance-tracker/` | CFM lifecycle agent (Go) consuming lifecycle CloudEvents off NATS — self-contained module |
+| `certo-agent/` | CFM orchestration agent (Go) that creates each provisioned member's participant context in Certo — self-contained module ([README](certo-agent/README.md)) |
 | `charts/dx-onboarding-api/` | Helm chart for the DECADE-X onboarding API stub |
 | `charts/decadex-profile/` | Helm chart seeding DECADE-X: the issuer's credential definitions, the EDC dataspace profile and the Tenant Manager's dataspace profile |
 | `charts/membership-hub/` | Helm chart for the Membership Hub application |
@@ -94,6 +95,9 @@ make test-unit             # handler tests; no Docker needed
 make test                  # all tests; the launcher suite starts a NATS testcontainer
 docker build -t compliance-tracker .
 ```
+
+The Certo agent in `certo-agent/` is built the same way (`go build ./...`, `make test`,
+`docker build -t certo-agent .`); see [certo-agent/README.md](certo-agent/README.md).
 
 ## Deploying
 
