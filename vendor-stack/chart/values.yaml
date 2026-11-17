@@ -169,8 +169,8 @@ certoAgent:
   enabled: true
   replicas: 1
   image:
-    repository: ghcr.io/eclipse-cfm/cfm/certoagent
-    tag: 0.0.8
+    repository: ghcr.io/metaform/cx-ve/certo-agent
+    tag: latest
     pullPolicy: IfNotPresent
   resources: {}
   natsAuth:

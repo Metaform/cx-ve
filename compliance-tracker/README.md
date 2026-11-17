@@ -4,7 +4,7 @@ A CFM **lifecycle agent**: a standalone service that consumes domain lifecycle e
 [CloudEvents](https://cloudevents.io) v1.0 over NATS JetStream, built on
 `github.com/eclipse-cfm/cfm/common/lifecycleagent`. It is the same framework as CFM's own
 `agent/lifecycle/keymanagementagent`, and distinct from the *orchestration* agents under
-`agent/orchestration/*` (such as the certo agent this VE deploys), which react to Provision
+`agent/orchestration/*` (and this repo's `certo-agent/`), which react to Provision
 Manager activity messages instead.
 
 > **Status: ledger, no rules yet.** The framework wiring, configuration, event decoding, subject

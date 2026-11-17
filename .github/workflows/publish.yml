@@ -30,6 +30,8 @@ jobs:
             context: dx-onboarding-api
           - name: compliance-tracker
             context: compliance-tracker
+          - name: certo-agent
+            context: certo-agent
           - name: membership-hub
             context: membership-hub
           - name: verification-ui

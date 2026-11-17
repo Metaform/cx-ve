@@ -184,6 +184,10 @@ kind load docker-image ghcr.io/metaform/cx-ve/dx-onboarding-api:latest -n $CLUST
 docker buildx build -t ghcr.io/metaform/cx-ve/compliance-tracker:latest compliance-tracker
 kind load docker-image ghcr.io/metaform/cx-ve/compliance-tracker:latest -n $CLUSTER_NAME
 
+# Build and load the latest version of the Certo agent.
+docker buildx build -t ghcr.io/metaform/cx-ve/certo-agent:latest certo-agent
+kind load docker-image ghcr.io/metaform/cx-ve/certo-agent:latest -n $CLUSTER_NAME
+
 # Build and load the latest version of the Membership Hub.
 docker buildx build -t ghcr.io/metaform/cx-ve/membership-hub:latest membership-hub
 kind load docker-image ghcr.io/metaform/cx-ve/membership-hub:latest -n $CLUSTER_NAME
