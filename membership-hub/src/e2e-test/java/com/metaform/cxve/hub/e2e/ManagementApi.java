@@ -8,6 +8,7 @@ import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -26,8 +27,6 @@ import static org.awaitility.Awaitility.await;
 public class ManagementApi {
 
     static final String MANAGEMENT_CONTEXT = "https://w3id.org/edc/connector/management/v2";
-    /** The DSP dataspace profile every catalog, negotiation and transfer request runs under. */
-    static final String DSP_PROFILE = "decade-x";
     static final String DCT_CONFORMS_TO = "http://purl.org/dc/terms/conformsTo";
     /** Catalog identity of an asset fronting certo's SCE provider API. */
     static final String SCE_PROVIDER_API = "https://w3id.org/dsaf/sce/v1/provider-api";
@@ -38,11 +37,18 @@ public class ManagementApi {
 
     private final String baseUrl;
     private final String token;
+    /** The DSP dataspace profile every catalog, negotiation and transfer request runs under. */
+    private final String dspProfile;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public ManagementApi(String baseUrl, String token) {
+    public ManagementApi(String baseUrl, String token, String dspProfile) {
         this.baseUrl = baseUrl;
         this.token = token;
+        this.dspProfile = dspProfile;
+    }
+
+    public String dspProfile() {
+        return dspProfile;
     }
 
     public Response post(String path, String body) {
@@ -121,24 +127,36 @@ public class ManagementApi {
     }
 
     /**
-     * A constraint-free policy: DECADE-X has no policy vocabulary yet. An access policy without
-     * a permission admits everyone; a contract policy needs one, for the action.
+     * A policy carrying the dataspace's constraints, whose leftOperands are terms of
+     * {@code policyContext}, each backed by a CEL expression seeded with the dataspace's profile
+     * (the rightOperands are placeholders — the expressions check fixed credential claims).
+     * Without constraints (DECADE-X has no policy vocabulary yet) the policy is constraint-free: an
+     * access policy without a permission admits everyone; a contract policy needs one, for the
+     * action.
      */
-    public void createPolicy(String pcid, String policyId, String action) {
-        var permission = "access".equals(action) ? "" : """
-                ,
-                    "permission": [{ "action": "%s" }]""".formatted(action);
-        var body = """
-                {
-                  "@context": ["%s"],
-                  "@type": "PolicyDefinition",
-                  "@id": "%s",
-                  "policy": {
-                    "@type": "Set"%s
-                  }
-                }""".formatted(MANAGEMENT_CONTEXT, policyId, permission);
-        expect2xx(post("/participants/%s/policydefinitions".formatted(pcid), body), "policy " + policyId);
-        log("   Management API:  policy '%s' created", policyId);
+    public void createPolicy(String pcid, String policyId, String action, String policyContext,
+                             List<E2eDataspace.Constraint> constraints) {
+        var context = mapper.createArrayNode().add(MANAGEMENT_CONTEXT);
+        var policy = mapper.createObjectNode().put("@type", "Set");
+        if (!constraints.isEmpty()) {
+            context.add(policyContext);
+            var and = mapper.createArrayNode();
+            constraints.forEach(constraint -> and.addObject()
+                    .put("leftOperand", constraint.leftOperand())
+                    .put("operator", constraint.operator())
+                    .put("rightOperand", constraint.rightOperand()));
+            var permission = policy.putArray("permission").addObject().put("action", action);
+            permission.putArray("constraint").addObject().set("and", and);
+        } else if (!"access".equals(action)) {
+            policy.putArray("permission").addObject().put("action", action);
+        }
+        var body = mapper.createObjectNode();
+        body.set("@context", context);
+        body.put("@type", "PolicyDefinition");
+        body.put("@id", policyId);
+        body.set("policy", policy);
+        expect2xx(post("/participants/%s/policydefinitions".formatted(pcid), body.toString()), "policy " + policyId);
+        log("   Management API:  policy '%s' created (%d constraints)", policyId, constraints.size());
     }
 
     public void createContractDefinition(String pcid, String id, String accessPolicyId, String contractPolicyId) {
@@ -174,7 +192,7 @@ public class ManagementApi {
                   "counterPartyAddress": "%s",
                   "counterPartyId": "%s",
                   "protocol": "%s"
-                }""".formatted(MANAGEMENT_CONTEXT, providerDsp, providerDid, DSP_PROFILE);
+                }""".formatted(MANAGEMENT_CONTEXT, providerDsp, providerDid, dspProfile);
         log("   Management API:  requesting provider catalog as consumer %s, waiting for dataset '%s'...", consumerPcid, assetId);
         var result = new AtomicReference<CatalogOffer>();
         await().atMost(timeout).pollInterval(POLL_INTERVAL).untilAsserted(() -> {
@@ -211,7 +229,7 @@ public class ManagementApi {
         body.set("@context", context);
         body.put("@type", "ContractRequest");
         body.put("counterPartyAddress", providerDsp);
-        body.put("protocol", DSP_PROFILE);
+        body.put("protocol", dspProfile);
         body.set("policy", policy);
 
         var response = post("/participants/%s/contractnegotiations".formatted(consumerPcid), body.toString());
@@ -230,7 +248,7 @@ public class ManagementApi {
                   "counterPartyAddress": "%s",
                   "protocol": "%s",
                   "transferType": "%s"
-                }""".formatted(MANAGEMENT_CONTEXT, agreementId, providerDsp, DSP_PROFILE, transferType);
+                }""".formatted(MANAGEMENT_CONTEXT, agreementId, providerDsp, dspProfile, transferType);
         var response = post("/participants/%s/transferprocesses".formatted(consumerPcid), body);
         expect2xx(response, "transfer process");
         var id = idOf(response);

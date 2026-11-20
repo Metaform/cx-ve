@@ -50,7 +50,7 @@ logging:
 # onboarding: the dataspace's onboarding API, called in the onboarding-service-provider role —
 #   OAuth2 client-credentials (auth) against the VE's OSP IdP (Ory Hydra); the client must be
 #   seeded there (see the umbrella chart's ospIdp.clients). The optional callback block, for an
-#   onboarding API with status callbacks (DECADE-X has none), is what the hub registers as its
+#   onboarding API with status callbacks (Catena-X's; DECADE-X has none), is what the hub registers as its
 #   status-callback address: the url must be reachable FROM the onboarding API and end in
 #   /api/callbacks/<dataspace id>/registration-status, and token-url/client-id/client-secret are
 #   the credentials it authenticates its callback calls with (a second Hydra client) — this app's
@@ -60,6 +60,32 @@ logging:
 #   its `credential-type` credential, stamped into the token as `flow-claim` (optional in certo,
 #   which reads it as the caller's dataspace identifier).
 dataspaces:
+  # Catena-X, through the VE's cx-onboarding-api (CX-0009 partner registration). Status comes back
+  # through callbacks, so it is not polled. Its certificate exchange runs on Certo (DSAF SCE) like
+  # DECADE-X's, which is not what Catena-X specifies (CX-0135): the VE accepts that for now.
+  catena-x:
+    enabled: true                                               # DATASPACES_CATENAX_ENABLED
+    display-name: Catena-X
+    onboarding:
+      url: http://cxve.localhost/cx-onboarding                  # DATASPACES_CATENAX_ONBOARDING_URL
+      callback:
+        url: http://localhost:8080/api/callbacks/catena-x/registration-status  # DATASPACES_CATENAX_ONBOARDING_CALLBACK_URL
+        token-url: http://cxve.localhost/auth/osp/oauth2/token
+        client-id: membership-hub-callback
+        client-secret: ""                                       # DATASPACES_CATENAX_ONBOARDING_CALLBACK_CLIENTSECRET
+      auth:
+        token-url: http://cxve.localhost/auth/osp/oauth2/token
+        client-id: membership-hub
+        client-secret: ""                                       # DATASPACES_CATENAX_ONBOARDING_AUTH_CLIENTSECRET
+        scope: configure_partner_registration
+    # Catena-X's DSP profile (seeded by the umbrella's catenax-profile).
+    dataspace-profiles:
+      - cx-neptune
+    # the BPN, stamped into flow tokens as the claim Certo reads a caller's dataspace identifier from
+    member-id-claim:
+      credential-type: BpnCredential
+      claim: bpn
+      flow-claim: dataspaceidentifier
   # DECADE-X, through the VE's dx-onboarding-api — the TSP onboarding intake. It has no status
   # callbacks, so the hub polls each request's status (participant.registration.poll-interval). An
   # approval registers the member as credential holder and has the platform's issuer offer it the
@@ -120,7 +146,7 @@ participant:
     timeout: 10m                                                # PARTICIPANT_PROVISIONING_TIMEOUT
     poll-interval: 5s                                           # PARTICIPANT_PROVISIONING_POLLINTERVAL
   # How often the hub reads the status of submitted registrations from an onboarding API that has
-  # no status callbacks (DECADE-X's TSP). Callback-driven dataspaces are not polled.
+  # no status callbacks (DECADE-X's TSP). Callback-driven dataspaces (Catena-X) are not polled.
   registration:
     poll-interval: 15s                                          # PARTICIPANT_REGISTRATION_POLLINTERVAL
   # Transfer-type mapping configured on the member's data plane (Siglet) at provisioning time,

@@ -1,5 +1,6 @@
 # Traefik for the vendor cluster — the root traefik-values.yaml with the gateway moved to port
-# 8081, because the VE's kind cluster already holds port 80 on the host.
+# 8081, because the VE's kind cluster already holds port 80 on the host. install.sh overrides both
+# port values below with its --http-port (8082 for a Catena-X stack).
 #
 # The one port number (8081) has to line up in three places, since the vendor advertises
 # http://dx-vendor.localhost:8081 as its address and every party dereferences that same URL:

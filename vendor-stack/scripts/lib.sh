@@ -30,24 +30,39 @@ ENV_VENDOR_URL="${VENDOR_URL:-}"
 ENV_VE_HOST="${VE_HOST:-}"
 
 # The dataspace the stack's participant is a member of, and everything that follows from it: the
-# stack's default cluster, gateway and port, the DSP profile, what a member id is, the member
-# credential the VE issues, and the VE's verification participant of that dataspace. DECADE-X
-# assigns member ids (the TSP, on approval), so there are no ids to declare: DEFAULT_MEMBER_ID is
-# only the provisional one the Certo tenant is provisioned with. The verification participant
-# needs none here: Certo addresses counterparties by DID. Called below with VENDOR_DATASPACE
-# (default decade-x, the only one so far), and again by a script's -d/--dataspace — before init.
-use_dataspace() { # <decade-x>
+# stack's default cluster, gateway and port (one stack per dataspace, side by side), the DSP
+# profile, what a member id is, the member credential the VE issues and where it carries the member
+# id (MEMBER_ID_CLAIM, a jq path into its credentialSubject), and the VE's verification participant
+# of that dataspace. Catena-X members declare their BPN: the one given to create-participant.sh is
+# the one to enter on the VE's run form. DECADE-X assigns member ids (the TSP, on approval), so
+# there DEFAULT_MEMBER_ID is only the provisional one the Certo tenant is provisioned with. The
+# verification participant needs none here: Certo addresses counterparties by DID. Called below
+# with VENDOR_DATASPACE (default decade-x), and again by a script's -d/--dataspace — before init.
+use_dataspace() { # <decade-x|catena-x>
   local cluster host port
   case "$1" in
     decade-x)
       cluster=dx-vendor; host=dx-vendor.localhost; port=8081
       DSP_PROFILE=decade-x
       MEMBER_ID_LABEL=DECADE-X-ID
+      MEMBER_ID_ASSIGNED=true
       DEFAULT_MEMBER_ID=DX-00009001
       MEMBER_CREDENTIAL=dx:DX_LegalEntity_VC
+      MEMBER_ID_CLAIM='.partner.partnerID'
       VP_SHORT_NAME=verification-participant-dx
       ;;
-    *) die "unknown dataspace '$1' — decade-x" ;;
+    catena-x)
+      cluster=cx-vendor; host=cx-vendor.localhost; port=8082
+      # Catena-X's own profile: its DCP scopes ask for the three Catena-X credentials
+      DSP_PROFILE=cx-neptune
+      MEMBER_ID_LABEL=BPN
+      MEMBER_ID_ASSIGNED=false
+      DEFAULT_MEMBER_ID=BPNLVENDOR000001
+      MEMBER_CREDENTIAL=BpnCredential
+      MEMBER_ID_CLAIM='.bpn'
+      VP_SHORT_NAME=verification-participant
+      ;;
+    *) die "unknown dataspace '$1' — decade-x or catena-x" ;;
   esac
   VENDOR_DATASPACE="$1"
   VENDOR_CLUSTER="${ENV_VENDOR_CLUSTER:-$cluster}"
@@ -91,12 +106,18 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 use_dataspace "${VENDOR_DATASPACE:-decade-x}"
 
 # The member credential the wallet holds, as JSON (type list and claims), or empty — what the VE
-# issued it in the stack's dataspace (dx:DX_LegalEntity_VC).
+# issued it in the stack's dataspace (dx:DX_LegalEntity_VC, or Catena-X's BpnCredential).
 member_credential_of() { # <participant context id>
   identity GET "/participants/$1/credentials"
   [[ "$HTTP_STATUS" == 200 ]] || return 0
   printf '%s' "$HTTP_BODY" | jq -c --arg type "$MEMBER_CREDENTIAL" \
     '[.[] | .verifiableCredential.credential // . | select((.type // []) | index($type))] | .[0] // empty'
+}
+
+# The member id a member credential (JSON on stdin) carries, or empty: the DECADE-X-ID the TSP
+# assigned, or the BPN the VE registered the participant under.
+member_id_in_credential() {
+  jq -r "(.credentialSubject | if type == \"array\" then .[0] else . end) | (${MEMBER_ID_CLAIM}) // empty"
 }
 
 # The counterparty's DSP endpoint for the stack's DSP profile. A DID document advertises ONE

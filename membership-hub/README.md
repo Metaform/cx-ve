@@ -1,6 +1,6 @@
 # Membership Hub
 
-Drives a partner's full path into one of the dataspaces this VE hosts (so far DECADE-X, through
+Drives a partner's full path into one of the dataspaces this VE hosts (Catena-X; DECADE-X through
 its TSP onboarding intake) by combining the two halves the VE deliberately keeps apart:
 
 1. **Provisioning** — for a member this VE hosts, creates a tenant and deploys the participant
@@ -16,6 +16,9 @@ its TSP onboarding intake) by combining the two halves the VE deliberately keeps
    has it offer the member its credentials; the hub polls the request's status, and the approval
    is the membership's terminal success. When the review asks for changes (`CHANGES_REQUESTED`,
    which the VE's TSP does once for every request), the hub submits the request again as it is.
+   For Catena-X it is the `cx-onboarding-api` (CX-0006/CX-0009): it validates, proves identity,
+   registers the credential holder and has the issuer offer the member its credentials; its
+   CONFIRMED status callback lands on this app and is the membership's terminal success.
 
 Everything dataspace-specific sits behind one `DataspaceOnboarding` implementation per dataspace
 (`adapter/out/onboarding/<dataspace>`): the shape of the request's `registration` object, the
@@ -35,7 +38,7 @@ status callbacks carry) and the `participantContextId` provisioning assigns.
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/dataspaces` | The dataspaces members can be onboarded into (`id`, `displayName`) — the enabled entries of `dataspaces.*`. |
-| `POST /api/members` | Submit a member: `dataspace`, `name`, `shortName`, `memberId` (the id within the dataspace, for a dataspace that takes one; refused in DECADE-X, where the TSP assigns the DECADE-X-ID on approval), optional `did`, and the dataspace-specific `registration` object (DECADE-X: the TSP's onboarding request data — `legalEntity` (without `legalName`/`preferredDid`, which the hub fills from `name` and the DID, and without `legalEntityId`), `legalPerson`, `businessSites`, `gtc` (`versionNumber`), `ucas` (`useCaseId`, one of the TSP's use cases, and `versionNumber`), `declarations`; the hub adds `applicantReference`, creates the draft, adds placeholder GTC/UCA documents and submits it). Returns the membership record incl. its `externalId`. `400` for a dataspace the hub does not serve or a `registration` it refuses — for an external DECADE-X member also one the TSP refuses, naming its reasons. |
+| `POST /api/members` | Submit a member: `dataspace`, `name`, `shortName`, `memberId` (the id within the dataspace, for a dataspace that takes one — the BPN in Catena-X, required; refused in DECADE-X, where the TSP assigns the DECADE-X-ID on approval), optional `did`, and the dataspace-specific `registration` object (Catena-X: city, streetName, countryAlpha2Code, region, uniqueIds, companyRoles, agreements, userDetails; DECADE-X: the TSP's onboarding request data — `legalEntity` (without `legalName`/`preferredDid`, which the hub fills from `name` and the DID, and without `legalEntityId`), `legalPerson`, `businessSites`, `gtc` (`versionNumber`), `ucas` (`useCaseId`, one of the TSP's use cases, and `versionNumber`), `declarations`; the hub adds `applicantReference`, creates the draft, adds placeholder GTC/UCA documents and submits it). Returns the membership record incl. its `externalId`. `400` for a dataspace the hub does not serve or a `registration` it refuses — for an external DECADE-X member also one the TSP refuses, naming its reasons. |
 | `GET /api/members/{externalId}` | The correlated view. For a member with a deployed profile, resolves the stored profile id and reads its current state from the Tenant Manager. |
 | `GET /api/members?dataspace=&memberId=` / `?did=[&dataspace=]` / `?shortName=[&dataspace=]` | Rediscovery: the memberships under a member id (of one dataspace), a DID, or the short name of a member hosted here (the DID the hub minted for it). |
 | `POST /api/callbacks/{dataspace}/registration-status` | The status-callback endpoint registered with each dataspace's onboarding API, in that API's own wire format (`404` for a dataspace whose status is polled, e.g. DECADE-X). OAuth2-protected: the caller presents a client-credentials bearer from the OSP IdP, obtained with the client this app registers alongside its callback URL. Not meant for humans. |
@@ -81,7 +84,7 @@ that already happened. Dead attempts (`REJECTED`, `FAILED`) release their identi
 
 ```shell
 ./gradlew build            # unit tests included; no cluster needed
-./gradlew e2eTest          # the VE's black-box e2e suite (src/e2e-test) — needs a RUNNING VE
+./gradlew e2eTest          # the VE's black-box e2e suite (src/e2e-test), once per dataspace — needs a RUNNING VE
 docker build -t membership-hub .
 ```
 
@@ -101,7 +104,7 @@ rendered 1:1 into the pod's application.yaml). Notable:
   onboarding API authenticates the callbacks with, validated via
   `spring.security.oauth2.resourceserver.jwt.*`), the connector's `dataspace-profiles`, and the
   `member-id-claim` the data plane stamps into flow tokens (DECADE-X: the `dx:DX_LegalEntity_VC`'s
-  `partner.partnerID`).
+  `partner.partnerID`; Catena-X: `BpnCredential`'s `bpn`), in both as `dataspaceidentifier`.
   A dataspace also needs its `DataspaceOnboarding` bean (`DataspacesConfig`).
 - `tenant-manager.*` — base URL and the jwtlet mapping (`token-resource`) the workload token is
   exchanged under; the chart's jwtlet-seed job registers it with the

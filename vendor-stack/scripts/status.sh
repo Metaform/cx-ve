@@ -10,7 +10,7 @@
 #   ./vendor-stack/scripts/status.sh [-d|--dataspace <dataspace>] [--exchange <id>]
 #                                    [-s|--short-name <name>] [-h|--help]
 #
-#   -d, --dataspace   decade-x (default, the only one so far) — the dataspace of the stack
+#   -d, --dataspace   decade-x (default) or catena-x — the dataspace of the stack
 #
 #   --exchange <id>   show this certificate exchange in full instead of the list of exchanges
 #

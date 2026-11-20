@@ -213,3 +213,97 @@ verification:
         substance-tracing:
           display-name: Substance tracing
           enabled: false
+    # Catena-X, onboarded through the cx-onboarding-api (the hub's dataspaces.catena-x): a CX-0009
+    # partner registration, on which the platform's issuer offers the participant its Membership,
+    # Bpn and DataExchangeGovernance credentials. NOT Catena-X compliant in one respect, accepted
+    # for now: certificates are exchanged as DSAF SCE defines it, on Certo, exactly as in DECADE-X,
+    # where Catena-X specifies CX-0135.
+    catena-x:
+      display-name: Catena-X
+      # What a member id is called and looks like here — the run form's label, placeholder and
+      # validation. Catena-X: the BPNL, the legal-entity BPN (CX-0010). Declared, not assigned: a
+      # run names it.
+      member-id:
+        label: BPN
+        pattern: "BPNL[0-9A-Z]{12}"
+        example: BPNL000000000001
+      # Seeded by the umbrella's catenax-profile. The connector ADVERTISES decade-x in DID
+      # documents (one platform-wide profile), so this is dialled explicitly.
+      dsp-profile: cx-neptune
+      # The policies of every offer this environment seeds. The leftOperands are Catena-X policy
+      # terms (in policy-context), each backed by a CEL expression the catenax-profile chart seeds;
+      # the rightOperands are placeholders — the CEL expressions check fixed credential claims.
+      policy-context: https://w3id.org/catenax/2025/9/policy/context.jsonld
+      access-constraints:
+        - { left-operand: Membership, operator: eq, right-operand: active }
+      contract-constraints:
+        - { left-operand: FrameworkAgreement, operator: eq, right-operand: "DataExchangeGovernance:1.0" }
+        - { left-operand: UsagePurpose, operator: isAnyOf, right-operand: "cx.pcf.base:1" }
+        - { left-operand: DataUsageEndDefinition, operator: eq, right-operand: "cx.dataUsageEnd.unlimited:1" }
+      # The Catena-X `registration` object of a hub member request (the CX-0009 registration
+      # beyond the common fields). The ACTIVE "Catena-X" agreement matters: it becomes the
+      # member's memberOf, which the Membership policy checks.
+      registration-template: |
+        {
+          "city": "Munich",
+          "streetName": "Otto-Hahn-Ring",
+          "countryAlpha2Code": "DE",
+          "region": "BY",
+          "uniqueIds": [ { "type": "VAT_ID", "value": "{{uniqueId}}" } ],
+          "companyRoles": [ "ACTIVE_PARTICIPANT" ],
+          "agreements": [ { "agreementId": "Catena-X", "consentStatus": "ACTIVE" } ],
+          "userDetails": [ {
+            "providerId": "vui-user-{{uniqueId}}",
+            "firstName": "Verification", "lastName": "Runner",
+            "email": "vui-{{uniqueId}}@example.com"
+          } ]
+        }
+      # The dataspace's permanent verification participant. Its member id is the rediscovery key
+      # after restarts (hub lookup), so keep it stable; it is pinned rather than hash-derived to be
+      # readable in logs and the UI. The short name forms its hosted DID and must be unique across
+      # dataspaces (the hub deploys a DID only once).
+      verification-participant:
+        name: "Verification Participant"
+        short-name: verification-participant
+        member-id: BPNLVERIFY000001
+        unique-id: DEVERIFY0001
+      use-cases:
+        ccm:
+          display-name: Company Certificate Management
+          enabled: true
+          ccm:
+            # Unique across ALL participant contexts, so not DECADE-X's (checked at startup).
+            inbox-asset-id: ccm-inbox-verification
+            # DSAF SCE's, as in DECADE-X — not the CX-0135 taxonomy.
+            api:
+              provider-api: "https://w3id.org/dsaf/sce/v1/provider-api"
+              consumer-api: "https://w3id.org/dsaf/sce/v1/consumer-api"
+            protocol: sce-1.0
+            certificate-type: iso9001
+            # The issuer of the sample certificate a managed run issues; it is certified for the
+            # participant-under-test's BPN.
+            certificate:
+              issuer-name: Verification Environment CA
+              issuer-id: BPNL00000000ISSUER
+            # As DECADE-X's. The onboarding events are the cx-onboarding-api's (type
+            # org.catena-x.onboarding.*); the credential delivery is the three Catena-X
+            # credentials' (one issuance, one delivery).
+            expected-events:
+              "[events.onboarding.started]": 1
+              "[events.onboarding.completed]": 1
+              "[events.participantcontext.created]": 1
+              "[events.diddocument.published]": 1
+              "[events.keypair.added]": 1
+              "[events.issuance.credential.delivered]": 1
+              "[events.contract.negotiation.finalized]": 2
+              "[events.transfer.process.started]": 2
+              "[events.certificate.exchange.fulfilled]": 1
+              "[events.certificate.exchange.accepted]": 1
+            external-expected-events:
+              "[events.onboarding.started]": 1
+              "[events.onboarding.completed]": 1
+              "[events.issuance.credential.delivered]": 1
+        # Listed so operators see it exists; not verifiable yet (no implementation).
+        traceability:
+          display-name: Traceability
+          enabled: false

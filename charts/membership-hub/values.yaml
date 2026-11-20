@@ -132,8 +132,39 @@ config:
   # key reference). Each dataspace's onboarding API is called as an onboarding service provider.
   # Tokens come from the OSP IdP's cluster-internal public port; their `iss` is the IdP's external
   # issuer URL regardless of which host the request hit, so validation on the receiving side is
-  # unaffected. The `auth` client must be seeded in the IdP (umbrella: ospIdp.clients).
+  # unaffected. The clients must be seeded in the IdP (umbrella: ospIdp.clients): `auth` is the
+  # hub's OSP identity, `callback` the credentials it hands the onboarding API for authenticating
+  # the status callbacks back to this app — the resourceserver block above validates them. The
+  # callback url is this app's own in-cluster address, under the dataspace's callback path.
   dataspaces:
+    # Catena-X, through the cx-onboarding-api. Its certificate exchange runs on Certo (DSAF SCE),
+    # like DECADE-X's.
+    catena-x:
+      enabled: true
+      display-name: Catena-X
+      onboarding:
+        url: http://cx-ve-cx-onboarding-api.edc-v.svc.cluster.local:8080
+        callback:
+          url: http://cx-ve-membership-hub.edc-v.svc.cluster.local:8080/api/callbacks/catena-x/registration-status
+          token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+          client-id: membership-hub-callback
+          client-secret: membership-hub-callback-secret
+        auth:
+          token-url: http://cx-ve-osp-idp.edc-v.svc.cluster.local:4444/oauth2/token
+          client-id: membership-hub
+          client-secret: membership-hub-secret
+          scope: configure_partner_registration
+      # The profile the catenax-profile chart seeds. The connector ADVERTISES only decade-x in
+      # DID documents, so a counterparty has to address a Catena-X member's /cx-neptune endpoint
+      # explicitly.
+      dataspace-profiles:
+        - cx-neptune
+      # The BPN, stamped into flow tokens as the claim Certo reads a caller's dataspace
+      # identifier from.
+      member-id-claim:
+        credential-type: BpnCredential
+        claim: bpn
+        flow-claim: dataspaceidentifier
     # DECADE-X, through the dx-onboarding-api (the TSP onboarding intake). No callback — the TSP has none, so the hub polls each request's status
     # (participant.registration.poll-interval). The url is the TSP onboarding data endpoint: the
     # onboarding requests themselves.

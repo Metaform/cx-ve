@@ -14,7 +14,11 @@
 # unconstrained, as the VE's are — the access policy an empty Set (a rule without constraints is refused for `access`, which is bound to
 # no scope), the contract policy one `use` permission without constraints (a contract request needs
 # a rule; `use` is bound). Its DSP profile's DCP scope still requires the consumer to present its
-# DX_LegalEntity_VC.
+# DX_LegalEntity_VC. In Catena-X, catalog visibility requires a Catena-X membership, and a contract
+# requires the data exchange governance framework agreement plus the usage purpose and usage end
+# definitions — the Catena-X profile's CEL expressions evaluate them against the consumer's
+# credentials, which, for the VE's verification participant, the VE's issuer signed and this stack
+# trusts.
 #
 # Idempotent: policies and contract definition are kept when they exist; the asset is written
 # through, so its API properties are always current.
@@ -23,7 +27,7 @@
 #   ./vendor-stack/scripts/seed-ccm-offer.sh [-d|--dataspace <dataspace>] [-s|--short-name <name>]
 #                                            [--asset <id>] [-h|--help]
 #
-#   -d, --dataspace    decade-x (default, the only one so far) — the dataspace of the stack
+#   -d, --dataspace    decade-x (default) or catena-x — the dataspace of the stack
 #   -s, --short-name   the vendor participant (default: vendor-participant)
 #   --asset            asset id (default: <short name>-ccm-provider-api)
 #
@@ -33,6 +37,8 @@ source "$(dirname "$0")/lib.sh"
 
 ASSET_ID=""
 MANAGEMENT_CONTEXT="https://w3id.org/edc/connector/management/v2"
+# must equal the VE's verification.dataspaces.catena-x.policy-context
+CX_POLICY_CONTEXT="https://w3id.org/catenax/2025/9/policy/context.jsonld"
 
 usage() { awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -89,6 +95,27 @@ open_policy() { # <id> <action>
   }'
 }
 
+# constraint <leftOperand> <operator> <rightOperand> -> ODRL constraint (compacted, CX policy context)
+constraint() {
+  jq -n --arg l "$1" --arg o "$2" --arg r "$3" '{leftOperand: $l, operator: $o, rightOperand: $r}'
+}
+
+# A policy whose one permission carries all the given constraints, under the Catena-X policy context.
+policy() { # <id> <action> <constraint-json...>
+  local id="$1" action="$2"
+  shift 2
+  jq -n --arg mctx "$MANAGEMENT_CONTEXT" --arg cxctx "$CX_POLICY_CONTEXT" --arg id "$id" \
+        --arg action "$action" --argjson constraints "$(printf '%s\n' "$@" | jq -s .)" '{
+    "@context": [$mctx, $cxctx],
+    "@type": "PolicyDefinition",
+    "@id": $id,
+    "policy": {
+      "@type": "Set",
+      "permission": [{action: $action, constraint: [{and: $constraints}]}]
+    }
+  }'
+}
+
 ACCESS_POLICY_ID="${PARTICIPANT_SHORT_NAME}-ccm-access-policy"
 CONTRACT_POLICY_ID="${PARTICIPANT_SHORT_NAME}-ccm-contract-policy"
 CONTRACT_DEFINITION_ID="${PARTICIPANT_SHORT_NAME}-ccm-cd"
@@ -119,6 +146,14 @@ case "$VENDOR_DATASPACE" in
   decade-x)
     create_once "access policy" policydefinitions "$ACCESS_POLICY_ID" "$(open_policy "$ACCESS_POLICY_ID" access)"
     create_once "contract policy" policydefinitions "$CONTRACT_POLICY_ID" "$(open_policy "$CONTRACT_POLICY_ID" use)"
+    ;;
+  catena-x)
+    create_once "access policy" policydefinitions "$ACCESS_POLICY_ID" "$(policy "$ACCESS_POLICY_ID" access \
+      "$(constraint Membership eq active)")"
+    create_once "contract policy" policydefinitions "$CONTRACT_POLICY_ID" "$(policy "$CONTRACT_POLICY_ID" use \
+      "$(constraint FrameworkAgreement eq DataExchangeGovernance:1.0)" \
+      "$(constraint UsagePurpose isAnyOf cx.pcf.base:1)" \
+      "$(constraint DataUsageEndDefinition eq cx.dataUsageEnd.unlimited:1)")"
     ;;
 esac
 

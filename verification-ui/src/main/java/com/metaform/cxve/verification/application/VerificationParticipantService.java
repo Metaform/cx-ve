@@ -38,6 +38,7 @@ public class VerificationParticipantService {
     private final VerificationProperties properties;
     private final Map<String, VerificationParticipant> cached = new ConcurrentHashMap<>();
     private final Set<String> offerSeeded = ConcurrentHashMap.newKeySet();
+    private final Map<String, Object> locks = new ConcurrentHashMap<>();
 
     public VerificationParticipantService(MembershipHubClient hub,
                                           ManagementApiClient management,
@@ -52,15 +53,23 @@ public class VerificationParticipantService {
     /**
      * The dataspace's verification participant, created on first use: rediscover by member id (or
      * short name), onboard if absent, await PROVISIONED, await the certo tenant, seed the permanent inbox offer.
-     * Synchronized — concurrent runs must not double-onboard; the first blocks (up to the
-     * onboarding timeout, possibly minutes), the rest reuse its result.
+     * Synchronized per dataspace — concurrent runs must not double-onboard; the first blocks (up
+     * to the onboarding timeout, possibly minutes), the rest reuse its result. A slow ensure in
+     * one dataspace does not hold up the others.
      */
-    public synchronized VerificationParticipant ensure(String dataspace) {
+    public VerificationParticipant ensure(String dataspace) {
+        // resolved before the lock: an unknown dataspace fails here and never gets a lock entry
+        var identity = properties.dataspace(dataspace).verificationParticipant();
+        synchronized (locks.computeIfAbsent(dataspace, k -> new Object())) {
+            return ensureLocked(dataspace, identity);
+        }
+    }
+
+    private VerificationParticipant ensureLocked(String dataspace, VerificationProperties.ParticipantIdentity identity) {
         var current = cached.get(dataspace);
         if (current != null && offerSeeded.contains(dataspace)) {
             return current;
         }
-        var identity = properties.dataspace(dataspace).verificationParticipant();
         var membership = current != null ? hub.get(current.externalId()) : findLiveMembership(dataspace, identity);
         if (membership == null) {
             log.info("no {} verification participant {} — onboarding \"{}\"",

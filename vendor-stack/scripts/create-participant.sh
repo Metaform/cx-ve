@@ -20,15 +20,20 @@
 #                                                [-s|--short-name <name>] [-m|--member-id <id>]
 #                                                [-h|--help]
 #
-#   -d, --dataspace    decade-x (default, the only one so far) — the dataspace of the stack (see
-#                      install.sh)
+#   -d, --dataspace    decade-x (default) or catena-x — the dataspace of the stack (see install.sh)
 #   -n, --name         company name (default: "Vendor Participant")
 #   -s, --short-name   last DID segment (default: vendor-participant) — it alone identifies the
 #                      participant: a new short name creates another one, an existing one is reused
-#   -m, --member-id    a provisional member id (default DX-00009001). DECADE-X assigns the
-#                      DECADE-X-ID itself when it approves the onboarding, and the VE's run form
-#                      takes none; the id given here only provisions the Certo tenant, and
-#                      push-certificate.sh uses the assigned one from the DX_LegalEntity_VC.
+#   -m, --member-id    the participant's member id in the dataspace. DECADE-X: a provisional one
+#                      (default DX-00009001) — DECADE-X assigns the DECADE-X-ID itself when it
+#                      approves the onboarding, and the VE's run form takes none; the id given here
+#                      only provisions the Certo tenant, and push-certificate.sh uses the assigned
+#                      one from the DX_LegalEntity_VC. Catena-X: its BPNL (default
+#                      BPNLVENDOR000001; -b/--bpn is an alias) — declared, not assigned: enter the
+#                      SAME id on the VE's run form. The VE registers the DID under the BPN of its
+#                      first run and issues the BpnCredential for it, and that credential's BPN is
+#                      what push-certificate.sh certifies. A further participant (another -s) needs
+#                      its own BPN: the VE refuses one a live membership already holds.
 #
 # Environment: VENDOR_DATASPACE, VENDOR_CLUSTER, VENDOR_HOST, VENDOR_PORT (see lib.sh), TIMEOUT
 # (seconds, default 600)
@@ -45,13 +50,13 @@ usage() { awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p' "$0" | sed 's/^# \{0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -d|--dataspace|-n|--name|-s|--short-name|-m|--member-id)
+    -d|--dataspace|-n|--name|-s|--short-name|-m|--member-id|-b|--bpn)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
         -d|--dataspace) use_dataspace "$2" ;;
         -n|--name) NAME="$2"; NAME_GIVEN=true ;;
         -s|--short-name) PARTICIPANT_SHORT_NAME="$2" ;;
-        -m|--member-id) MEMBER_ID="$2" ;;
+        -m|--member-id|-b|--bpn) MEMBER_ID="$2" ;;
       esac
       shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -61,6 +66,10 @@ done
 
 MEMBER_ID_GIVEN=$([[ -n "$MEMBER_ID" ]] && echo true || echo false)
 MEMBER_ID="${MEMBER_ID:-$DEFAULT_MEMBER_ID}"
+# the pattern the VE's run form validates a BPN against (verification.dataspaces.catena-x.member-id)
+if [[ "$VENDOR_DATASPACE" == catena-x && ! "$MEMBER_ID" =~ ^BPNL[0-9A-Z]{12}$ ]]; then
+  die "'$MEMBER_ID' is not a BPNL (BPNL followed by 12 digits or capital letters) — the VE's run form would not take it"
+fi
 init
 DID=$(participant_did)
 
@@ -104,6 +113,12 @@ else
       ISSUER_PROPERTIES=$(jq -n --arg did "$DID" --arg id "$MEMBER_ID" \
         '{id: $did, memberOf: "DECADE-X", decadeXId: $id, dataspaceIdentifier: $id}')
       FLOW_CLAIM="flow.claims.vc.withType('dx:DX_LegalEntity_VC').claim('partner.partnerID')"
+      ;;
+    catena-x)
+      # as the hub's CatenaXOnboarding.issuerProperties
+      ISSUER_PROPERTIES=$(jq -n --arg did "$DID" --arg id "$MEMBER_ID" \
+        '{id: $did, contractVersion: "1.0", memberOf: "Catena-X", bpn: $id, dataspaceIdentifier: $id}')
+      FLOW_CLAIM="flow.claims.vc.withType('BpnCredential').claim('bpn')"
       ;;
   esac
   PROFILE=$(jq -n --arg did "$DID" --argjson issuer "$ISSUER_PROPERTIES" --arg claim "$FLOW_CLAIM" \
@@ -166,11 +181,15 @@ cat <<EOF
 
 $HEADLINE
   DID:                  $DID
-  $(printf '%-21s' "$MEMBER_ID_LABEL:") $MEMBER_ID (provisional — the TSP assigns it on approval)
+  $(printf '%-21s' "$MEMBER_ID_LABEL:") $MEMBER_ID$([[ "$MEMBER_ID_ASSIGNED" == true ]] && echo " (provisional — the TSP assigns it on approval)")
   participant context:  $PCID
   DID document:         $DID_URL
   DSP endpoint:         $DSP
 
-The short name '$PARTICIPANT_SHORT_NAME' identifies this participant; a different -s/--short-name creates another one.
-Enter the DID on the VE's run form (DECADE-X assigns the $MEMBER_ID_LABEL on approval), then run seed-ccm-offer.sh.
+The short name '$PARTICIPANT_SHORT_NAME' identifies this participant; a different -s/--short-name creates another one$([[ "$MEMBER_ID_ASSIGNED" == true ]] || echo " (give it its own -m/--member-id: the VE takes each $MEMBER_ID_LABEL once)").
+$(if [[ "$MEMBER_ID_ASSIGNED" == true ]]; then
+  echo "Enter the DID on the VE's run form (DECADE-X assigns the $MEMBER_ID_LABEL on approval), then run seed-ccm-offer.sh -d $VENDOR_DATASPACE."
+else
+  echo "Enter the DID and the $MEMBER_ID_LABEL on the VE's run form, then run seed-ccm-offer.sh -d $VENDOR_DATASPACE."
+fi)
 EOF

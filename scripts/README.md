@@ -19,6 +19,11 @@ them, re-vendors the umbrella's chart dependencies (the local app charts propaga
 explicitly restarts the deployments running the locally built `:latest` images (a rebuilt image under an unchanged
 tag is invisible to helm).
 
+The upgrade re-runs the release's seed hooks, which are idempotent, with one exception the script switches off
+(`catenax-profile.seedJobs.dataspaceProfile.enabled=false`): the catenax-profile's Tenant Manager seed would
+create a second dataspace profile on the cell, which breaks participant provisioning for both dataspaces. The
+profile created by the install stays in place. `install-ve-vps.sh` does the same when the release already exists.
+
 ## `install-ve-vps.sh`
 
 VPS variant of `install-ve.sh`: installs the same umbrella release on an **existing** cluster reached through a
@@ -60,9 +65,10 @@ CoreDNS is not authoritative for silently NXDOMAINs.
 
 ## `onboard-participant.sh`
 
-Onboards a DECADE-X member through the Membership Hub (`POST /hub/api/members` — the full journey: EDC resource
-provisioning via the CFM Tenant Manager, then the onboarding request to the DECADE-X onboarding API, approved
-automatically) and polls
+Onboards a member into a dataspace — DECADE-X by default, Catena-X with `--dataspace catena-x` (and optionally
+`--bpn`; one is derived otherwise) — through the Membership Hub (`POST /hub/api/members` — the full journey: EDC
+resource provisioning via the CFM Tenant Manager, then the registration with the dataspace's onboarding API: an
+onboarding request approved automatically in DECADE-X, a CX-0009 partner registration in Catena-X) and polls
 `GET /hub/api/members/<externalId>` until the membership reaches a terminal state; `CREDENTIALS_OFFERED` is success
 (the member is provisioned AND its credentials have been offered to its wallet) and prints the correlated record
 incl. the participant context id and the DECADE-X-ID the hub generated. `--short-name` pins the participant's DID
@@ -72,9 +78,10 @@ API (no provisioning) remains possible with an `osp-client` token.
 
 ## `e2e.sh`
 
-End-to-end test: installs the VE, onboards the "Verification Participant", and verifies the participant's DID
-document resolves from **outside** the cluster (plain HTTP from the host through the gateway) — the way an external
-dataspace solution will resolve it.
+End-to-end test: installs the VE, onboards a "Verification Participant" into each dataspace (DECADE-X and
+Catena-X), verifies each participant's DID document resolves from **outside** the cluster (plain HTTP from the host
+through the gateway) — the way an external dataspace solution will resolve it — and runs the Gradle e2e suite, once
+per dataspace (`DecadeXE2eTest`, `CatenaXE2eTest`).
 
 > The dual-VE demo scripts of the first iteration (`connect-ves.sh`, `dsp-tests.sh`, the peer mode of
 > `setup-did-dns.sh`) were removed when the repo pivoted to a single Verification Environment; see git history if

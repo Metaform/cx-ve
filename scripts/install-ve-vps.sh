@@ -2,7 +2,7 @@
 
 # Installs the complete Verification Environment (VE) on an EXISTING cluster on a VPS: ONE
 # umbrella helm release (charts/cx-ve) containing the Core Platform Distribution, the DECADE-X
-# profile seeding and onboarding API, the Membership Hub, the Verification UI, Certo and the Certo
+# profile seeding and onboarding APIs (Catena-X too), the Membership Hub, the Verification UI, Certo and the Certo
 # CFM agent. Run from the repository root.
 #
 # VPS variant of install-ve.sh: no kind cluster is created (the target cluster is reached
@@ -14,8 +14,8 @@
 # gateway hostnames derived from it (did:web:identity.<host>:<participant>,
 # did:web:issuer.<host>:issuer).
 #
-# Unlike install-ve.sh, nothing is built from source: every image — including the DECADE-X
-# onboarding API, the Compliance Tracker, the Membership Hub and the Verification UI —
+# Unlike install-ve.sh, nothing is built from source: every image — including the Catena-X and
+# DECADE-X onboarding APIs, the Compliance Tracker, the Membership Hub and the Verification UI —
 # is pulled from its registry (the published images from .github/workflows/publish.yml).
 #
 # Traefik is installed from traefik-values.yaml, which already carries the VPS-relevant
@@ -97,6 +97,11 @@ kubectl cluster-info >/dev/null || { echo "Error: cannot reach the cluster with 
 # documents exactly which values follow the host.
 HOST_OVERRIDES=(
   --set "global.host=${HOST}"
+  --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
+  --set "cx-onboarding-api.httpRoute.hostnames={${HOST}}"
+  --set-string "cx-onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
+  # Like the dx-onboarding-api below, the cx-onboarding-api validates tokens against the OSP IdP's iss.
+  --set-string "cx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "dx-onboarding-api.httpRoute.hostnames={${HOST}}"
   # The OSP IdP's issuer is http://<host>/auth/osp (derived from global.host in the umbrella);
   # the dx-onboarding-api validates tokens against exactly that iss value, so it must follow too.
@@ -124,19 +129,28 @@ helm upgrade --install --namespace traefik traefik traefik/traefik --create-name
 kubectl rollout status deployment/traefik -n traefik --timeout=120s
 kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
 
-# Resolve the umbrella's dependencies (platform and certo from OCI; the local app charts are
-# vendored from ../dx-onboarding-api, ../membership-hub etc.)
+# Resolve the umbrella's dependencies (platform, catenax-profile and certo from OCI; the local app
+# charts are vendored from ../cx-onboarding-api, ../dx-onboarding-api, ../membership-hub etc.)
 helm dependency update "$UMBRELLA_CHART"
 
 # The whole VE as one release. Post-install hooks run all seeding in a single ordered hook
-# space: platform seeds (weights 10/20) -> decadex-profile (140 issuer credential definitions, 145
-# Tenant Manager dataspace profile, 150 EDC dataspace profile) -> dx-onboarding-api jwtlet mapping (205) -> certo jwtlet mappings (210) -> certo
+# space: platform seeds (weights 10/20) -> catenax-profile (110-130) -> decadex-profile (140 issuer
+# credential definitions, 150 EDC dataspace profile) -> cx-onboarding-api jwtlet mapping (200) ->
+# dx-onboarding-api jwtlet mapping (205) -> certo jwtlet mappings (210) -> certo
 # activity/orchestration (220) -> membership-hub jwtlet mapping (230). The seed hooks dereference
 # gateway-hostname URLs while the install is still running — on a VPS that works without CoreDNS
 # patching because <host> resolves through public DNS to the VPS itself.
+# On a re-run against an existing release the catenax-profile's Tenant Manager seed is switched
+# off: it is not idempotent, and a second run would duplicate the cell's dataspace profile, which
+# breaks participant provisioning for both dataspaces.
+UPGRADE_OVERRIDES=()
+if helm status "$RELEASE" --namespace "$NAMESPACE" >/dev/null 2>&1; then
+  UPGRADE_OVERRIDES+=(--set catenax-profile.seedJobs.dataspaceProfile.enabled=false)
+fi
 helm upgrade --install "$RELEASE" "$UMBRELLA_CHART" \
   --namespace "$NAMESPACE" --create-namespace \
   "${HOST_OVERRIDES[@]}" \
+  ${UPGRADE_OVERRIDES[@]+"${UPGRADE_OVERRIDES[@]}"} \
   --wait --timeout 20m
 
 { set +x; } 2>/dev/null
