@@ -158,14 +158,14 @@
                 assigns the {{ memberIdLabel }} when the participant is onboarded.
               } @else {
                 Leave the name fields empty to auto-generate them; the {{ memberIdLabel }} is
-                required.
+                required{{ canDeriveBpn ? ', and can be derived from the short name' : '' }}.
               }
             }
           </p>
           <form (ngSubmit)="startRun()">
             <label class="field">
               <span class="label">Participant DID</span>
-              <input type="text" name="did" [(ngModel)]="did"
+              <input type="text" name="did" [(ngModel)]="did" (ngModelChange)="onDidChange()"
                      spellcheck="false" autocomplete="off"
                      placeholder="empty — onboard a participant into this environment">
               <span class="hint">Set it to verify an external system under test, hosted elsewhere.</span>
@@ -185,11 +185,20 @@
             @if (!memberIdAssigned) {
               <label class="field">
                 <span class="label">{{ memberIdLabel }}<span class="req">required</span></span>
-                <input type="text" name="memberId" [(ngModel)]="memberId"
+                <input type="text" name="memberId" [(ngModel)]="memberId" [disabled]="derivingBpn"
                        [placeholder]="memberIdPlaceholder" [class.invalid]="memberIdInvalid"
                        [attr.aria-invalid]="memberIdInvalid || null"
                        autocomplete="off" spellcheck="false">
                 <span class="hint" [class.invalid]="memberIdInvalid">{{ memberIdHint }}</span>
+              </label>
+            }
+            @if (canDeriveBpn) {
+              <label class="derive">
+                <input type="checkbox" name="deriveBpn" [(ngModel)]="deriveBpn">
+                <span>Derive {{ memberIdLabel }} from short name</span>
+                @if (derivingBpn && derivedBpn) {
+                  <span class="mono preview">→ {{ derivedBpn }}</span>
+                }
               </label>
             }
             <button class="btn primary submit" type="submit" [disabled]="!canStart">

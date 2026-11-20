@@ -24,8 +24,20 @@ class VerificationUiApplicationTest {
 
     @Test
     void contextLoadsAndPropertiesBind() {
-        // DECADE-X is the only dataspace configured
-        assertEquals(1, properties.dataspaces().size());
+        assertEquals(2, properties.dataspaces().size());
+        // Catena-X declares its member ids (the BPN) and brings its own profile and policies, but
+        // exchanges certificates as DECADE-X does: DSAF SCE, on Certo
+        var catenaX = properties.dataspace("catena-x");
+        assertFalse(catenaX.memberId().assigned());
+        assertEquals("BPNLVERIFY000001", catenaX.verificationParticipant().memberId());
+        assertEquals("cx-neptune", catenaX.dspProfile());
+        assertEquals(3, catenaX.contractConstraints().size());
+        var cxCcm = catenaX.useCase("ccm").ccm();
+        assertEquals("ccm-inbox-verification", cxCcm.inboxAssetId());
+        assertEquals("https://w3id.org/dsaf/sce/v1/provider-api", cxCcm.api().providerApi());
+        assertEquals("sce-1.0", cxCcm.protocol());
+        assertEquals("Traceability", catenaX.useCase("traceability").displayName());
+        assertFalse(catenaX.useCase("traceability").enabled());
         var decadeX = properties.dataspace("decade-x");
         assertEquals("decade-x", decadeX.dspProfile());
         // DECADE-X assigns member ids: its verification participant declares none

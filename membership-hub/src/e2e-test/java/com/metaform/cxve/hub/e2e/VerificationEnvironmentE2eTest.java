@@ -18,12 +18,17 @@ import static org.awaitility.Awaitility.await;
 /**
  * End-to-end tests against a running VE (stood up by scripts/install-ve.sh) through its
  * gateway — black box, no dependency on the app modules' classes; wire payloads are mirrored
- * locally. Participants are onboarded into DECADE-X through the Membership Hub — the full
- * journey: EDC resource provisioning via the CFM Tenant Manager, then the onboarding request to
- * the DECADE-X onboarding API, approved automatically (see {@link MembershipHubApi}). The suite is not part of
- * {@code check}/{@code build}; run it with {@code ./gradlew e2eTest}.
+ * locally. Participants are onboarded into a dataspace through the Membership Hub — the full
+ * journey: EDC resource provisioning via the CFM Tenant Manager, then the registration with the
+ * dataspace's onboarding API (see {@link MembershipHubApi}).
+ *
+ * <p>The tests are the same for every dataspace the VE serves; what differs is in
+ * {@link E2eDataspace}. This class is the shared suite, run once per dataspace by its concrete
+ * subclasses: {@link DecadeXE2eTest} and {@link CatenaXE2eTest}. The suite is not part of
+ * {@code check}/{@code build}; run it with {@code ./gradlew e2eTest} (one dataspace only:
+ * {@code ./gradlew e2eTest --tests '*CatenaXE2eTest'}).
  */
-class VerificationEnvironmentE2eTest {
+abstract class VerificationEnvironmentE2eTest {
     private static final String MEMBERSHIP_HUB_URL = "http://cxve.localhost/hub";
     private static final String TOKEN_EXCHANGE_URL = "http://cxve.localhost/api/auth/token";
     private static final String MANAGEMENT_API_URL = "http://cxve.localhost/api/management/v5";
@@ -40,6 +45,11 @@ class VerificationEnvironmentE2eTest {
 
     private final TokenExchange tokenExchange = new TokenExchange(TOKEN_EXCHANGE_URL, KUBECONFIG);
     private final MembershipHubApi hub = new MembershipHubApi(MEMBERSHIP_HUB_URL);
+    private final E2eDataspace dataspace;
+
+    VerificationEnvironmentE2eTest(E2eDataspace dataspace) {
+        this.dataspace = dataspace;
+    }
 
     /**
      * DSAF SCE provider-notified exchange, full loop: the provider issues a certificate and
@@ -54,7 +64,8 @@ class VerificationEnvironmentE2eTest {
      *   <li>flow "pull": cert-consumer consumes the cert-provider's provider-API asset — its
      *       transfer id is the {@code flowId} of request, retrieve + accept (consumer -> provider).</li>
      * </ul>
-     * Siglet stamps the caller's DECADE-X-ID (from its Legal Entity VC) into the flow token as the
+     * Siglet stamps the caller's member id (DECADE-X: the DECADE-X-ID from its Legal Entity VC;
+     * Catena-X: the BPN from its BpnCredential) into the flow token as the
      * optional {@code dataspaceidentifier} claim (alongside sub = caller DID, aud = receiving
      * tenant DID — the identities certo correlates on).
      */
@@ -69,7 +80,7 @@ class VerificationEnvironmentE2eTest {
         var consumerPcid = consumer.participantContextId();
 
         var mgmt = new ManagementApi(MANAGEMENT_API_URL,
-                tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"));
+                tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"), dataspace.dspProfile());
         log("management-API token obtained (seed-jobs -> issuer, scope admin)");
 
         // both sides offer their SCE API asset (certo's protocol API behind the CCM transfer type)
@@ -164,7 +175,7 @@ class VerificationEnvironmentE2eTest {
         var consumerPcid = consumer.participantContextId();
 
         var mgmt = new ManagementApi(MANAGEMENT_API_URL,
-                tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"));
+                tokenExchange.getParticipantToken("seed-jobs", "issuer", "admin"), dataspace.dspProfile());
         log("management-API token obtained (seed-jobs -> issuer, scope admin)");
 
         var providerAssetId = "sce-provider-api-" + runId;
@@ -253,15 +264,17 @@ class VerificationEnvironmentE2eTest {
     private OnboardedPair onboardProviderAndConsumer(String runId) {
         var provider = onboardMember("Provider " + runId, "provider-" + runId);
         var consumer = onboardMember("Consumer " + runId, "consumer-" + runId);
-        log("provider onboarded: pcid=%s did=%s DECADE-X-ID=%s", provider.participantContextId(), provider.holderId(), provider.memberId());
-        log("consumer onboarded: pcid=%s did=%s DECADE-X-ID=%s", consumer.participantContextId(), consumer.holderId(), consumer.memberId());
+        log("provider onboarded into %s: pcid=%s did=%s %s=%s", dataspace.id(), provider.participantContextId(),
+                provider.holderId(), dataspace.memberIdLabel(), provider.memberId());
+        log("consumer onboarded into %s: pcid=%s did=%s %s=%s", dataspace.id(), consumer.participantContextId(),
+                consumer.holderId(), dataspace.memberIdLabel(), consumer.memberId());
         return new OnboardedPair(provider, consumer);
     }
 
     private OnboardingResult onboardMember(String name, String shortName) {
-        // no member id: the hub generates the DECADE-X-ID of a member it hosts. The VAT id is
-        // derived from the run-unique short name (duplicates of active registrations are rejected)
-        var submitted = hub.onboard(name, shortName, "DE" + String.format("%08X", Math.abs(shortName.hashCode())));
+        // The VAT id is derived from the run-unique short name (duplicates of active registrations
+        // are rejected), and so is the member id where the dataspace has its members declare it.
+        var submitted = hub.onboard(dataspace, name, shortName, "DE" + String.format("%08X", Math.abs(shortName.hashCode())));
         var externalId = submitted.path("externalId").asText();
         var provisioned = hub.awaitProvisioned(externalId, Duration.ofMinutes(10));
         var pcid = provisioned.path("participantContextId").asText();
@@ -274,8 +287,16 @@ class VerificationEnvironmentE2eTest {
                 .isNotBlank();
         var memberId = provisioned.path("memberId").asText();
         assertThat(memberId)
-                .withFailMessage("provisioned membership %s carries no DECADE-X-ID: %s", externalId, provisioned)
+                .withFailMessage("provisioned membership %s carries no %s: %s", externalId,
+                        dataspace.memberIdLabel(), provisioned)
                 .isNotBlank();
+        var declared = dataspace.memberIdFor(shortName);
+        if (declared != null) {
+            assertThat(memberId)
+                    .withFailMessage("membership %s does not carry the %s it was submitted with: %s",
+                            externalId, dataspace.memberIdLabel(), provisioned)
+                    .isEqualTo(declared);
+        }
         return new OnboardingResult(externalId, memberId, provisioned.path("did").asText(), pcid);
     }
 
@@ -284,8 +305,9 @@ class VerificationEnvironmentE2eTest {
 
     /**
      * Seeds one side's SCE offer: the asset fronting certo's protocol API, identified in the
-     * catalog by the SCE API it {@code dct:conformsTo}, constraint-free access/contract policies
-     * (DECADE-X has no policy vocabulary yet) and the contract definition. Ids are run-scoped;
+     * catalog by the SCE API it {@code dct:conformsTo}, the dataspace's access/contract policies
+     * (constraint-free in DECADE-X, which has no policy vocabulary yet; the Catena-X ones ask for
+     * the member's credentials) and the contract definition. Ids are run-scoped;
      * policy/definition ids may repeat across the two participant contexts (resources are
      * context-scoped).
      */
@@ -294,8 +316,8 @@ class VerificationEnvironmentE2eTest {
         var contractPolicyId = "e2e-sce-contract-policy-" + uniqueId;
 
         mgmt.createSceAsset(pcid, assetId, conformsTo);
-        mgmt.createPolicy(pcid, accessPolicyId, "access");
-        mgmt.createPolicy(pcid, contractPolicyId, "use");
+        mgmt.createPolicy(pcid, accessPolicyId, "access", dataspace.policyContext(), dataspace.accessConstraints());
+        mgmt.createPolicy(pcid, contractPolicyId, "use", dataspace.policyContext(), dataspace.contractConstraints());
         mgmt.createContractDefinition(pcid, "e2e-sce-cd-" + uniqueId, accessPolicyId, contractPolicyId);
     }
 
@@ -307,7 +329,7 @@ class VerificationEnvironmentE2eTest {
      */
     private String establishCcmFlow(ManagementApi mgmt, String consumerPcid, String providerPcid,
                                     String providerDid, String assetId) {
-        var providerDsp = "http://cxve.localhost/api/dsp/%s/%s".formatted(providerPcid, ManagementApi.DSP_PROFILE);
+        var providerDsp = "http://cxve.localhost/api/dsp/%s/%s".formatted(providerPcid, mgmt.dspProfile());
         var offer = mgmt.awaitCatalogOffer(consumerPcid, providerDsp, providerDid, assetId, Duration.ofMinutes(2));
         var negotiationId = mgmt.startNegotiation(consumerPcid, providerDsp, providerDid, assetId, offer);
         var negotiation = mgmt.awaitState(

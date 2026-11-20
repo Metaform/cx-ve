@@ -16,8 +16,8 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * Minimal client for the Membership Hub through the VE gateway ({@code /hub}) — the full member
- * journey: {@code POST /api/members} into the DECADE-X dataspace deploys the participant profile
- * (CFM Tenant Manager) and submits the onboarding request to the DECADE-X onboarding API;
+ * journey: {@code POST /api/members} into a dataspace deploys the participant profile
+ * (CFM Tenant Manager) and submits the registration to that dataspace's onboarding API;
  * {@code GET /api/members/<externalId>} reads the correlated record, refreshing the provisioning
  * state from the Tenant Manager on every call.
  * The hub's API is unauthenticated (operator surface); the wire shapes are mirrored inline, like
@@ -38,44 +38,31 @@ public class MembershipHubApi {
      * a member it hosts, which it deploys before registering); the rest lands asynchronously —
      * poll {@link #awaitProvisioned}. A membership already dead on arrival fails here.
      */
-    public JsonNode onboard(String name, String shortName, String vatId) {
-        // The TSP's onboarding request data, minus what the hub fills in itself (legal name, DID,
-        // applicantReference) — the verification UI's DECADE-X registration template. No memberId:
-        // the TSP assigns the DECADE-X-ID, and the hub generates one for a member it hosts.
+    public JsonNode onboard(E2eDataspace dataspace, String name, String shortName, String vatId) {
+        // The common fields plus the dataspace's own registration object. The member id is given
+        // only where the dataspace has its members declare it (Catena-X: the BPN); DECADE-X
+        // refuses one — the TSP assigns it, and the hub generates one for a member it hosts.
+        var request = mapper.createObjectNode();
+        request.put("dataspace", dataspace.id());
+        request.put("name", name);
+        request.put("shortName", shortName);
+        var memberId = dataspace.memberIdFor(shortName);
+        if (memberId != null) {
+            request.put("memberId", memberId);
+        }
+        request.set("registration", json(dataspace.registration(vatId)));
         var response = given()
                 .baseUri(baseUrl)
                 .contentType(ContentType.JSON)
-                .body("""
-                        {
-                          "dataspace": "decade-x",
-                          "name": "%s",
-                          "shortName": "%s",
-                          "registration": {
-                            "legalEntity": {
-                              "registrationCountry": "DE",
-                              "companyType": "LIMITED_LIABILITY_COMPANY",
-                              "registrationNumbers": [ { "scheme": "vatID", "value": "%s" } ],
-                              "legalAddress": { "street": "Otto-Hahn-Ring 6", "postalCode": "81739", "locality": "Munich",
-                                                "countryCode": "DE", "countryName": "Germany" }
-                            },
-                            "businessSites": [ { "siteName": "E2e Site",
-                                                 "mainAddress": { "street": "Otto-Hahn-Ring 6", "postalCode": "81739",
-                                                                  "locality": "Munich", "countryCode": "DE",
-                                                                  "countryName": "Germany" } } ],
-                            "legalPerson": { "fullName": "E2e Tester", "email": "e2e-%s@example.com", "role": "Operator" },
-                            "gtc": { "versionNumber": "1.0" },
-                            "ucas": [ { "useCaseId": "product-conformity", "versionNumber": "1.0" } ],
-                            "declarations": { "informationAccurate": true, "authorisedToAct": true, "evidenceMayBeRequested": true }
-                          }
-                        }""".formatted(name, shortName, vatId, vatId))
+                .body(request.toString())
                 .post("/api/members");
         assertThat(response.statusCode())
                 .withFailMessage("membership submission for '%s' failed: %s", name, response.asString())
                 .isEqualTo(201);
         var membership = json(response.asString());
         failOnDeadEnd(membership);
-        log("membership submitted: \"%s\" (externalId=%s, state=%s)",
-                name, membership.path("externalId").asText(), membership.path("state").asText());
+        log("membership submitted to %s: \"%s\" (externalId=%s, state=%s)",
+                dataspace.id(), name, membership.path("externalId").asText(), membership.path("state").asText());
         return membership;
     }
 

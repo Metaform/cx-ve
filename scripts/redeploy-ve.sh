@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Rebuilds everything the VE runs from this checkout and upgrades the running umbrella release in
-# place: builds the DECADE-X onboarding API, Compliance Tracker, Certo agent, Membership Hub and Verification UI
+# place: builds the Catena-X and DECADE-X onboarding APIs, Compliance Tracker, Certo agent, Membership Hub and Verification UI
 # images, loads them into the kind cluster, re-vendors the umbrella's chart dependencies (the app
 # charts are pulled from ../dx-onboarding-api, ../membership-hub etc. via file://, so local chart
 # changes propagate) and runs `helm upgrade` with the same host overrides
@@ -9,7 +9,12 @@
 #
 # Use this for the edit-build-verify loop on an EXISTING cluster; it does not create or delete
 # anything — for a cluster from scratch use install-ve.sh. The release's seed hooks re-run on
-# upgrade; they are idempotent by design. Deployments running the locally built :latest images
+# upgrade; they are idempotent, with one exception that this script therefore switches off: the
+# catenax-profile's Tenant Manager seed POSTs the cell's dataspace profile without checking for
+# an existing one, so a second run would duplicate it and break participant provisioning for
+# both dataspaces (it is the only profile on the cell). The profile created by the install
+# stays in place. A cluster installed before the Catena-X profile was part of the release needs
+# a fresh install-ve.sh instead. Deployments running the locally built :latest images
 # are restarted explicitly at the end: helm only rolls pods whose rendered spec changed, and a
 # rebuilt image under an unchanged tag is invisible to it.
 #
@@ -73,6 +78,11 @@ fi
 # installed release or the upgrade would silently re-point DIDs and routes at another host.
 HOST_OVERRIDES=(
   --set "global.host=${HOST}"
+  --set "catenax-profile.issuer.did=did:web:issuer.${HOST}:issuer"
+  --set "cx-onboarding-api.httpRoute.hostnames={${HOST}}"
+  --set-string "cx-onboarding-api.config.participant.did.template=did:web:identity.${HOST}:"
+  # Like the dx-onboarding-api below, the cx-onboarding-api validates tokens against the OSP IdP's iss.
+  --set-string "cx-onboarding-api.config.spring.security.oauth2.resourceserver.jwt.issuer-uri=http://${HOST}/auth/osp"
   --set "dx-onboarding-api.httpRoute.hostnames={${HOST}}"
   # The OSP IdP's issuer is http://<host>/auth/osp (derived from global.host in the umbrella);
   # the dx-onboarding-api validates tokens against exactly that iss value, so it must follow too.
@@ -96,6 +106,7 @@ HOST_OVERRIDES=(
 # Image name -> build context. Both Dockerfiles COPY from their component directory (the same
 # contexts .github/workflows/publish.yml builds from).
 IMAGES=(
+  "ghcr.io/metaform/cx-ve/cx-onboarding-api:latest cx-onboarding-api"
   "ghcr.io/metaform/cx-ve/dx-onboarding-api:latest dx-onboarding-api"
   "ghcr.io/metaform/cx-ve/compliance-tracker:latest compliance-tracker"
   "ghcr.io/metaform/cx-ve/certo-agent:latest certo-agent"
@@ -105,7 +116,7 @@ IMAGES=(
 
 # Deployments running the images built above; restarted after the upgrade because a rebuilt
 # image under an unchanged tag does not change the pod spec, so helm will not roll them.
-DEPLOYMENTS=(cx-ve-dx-onboarding-api cx-ve-compliance-tracker cx-ve-certo-agent cx-ve-membership-hub
+DEPLOYMENTS=(cx-ve-cx-onboarding-api cx-ve-dx-onboarding-api cx-ve-compliance-tracker cx-ve-certo-agent cx-ve-membership-hub
   cx-ve-verification-ui)
 
 set -x
@@ -118,9 +129,12 @@ done
 
 helm dependency update "$UMBRELLA_CHART"
 
+# seedJobs.dataspaceProfile off: the install already created the cell's Tenant Manager dataspace
+# profile, and that seed is not idempotent (see header)
 helm upgrade "$RELEASE" "$UMBRELLA_CHART" \
   --namespace "$NAMESPACE" \
   "${HOST_OVERRIDES[@]}" \
+  --set catenax-profile.seedJobs.dataspaceProfile.enabled=false \
   --wait --timeout 20m
 
 for deployment in "${DEPLOYMENTS[@]}"; do

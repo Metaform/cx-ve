@@ -1,25 +1,30 @@
 # cx-ve
 
 A dataspace-agnostic Verification Environment (VE): a system under test is verified for a
-**use case** (e.g. CCM — company certificate management) in a **dataspace** (so far DECADE-X,
-through a stub onboarding API). Each dataspace brings its own onboarding API, registration
-payloads, member-id format (DECADE-X: the DECADE-X-ID), policies and DSP profile; the Membership
-Hub talks to all of them, and the Verification UI lets the user pick the dataspace and then the use
-case before a run.
+**use case** (e.g. CCM — company certificate management) in a **dataspace** (Catena-X, and
+DECADE-X through a stub onboarding API). Each dataspace brings its own onboarding API, registration
+payloads, member-id format (the BPN in Catena-X, the DECADE-X-ID in DECADE-X), policies and DSP
+profile; the Membership Hub talks to all of them, and the Verification UI lets the user pick the
+dataspace and then the use case before a run.
+
+Certificates are exchanged on Certo as DSAF SCE defines it, in **both** dataspaces. For Catena-X
+that is a deliberate, accepted deviation: Catena-X specifies CX-0135.
 
 Monorepo containing:
 
 | Path | Contents |
 |---|---|
+| `cx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — the **Catena-X** onboarding API: CX-0006 partner registration incl. credential-holder registration at the IssuerService and the credential offer; self-contained build |
 | `dx-onboarding-api/` | Spring Boot application (Java 17, Gradle) — the **DECADE-X** onboarding API: the TSP onboarding intake (draft onboarding requests, document uploads, submission, status read-back); in memory; no TSP operator yet, so requests are approved automatically (participants hosted by the VE, and for now external ones too); an approval assigns the participant its DECADE-X-ID, registers it as credential holder and has the platform's issuer offer it the `DX_LegalEntity_VC` for that id and the `DX_Site_VC` for its first business site (a participant the VE hosts gets the id the hub generated for its deployment); self-contained build |
 | `membership-hub/` | Spring Boot application (Java 17, Gradle) — the Membership Hub: drives the full member journey in each dataspace it serves (EDC resource provisioning via the CFM Tenant Manager, then registration via the dataspace's onboarding API); self-contained build |
 | `verification-ui/` | Spring Boot BFF + Angular dashboard — dataspace and use-case selection, verification runs ([README](verification-ui/README.md)) |
 | `compliance-tracker/` | CFM lifecycle agent (Go) consuming lifecycle CloudEvents off NATS — self-contained module |
 | `certo-agent/` | CFM orchestration agent (Go) that creates each provisioned member's participant context in Certo — self-contained module ([README](certo-agent/README.md)) |
+| `charts/cx-onboarding-api/` | Helm chart for the Catena-X onboarding API application |
 | `charts/dx-onboarding-api/` | Helm chart for the DECADE-X onboarding API stub |
 | `charts/decadex-profile/` | Helm chart seeding DECADE-X: the issuer's credential definitions, the EDC dataspace profile and the Tenant Manager's dataspace profile |
 | `charts/membership-hub/` | Helm chart for the Membership Hub application |
-| `charts/cx-ve/` | Umbrella chart: the whole VE (platform, DECADE-X profile, onboarding API, Membership Hub, Verification UI, Certo + agent) as one release |
+| `charts/cx-ve/` | Umbrella chart: the whole VE (platform, Catena-X and DECADE-X profiles, onboarding APIs, Membership Hub, Verification UI, Certo + agent) as one release |
 | `scripts/` | Utility and automation scripts |
 | `vendor-stack/` | A reference system under test for the VE to verify: the VE's own components in a separate kind cluster, plus the vendor-side scripts ([README](vendor-stack/README.md)) |
 
@@ -29,11 +34,13 @@ The member journey is split across the two applications, with the Membership Hub
 point (see [membership-hub/README.md](membership-hub/README.md) for its API and states):
 
 1. `POST /api/members` on the **Membership Hub** names the member's `dataspace` and its
-   `memberId` there, if the dataspace takes one (DECADE-X does not: the TSP assigns the
-   DECADE-X-ID on approval), plus a dataspace-specific `registration` object. The hub
+   `memberId` there, if the dataspace takes one (Catena-X: the BPN, required; DECADE-X does
+   not: the TSP assigns the DECADE-X-ID on approval), plus a dataspace-specific `registration` object. The hub
    checks that object against the dataspace, mints an `externalId`, resolves the member's DID,
    and refuses a DID or member id a live membership already holds (`409`). The steps below are
-   DECADE-X's; another dataspace would differ in step 3, its onboarding API.
+   DECADE-X's; Catena-X differs in step 3, its onboarding API: the hub submits a CX-0009 partner
+   registration to the `cx-onboarding-api`, which registers the holder, has the issuer offer the
+   Catena-X credentials and reports the outcome through a status callback instead of being polled.
 2. If the VE hosts the member (no `did` supplied), the hub creates a **tenant** and deploys the
    **participant profile** via the CFM Tenant Manager, which runs the VPA provisioning
    orchestration: connector, IdentityHub, Siglet and Certo. Neither credential activity is part
@@ -78,7 +85,7 @@ The Gradle builds live in the application directories (each its own build root �
 repository root is not a Gradle project):
 
 ```shell
-cd dx-onboarding-api         # same commands apply in membership-hub/, verification-ui/
+cd dx-onboarding-api         # same commands apply in cx-onboarding-api/, membership-hub/, verification-ui/
 ./gradlew build              # compile and run tests
 ./gradlew bootRun            # run the application locally (port 8080)
 ./gradlew bootBuildImage     # build an OCI container image via buildpacks
@@ -107,15 +114,17 @@ and the checked-in values reference those names:
 
 ```shell
 helm dependency update charts/cx-ve
-helm lint charts/dx-onboarding-api charts/decadex-profile charts/membership-hub charts/cx-ve
+helm lint charts/cx-onboarding-api charts/dx-onboarding-api charts/decadex-profile charts/membership-hub charts/cx-ve
 helm install cx-ve charts/cx-ve -n edc-v --create-namespace
 ```
 
-The umbrella pulls the Core Platform Distribution and Certo as OCI dependencies and vendors the
-local `charts/decadex-profile`, `charts/dx-onboarding-api`, `charts/membership-hub` and
-`charts/verification-ui`. All seeding runs as post-install hooks of the single release, in one
-ordered hook space: platform seeds (weights 10/20) → DECADE-X profile (140 issuer credential
-definitions, 145 Tenant Manager dataspace profile, 150 EDC dataspace profile) →
+The umbrella pulls the Core Platform Distribution, the Catena-X profile and Certo as OCI
+dependencies and vendors the local `charts/decadex-profile`, `charts/cx-onboarding-api`,
+`charts/dx-onboarding-api`, `charts/membership-hub` and `charts/verification-ui`. All seeding runs
+as post-install hooks of the single release, in one ordered hook space: platform seeds (weights
+10/20) → Catena-X profile (110-130, incl. the cell's Tenant Manager dataspace profile) → DECADE-X
+profile (140 issuer credential definitions, 150 EDC dataspace profile; its own Tenant Manager
+profile seed is off in the umbrella) → cx-onboarding-api jwtlet mapping (200) →
 dx-onboarding-api jwtlet mapping (205) → certo jwtlet mappings (210) → certo
 activity/orchestration (220) → membership-hub jwtlet mapping (230) → verification-ui jwtlet
 mappings (240).
@@ -142,7 +151,7 @@ The script performs the following steps:
 2. Installs Traefik (`traefik-values.yaml`) and the Gateway API CRDs.
 3. Pre-patches CoreDNS (`setup-did-dns.sh --pre`) so the gateway hostnames resolve in-cluster —
    the release's own seed hooks already dereference them during the install.
-4. Builds the DECADE-X onboarding API, Membership Hub, Verification UI and
+4. Builds the Catena-X and DECADE-X onboarding API, Membership Hub, Verification UI and
    Compliance Tracker images from this checkout
    and loads them into the cluster, so the VE always runs the local code; every other image is
    pulled from its registry.
@@ -155,7 +164,8 @@ For the edit-build-verify loop on an existing cluster, `scripts/redeploy-ve.sh` 
 app images, re-vendors the charts and upgrades the release in place.
 
 Once complete, the APIs are reachable through the gateway: the Membership Hub at
-`http://cxve.localhost/hub` and the DECADE-X onboarding API at `http://cxve.localhost/dx-onboarding`
+`http://cxve.localhost/hub`, the DECADE-X onboarding API at `http://cxve.localhost/dx-onboarding`
+and the Catena-X one at `http://cxve.localhost/cx-onboarding`
 (Swagger UIs at `<prefix>/swagger`). Onboard a member through the hub with
 
 ```shell

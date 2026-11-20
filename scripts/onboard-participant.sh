@@ -1,17 +1,23 @@
 #!/bin/bash
 
-# Onboards a new DECADE-X member through the Membership Hub: submits it to POST /api/members
-# (which deploys the participant profile to the CFM Tenant Manager and then submits the onboarding
-# request to the DECADE-X onboarding API, approved automatically) and then polls GET /api/members/<externalId>
+# Onboards a new member into a dataspace (DECADE-X by default, or Catena-X) through the Membership
+# Hub: submits it to POST /api/members (which deploys the participant profile to the CFM Tenant
+# Manager and then registers the member with the dataspace's onboarding API — DECADE-X: an
+# onboarding request, approved automatically; Catena-X: a CX-0009 partner registration, confirmed
+# by status callback) and then polls GET /api/members/<externalId>
 # until the membership reaches a terminal state — CREDENTIALS_OFFERED is success (the member is
 # provisioned AND the issuer has been asked to offer it the membership credentials). The hub reads the
 # deployed profile's state from the Tenant Manager on every poll, so the participant context id
 # appears here as soon as the platform's VPA provisioning has assigned it.
 #
 # Usage:
-#   ./scripts/onboard-participant.sh [-n|--name <company-name>] [-s|--short-name <name>]
+#   ./scripts/onboard-participant.sh [-d|--dataspace <decade-x|catena-x>] [-n|--name <company-name>]
+#                                    [-s|--short-name <name>] [-b|--bpn <bpn>]
 #                                    [-u|--api-url <url>] [-h|--help]
 #
+#   -d, --dataspace   the dataspace to onboard into: decade-x (default) or catena-x
+#   -b, --bpn         Catena-X only: the member's BPN (default: derived from the run id, so
+#                     repeated runs don't collide in the duplicate checks)
 #   -n, --name        display name of the partner company (default: "ACME Corporation")
 #   -s, --short-name  short name appended to the platform's did:web template to form the
 #                     participant DID (default: derived from the company name plus a random
@@ -26,8 +32,9 @@
 #   TIMEOUT   polling budget in seconds (default: 300)
 #
 # The hub's API is unauthenticated (an operator surface); no OSP client or token is needed —
-# the hub itself authenticates to the DECADE-X onboarding API with its own seeded OSP client. The
-# DECADE-X-ID is not chosen here: the hub generates one for a member it hosts.
+# the hub itself authenticates to the dataspace's onboarding API with its own seeded OSP client. A
+# DECADE-X-ID is not chosen here: the hub generates one for a member it hosts. A Catena-X member
+# declares its BPN.
 #
 # Requires: curl, jq
 
@@ -38,12 +45,17 @@ TIMEOUT="${TIMEOUT:-300}"
 
 NAME="ACME Corporation"
 SHORT_NAME=""
+DATASPACE="decade-x"
+BPN=""
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-n|--name <company-name>] [-s|--short-name <name>] [-u|--api-url <url>] [-h|--help]
+Usage: $(basename "$0") [-d|--dataspace <decade-x|catena-x>] [-n|--name <company-name>]
+       [-s|--short-name <name>] [-b|--bpn <bpn>] [-u|--api-url <url>] [-h|--help]
 
 Options:
+  -d, --dataspace <id>        the dataspace to onboard into: decade-x (default) or catena-x
+  -b, --bpn <bpn>             Catena-X only: the member's BPN (default: derived from the run id)
   -n, --name <company-name>   display name of the partner company (default: "ACME Corporation")
   -s, --short-name <name>     short name forming the participant DID (default: derived from
                               the company name plus a random suffix)
@@ -55,9 +67,11 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -n|--name|-s|--short-name|-u|--api-url)
+    -n|--name|-s|--short-name|-u|--api-url|-d|--dataspace|-b|--bpn)
       [[ $# -ge 2 ]] || { echo "Error: $1 requires a value" >&2; usage >&2; exit 1; }
       case "$1" in
+        -d|--dataspace) DATASPACE="$2" ;;
+        -b|--bpn) BPN="$2" ;;
         -n|--name) NAME="$2" ;;
         -s|--short-name) SHORT_NAME="$2" ;;
         -u|--api-url) API_URL="$2" ;;
@@ -81,33 +95,69 @@ DEFAULT_SHORT="$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | c
 SHORT_NAME="${SHORT_NAME:-$DEFAULT_SHORT}"
 # The VAT id is unique per run: onboarding requests whose DID or registration number matches a
 # live membership are rejected as duplicates.
-payload=$(jq -n \
-  --arg name "$NAME" \
-  --arg shortName "$SHORT_NAME" \
-  --arg vatId "DE${RUN_ID:0:8}" \
-  '{
-    dataspace: "decade-x",
-    name: $name,
-    shortName: $shortName,
-    registration: {
-      legalEntity: {
-        registrationCountry: "DE",
-        companyType: "LIMITED_LIABILITY_COMPANY",
-        registrationNumbers: [ { scheme: "vatID", value: $vatId } ],
-        legalAddress: { street: "Otto-Hahn-Ring 6", postalCode: "81739", locality: "Munich",
-                        countryCode: "DE", countryName: "Germany" }
-      },
-      businessSites: [ { siteName: "Main Site",
-                         mainAddress: { street: "Otto-Hahn-Ring 6", postalCode: "81739", locality: "Munich",
-                                        countryCode: "DE", countryName: "Germany" } } ],
-      legalPerson: { fullName: "Test Operator", email: (("op-" + $vatId) + "@example.com"), role: "Operator" },
-      gtc: { versionNumber: "1.0" },
-      ucas: [ { useCaseId: "product-conformity", versionNumber: "1.0" } ],
-      declarations: { informationAccurate: true, authorisedToAct: true, evidenceMayBeRequested: true }
-    }
-  }')
+case "$DATASPACE" in
+  decade-x)
+    [[ -z "$BPN" ]] || { echo "Error: --bpn applies to catena-x only (DECADE-X assigns the member id)" >&2; exit 1; }
+    payload=$(jq -n \
+      --arg name "$NAME" \
+      --arg shortName "$SHORT_NAME" \
+      --arg vatId "DE${RUN_ID:0:8}" \
+      '{
+        dataspace: "decade-x",
+        name: $name,
+        shortName: $shortName,
+        registration: {
+          legalEntity: {
+            registrationCountry: "DE",
+            companyType: "LIMITED_LIABILITY_COMPANY",
+            registrationNumbers: [ { scheme: "vatID", value: $vatId } ],
+            legalAddress: { street: "Otto-Hahn-Ring 6", postalCode: "81739", locality: "Munich",
+                            countryCode: "DE", countryName: "Germany" }
+          },
+          businessSites: [ { siteName: "Main Site",
+                             mainAddress: { street: "Otto-Hahn-Ring 6", postalCode: "81739", locality: "Munich",
+                                            countryCode: "DE", countryName: "Germany" } } ],
+          legalPerson: { fullName: "Test Operator", email: (("op-" + $vatId) + "@example.com"), role: "Operator" },
+          gtc: { versionNumber: "1.0" },
+          ucas: [ { useCaseId: "product-conformity", versionNumber: "1.0" } ],
+          declarations: { informationAccurate: true, authorisedToAct: true, evidenceMayBeRequested: true }
+        }
+      }')
+    ;;
+  catena-x)
+    # A BPNL is "BPNL" + 12 uppercase alphanumerics; the run id's hex digits make it unique per run.
+    BPN="${BPN:-BPNL$(echo "${RUN_ID//-/}" | tr '[:lower:]' '[:upper:]' | cut -c1-12)}"
+    # The ACTIVE "Catena-X" agreement becomes the member's memberOf, which the Membership policy checks.
+    payload=$(jq -n \
+      --arg name "$NAME" \
+      --arg shortName "$SHORT_NAME" \
+      --arg bpn "$BPN" \
+      --arg vatId "DE${RUN_ID:0:8}" \
+      '{
+        dataspace: "catena-x",
+        name: $name,
+        shortName: $shortName,
+        memberId: $bpn,
+        registration: {
+          city: "Munich",
+          streetName: "Otto-Hahn-Ring",
+          countryAlpha2Code: "DE",
+          region: "BY",
+          uniqueIds: [ { type: "VAT_ID", value: $vatId } ],
+          companyRoles: [ "ACTIVE_PARTICIPANT" ],
+          agreements: [ { agreementId: "Catena-X", consentStatus: "ACTIVE" } ],
+          userDetails: [ { providerId: ("op-" + $vatId), firstName: "Test", lastName: "Operator",
+                           email: (("op-" + $vatId) + "@example.com") } ]
+        }
+      }')
+    ;;
+  *)
+    echo "Error: unknown dataspace '$DATASPACE' (expected decade-x or catena-x)" >&2
+    exit 1
+    ;;
+esac
 
-echo "Onboarding member \"$NAME\" (shortName=$SHORT_NAME)"
+echo "Onboarding member \"$NAME\" into $DATASPACE (shortName=$SHORT_NAME${BPN:+, BPN=$BPN})"
 
 # The POST returns as soon as the first leg is under way — PROVISIONING for a member this VE
 # hosts (its profile is deployed on a worker, then registered), or the completed registration for
