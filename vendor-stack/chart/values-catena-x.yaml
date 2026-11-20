@@ -1,0 +1,55 @@
+# What differs in a Catena-X vendor stack — layered on values.yaml by vendor-stack/install.sh -d
+# catena-x (cluster "cx-vendor", host cx-vendor.localhost, gateway port 8082). Everything not named
+# here is as in values.yaml; host-derived keys are overridden by install.sh from its
+# --host/--http-port options.
+
+global:
+  host: cx-vendor.localhost
+  external:
+    port: 8082
+
+core-platform-distribution:
+  edc:
+    controlplane:
+      dataspaceProfiles:
+        # Catena-X's profile, seeded by the catenax-profile below. The VE dials the endpoint this
+        # stack's DID documents advertise, under cx-neptune.
+        advertisedProfile: cx-neptune
+    identityhub:
+      # as charts/cx-ve/values.yaml: the Tractus-X alias of a credential-type scope
+      scopes:
+        - name: membership
+          pattern: 'org\.eclipse\.tractusx\.vc\.type:(.+):(read|\*|all)'
+          leftOperand: "verifiableCredential.credential.type"
+          operator: "contains"
+          rightOperand: "$1"
+
+# ---- Catena-X profile seeding ------------------------------------------------------------------
+# The cx-neptune DSP profile with its DCP scopes (MembershipCredential, BpnCredential,
+# DataExchangeGovernanceCredential) and the CEL expressions behind the Catena-X policy constraints
+# — what the VE's Catena-X verification participant is dialled under and presents — and the
+# tenant-manager dataspace profile participant provisioning needs. Its tenant-manager seed is not
+# idempotent, which is one more reason this stack is only ever installed from scratch.
+catenax-profile:
+  enabled: true
+  issuer:
+    # This stack's own issuer — the platform always deploys one and the profile always trusts it.
+    # It issues nothing to the vendor participant: see the orchestration in
+    # templates/certo-activity-seed-job.yaml.
+    did: "did:web:issuer.cx-vendor.localhost%3A8082:issuer"
+    # The VE's issuer. Everything this stack's participant holds, and everything the VE's
+    # verification participant presents to it, is signed by that issuer — without this entry
+    # every DSP request from the VE fails credential verification here.
+    trustedIssuers:
+      - "did:web:issuer.cxve.localhost:issuer"
+
+# ---- DECADE-X profile seeding ------------------------------------------------------------------
+# One dataspace profile per stack: the catenax-profile brings the tenant-manager dataspace profile
+# here.
+decadex-profile:
+  enabled: false
+
+certo:
+  gateway:
+    hostnames:
+      - cx-vendor.localhost

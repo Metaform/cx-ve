@@ -6,13 +6,14 @@
 #
 #   1. resolves the verification participant's DID document for its DSP endpoint, waiting while a
 #      fresh VE has not created it yet — under the stack's DSP profile: a DID document advertises
-#      one profile per platform, so the endpoint's profile segment is replaced with the stack's
-#      (decade-x);
-#   2. waits until the vendor participant holds its member credential from the VE
-#      (dx:DX_LegalEntity_VC) — every DSP message of the profile presents it, and it carries the
-#      DECADE-X-ID the TSP assigned on approval;
+#      one profile per platform (the VE's: decade-x), so the endpoint's profile segment is replaced
+#      with the stack's (decade-x, or cx-neptune for Catena-X);
+#   2. waits until the vendor participant holds its member credential from the VE (DECADE-X:
+#      dx:DX_LegalEntity_VC, Catena-X: BpnCredential) — every DSP message of the profile presents
+#      it, and it carries the member id: the DECADE-X-ID the TSP assigned on approval, or the BPN
+#      the VE's run form was given;
 #   3. uploads a document and issues an iso9001 certificate in the vendor's Certo tenant, certifying
-#      the vendor participant's legal entity under that DECADE-X-ID. From then on Certo fulfils a
+#      the vendor participant's legal entity under that member id. From then on Certo fulfils a
 #      request for it on arrival — the common case, since the VE requests it only after the
 #      credentials are delivered and its pull flow is established;
 #   4. requests the catalog until the inbox offer shows up: the dataset declaring the SCE consumer
@@ -33,9 +34,10 @@
 #   ./vendor-stack/scripts/push-certificate.sh [-d|--dataspace <dataspace>] [--vp-did <did>]
 #                                              [--pdf <file>] [-s|--short-name <name>] [-h|--help]
 #
-#   -d, --dataspace     decade-x (default, the only one so far) — the dataspace of the stack
+#   -d, --dataspace     decade-x (default) or catena-x — the dataspace of the stack
 #   --vp-did            the VE's verification participant of the dataspace (default:
-#                       did:web:identity.cxve.localhost:verification-participant-dx)
+#                       did:web:identity.cxve.localhost:verification-participant-dx; without the
+#                       -dx in Catena-X)
 #   --pdf               certificate document (default: the Verification UI's sample document)
 #   -s, --short-name    the vendor participant (default: vendor-participant)
 #
@@ -73,8 +75,9 @@ done
 # the dataspace's verification participant (lib.sh), unless given explicitly
 VP_DID="${VP_DID_ARG:-$VP_DID}"
 case "$VENDOR_DATASPACE" in
-  # a DECADE-X-style issuer id, as the VE's own DECADE-X sample certificate carries it
+  # the certificate issuer's id, as the VE's own sample certificate of the dataspace carries it
   decade-x) ISSUER_ID=DX-00000000 ;;
+  catena-x) ISSUER_ID=BPNL00000000ISSUER ;;
 esac
 
 init base64 uuidgen
@@ -118,10 +121,11 @@ log "$MEMBER_CREDENTIAL received"
 # ---- 3. issue ---------------------------------------------------------------------------------
 # The certificate certifies the vendor participant's legal entity, under the member id its member
 # credential carries — the one the VE requests the certificate for. DECADE-X assigns the DECADE-X-ID
-# on approval, so the one the participant was provisioned with is only provisional.
-HOLDER=$(member_credential_of "$PCID" \
-  | jq -r '(.credentialSubject | if type == "array" then .[0] else . end).partner.partnerID // empty')
-[[ -n "$HOLDER" ]] || die "the vendor participant's $MEMBER_CREDENTIAL carries no partner.partnerID"
+# on approval, so the one the participant was provisioned with is only provisional; in Catena-X it
+# is the BPN entered on the form of the VE run that first onboarded the DID — meant to be the one
+# create-participant.sh was given, but the credential's is the one that counts.
+HOLDER=$(member_credential_of "$PCID" | member_id_in_credential)
+[[ -n "$HOLDER" ]] || die "the vendor participant's $MEMBER_CREDENTIAL carries no $MEMBER_ID_LABEL (credentialSubject${MEMBER_ID_CLAIM})"
 
 certo POST "/participant-contexts/$PCID/documents" \
   "$(jq -n --arg content "$(base64 < "$PDF" | tr -d '\n')" '{mediaType: "application/pdf", contentBase64: $content}')"

@@ -30,7 +30,8 @@ metadata:
     "helm.sh/hook": post-install,post-upgrade
     # Weight 220: MUST run after the platform's provision-manager-seed (weight 20) — both write
     # the same orchestration definition and the later writer wins. 220 also puts it after the
-    # decadex-profile seeds (140-150) and the certo jwtlet seed (210).
+    # dataspace profile's seeds (decadex-profile 140-150, catenax-profile 110-130) and the certo
+    # jwtlet seed (210).
     "helm.sh/hook-weight": "220"
     "helm.sh/hook-delete-policy": {{ .Values.certoAgent.seed.hookDeletePolicy | quote }}
 spec:
