@@ -22,7 +22,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/eclipse-cfm/cfm/common/model"
+	"github.com/eclipse-cfm/cfm-dataspace/agent/common/vpa"
+	"github.com/eclipse-cfm/cfm-dataspace/dataspace"
 	"github.com/eclipse-cfm/cfm/common/system"
 	"github.com/eclipse-cfm/cfm/pmanager/api"
 	"github.com/stretchr/testify/assert"
@@ -59,9 +60,9 @@ func newRecordingCertoServer(t *testing.T) (*httptest.Server, map[string]any) {
 }
 
 func withIssuerProperties(pd map[string]any, properties map[string]any) map[string]any {
-	pd[model.VPAData] = []any{
+	pd[dataspace.VPAData] = []any{
 		map[string]any{
-			"vpaType":    model.IssuerServiceType.String(),
+			"vpaType":    dataspace.IssuerServiceType.String(),
 			"properties": properties,
 		},
 	}
@@ -69,8 +70,8 @@ func withIssuerProperties(pd map[string]any, properties map[string]any) map[stri
 }
 
 var processingData = map[string]any{
-	model.ParticipantIdentifier: "did:web:participant-abc",
-	"participantContextId":      "client-456",
+	dataspace.ParticipantIdentifier: "did:web:participant-abc",
+	"participantContextId":          "client-456",
 }
 
 func TestCertoActivityProcessor_ProcessDeploy_WithValidData(t *testing.T) {
@@ -80,7 +81,7 @@ func TestCertoActivityProcessor_ProcessDeploy_WithValidData(t *testing.T) {
 	activityContext := api.NewActivityContext(context.Background(), "orch-1", api.Activity{
 		ID:            "test-activity",
 		Type:          "certo",
-		Discriminator: api.DeployDiscriminator,
+		Discriminator: vpa.DeployDiscriminator,
 	}, copyOf(processingData), make(map[string]any))
 
 	result := processor.ProcessDeploy(activityContext)
@@ -111,7 +112,7 @@ func TestCertoActivityProcessor_ProcessDeploy_RequestBody(t *testing.T) {
 			activityContext := api.NewActivityContext(context.Background(), "orch-1", api.Activity{
 				ID:            "test-activity",
 				Type:          "certo",
-				Discriminator: api.DeployDiscriminator,
+				Discriminator: vpa.DeployDiscriminator,
 			}, pd, make(map[string]any))
 
 			result := processor.ProcessDeploy(activityContext)
@@ -131,12 +132,12 @@ func TestCertoActivityProcessor_ProcessDeploy_RequestBody(t *testing.T) {
 func TestCertoActivityProcessor_ProcessDeploy_MissingParticipantID(t *testing.T) {
 	processor := NewProcessor(validConfig("https://certo.invalid"))
 	pd := copyOf(processingData)
-	delete(pd, model.ParticipantIdentifier)
+	delete(pd, dataspace.ParticipantIdentifier)
 
 	activityContext := api.NewActivityContext(context.Background(), "orch-2", api.Activity{
 		ID:            "activity-1",
 		Type:          "certo",
-		Discriminator: api.DeployDiscriminator,
+		Discriminator: vpa.DeployDiscriminator,
 	}, pd, make(map[string]any))
 
 	result := processor.ProcessDeploy(activityContext)
@@ -153,7 +154,7 @@ func TestCertoActivityProcessor_ProcessDeploy_MissingParticipantContextID(t *tes
 	activityContext := api.NewActivityContext(context.Background(), "orch-3", api.Activity{
 		ID:            "activity-2",
 		Type:          "certo",
-		Discriminator: api.DeployDiscriminator,
+		Discriminator: vpa.DeployDiscriminator,
 	}, pd, make(map[string]any))
 
 	result := processor.ProcessDeploy(activityContext)
@@ -183,7 +184,7 @@ func TestCertoActivityProcessor_ProcessDispose(t *testing.T) {
 			activityContext := api.NewActivityContext(context.Background(), "orch-4", api.Activity{
 				ID:            "activity-3",
 				Type:          "certo",
-				Discriminator: api.DisposeDiscriminator,
+				Discriminator: vpa.DisposeDiscriminator,
 			}, copyOf(processingData), make(map[string]any))
 
 			result := processor.ProcessDispose(activityContext)

@@ -21,8 +21,9 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/eclipse-cfm/cfm-dataspace/agent/common/vpa"
+	"github.com/eclipse-cfm/cfm-dataspace/dataspace"
 	"github.com/eclipse-cfm/cfm/common/httpx"
-	"github.com/eclipse-cfm/cfm/common/model"
 	"github.com/eclipse-cfm/cfm/common/system"
 	"github.com/eclipse-cfm/cfm/common/token"
 	"github.com/eclipse-cfm/cfm/pmanager/api"
@@ -32,7 +33,6 @@ import (
 )
 
 type CertoActivityProcessor struct {
-	api.BaseActivityProcessor
 	Monitor       system.LogMonitor
 	TokenProvider token.TokenProvider
 	HttpClient    *http.Client
@@ -76,7 +76,7 @@ func (p CertoActivityProcessor) ProcessDeploy(ctx api.ActivityContext) api.Activ
 	span.SetAttributes(attribute.String("cfm.participantContextId", data.ParticipantContextId))
 
 	// Todo: ugly hack, that leeches off of the `cfm.issuer` properties
-	properties, err := ctx.VpaProperties(model.IssuerServiceType)
+	properties, err := vpa.Properties(ctx, dataspace.IssuerServiceType)
 	if err != nil {
 		span.RecordError(err)
 		return api.ActivityResult{Result: api.ActivityResultFatalError, Error: fmt.Errorf("error reading vpa data: %w", err)}
