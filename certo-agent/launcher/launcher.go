@@ -18,6 +18,7 @@ import (
 	"net/http"
 
 	"github.com/metaform/cx-ve/certo-agent/activity"
+	"github.com/eclipse-cfm/cfm-dataspace/agent/common/vpa"
 	"github.com/eclipse-cfm/cfm/assembly/httpclient"
 	"github.com/eclipse-cfm/cfm/assembly/serviceapi"
 	"github.com/eclipse-cfm/cfm/common/runtime"
@@ -59,12 +60,12 @@ func LaunchAndWaitSignal(shutdown <-chan struct{}) {
 				tokenexchange.WithTokenExchangeAudience(ctx.Config.GetString(audienceKey)),
 				tokenexchange.WithHttpClient(&httpClient))
 
-			return activity.NewProcessor(&activity.Config{
+			return vpa.AsActivityProcessor(activity.NewProcessor(&activity.Config{
 				LogMonitor:    ctx.Monitor,
 				TokenProvider: provider,
 				HttpClient:    &httpClient,
 				CertoURL:      certoURL,
-			})
+			}))
 		},
 	}
 	natsagent.LaunchAgent(shutdown, config)

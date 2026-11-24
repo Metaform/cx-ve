@@ -20,7 +20,7 @@ dependencies:
   # infra (NATS/Vault/Postgres/telemetry) + generic platform seeding
   - name: core-platform-distribution
     repository: oci://ghcr.io/eclipse-cfm/charts
-    version: 0.0.43
+    version: 0.0.44
   # One dataspace profile per stack — install.sh -d picks it; both seed the EDC dataspace profile
   # with its DCP scopes and the tenant-manager dataspace profile participant provisioning needs.
   #

@@ -1,7 +1,7 @@
 dependencies:
 - name: core-platform-distribution
   repository: oci://ghcr.io/eclipse-cfm/charts
-  version: 0.0.43
+  version: 0.0.44
 - name: catenax-profile
   repository: oci://ghcr.io/metaform/charts
   version: 0.0.11
@@ -11,5 +11,5 @@ dependencies:
 - name: certo
   repository: oci://ghcr.io/metaform/charts
   version: 0.0.8
-digest: sha256:339296d4adc7814d59c8feac8cd063743b4c5c17a4f92ce1732f7e1349b8adeb
-generated: "2026-11-16T09:09:45.488380774Z"
+digest: sha256:4e6bbbdd92fbca5825ac993174a4cdcd9cdfbbacccb4124ed69420845009c08f
+generated: "2026-11-24T16:37:32.320398+01:00"
